@@ -4,6 +4,7 @@
 #include <string.h>
 #include <ctype.h>
 #include "machine.h"
+#include "debug.h"
 
 static int ext_eq(const char *a, const char *b)
 {
@@ -17,17 +18,27 @@ static int ext_eq(const char *a, const char *b)
 
 /* ---- Bus callbacks ---- */
 
-static uint8_t bus_mem_read(void *ctx, uint16_t addr)
+uint8_t machine_peek(const Machine *m, uint16_t addr)
 {
-    Machine *m = (Machine *)ctx;
     if (addr < 0x4000 && m->ram_paged)
         return m->mem_cpm[addr];
     return m->mem[addr];
 }
 
+static uint8_t bus_mem_read(void *ctx, uint16_t addr)
+{
+    Machine *m = (Machine *)ctx;
+    uint8_t v = machine_peek(m, addr);
+    if (m->dbg)
+        debug_note_mem_read(m, addr, v);
+    return v;
+}
+
 static void bus_mem_write(void *ctx, uint16_t addr, uint8_t val)
 {
     Machine *m = (Machine *)ctx;
+    if (m->dbg)
+        debug_note_mem_write(m, addr, val);
     if (addr < 0x4000) {         /* ROM (ignore) or paged CP/M RAM */
         if (m->ram_paged)
             m->mem_cpm[addr] = val;
@@ -98,9 +109,8 @@ static int bus_io_contend_late(void *ctx, uint16_t port)
     return 0;
 }
 
-static uint8_t bus_io_read(void *ctx, uint16_t port)
+static uint8_t bus_io_read_raw(Machine *m, uint16_t port)
 {
-    Machine *m = (Machine *)ctx;
     if ((port & 1) == 0) {
         /* ULA: bits 0-4 keyboard (active low), bit 6 EAR. While the tape
          * player runs, EAR carries the tape signal; otherwise it follows
@@ -146,9 +156,20 @@ static uint8_t bus_io_read(void *ctx, uint16_t port)
     return 0xFF;
 }
 
+static uint8_t bus_io_read(void *ctx, uint16_t port)
+{
+    Machine *m = (Machine *)ctx;
+    uint8_t v = bus_io_read_raw(m, port);
+    if (m->dbg)
+        debug_note_io(m, port, v, 0);
+    return v;
+}
+
 static void bus_io_write(void *ctx, uint16_t port, uint8_t val)
 {
     Machine *m = (Machine *)ctx;
+    if (m->dbg)
+        debug_note_io(m, port, val, 1);
     /* HC-91 CP/M paging: the ROM bootstrap at 0x386E does OUT (0x7E),1
      * and jumps to 0 expecting RAM there (64K machine). Full low-byte
      * decode; bit 0 = RAM over ROM. The ULA also sees this even port. */
@@ -237,6 +258,8 @@ void machine_run_frame(Machine *m)
     int_taken = z80_int(&m->cpu, 0xFF);
 
     while (m->cpu.tstates < end) {
+        if (m->dbg)
+            debug_step_hook(m);
         if (m->tape.attached && !m->real_tape && m->cpu.pc.w == 0x0556)
             tape_trap(m);
         if (m->save_tape && m->cpu.pc.w == 0x04C2)

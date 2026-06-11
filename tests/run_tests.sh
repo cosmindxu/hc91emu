@@ -18,6 +18,7 @@ check() { # check <name> <condition-result>
 echo "== 0. Unit tests: instruction timing + contention M-cycles =="
 build/ttest; check $? "ttest: official T-state totals (uncontended)"
 build/ctest; check $? "ctest: per-M-cycle contention patterns"
+build/dtest; check $? "dtest: disassembler (all prefixes, undocumented)"
 
 echo "== 1. Z80 CPU core: zexdoc instruction exerciser =="
 $ZEXRUN tests/zexdoc.com > "$OUT/zexdoc.log" 2>&1
@@ -200,6 +201,38 @@ $EMU --rom roms/hc91.rom --frames 500 --type 't@260' --keys '272:CAPS+SYM' \
      --type 'l14446\n@284' --trace-frames 2>&1 >/dev/null \
   | tail -1 | grep -q "PC=0001"
 check $? "genuine ROM CP/M stub (USR 14446) lands in paged RAM"
+
+echo "== 13. Debugger: breakpoints, stepping, watchpoints, trace =="
+# (a) breakpoint at the ROM init entry (boot does DI;XOR;LD DE;JP = 28 T),
+# scripted regs/dis/mem/step session.
+$EMU --rom roms/hc91.rom --frames 3 --break 11CB \
+     --debug "regs;dis pc 4;mem 0000 16;step 3;regs;cont" \
+     > "$OUT/dbg_break.txt" 2>&1
+grep -q 'breakpoint at \$11CB' "$OUT/dbg_break.txt" \
+  && grep -q '^PC=11CB AF=0044' "$OUT/dbg_break.txt" \
+  && grep -q '^11CC: .*LD A,\$07' "$OUT/dbg_break.txt" \
+  && grep -q '^0000: F3 AF 11 FF FF C3 CB 11' "$OUT/dbg_break.txt"
+check $? "monitor: breakpoint + regs + dis + mem on ROM boot"
+grep -q '^PC=11D0 AF=0744' "$OUT/dbg_break.txt"
+check $? "monitor: step 3 lands at \$11D0 with A=07"
+# (b) memory write watch: the ROM RAM-test sweep hits 0x5C78; 'q' on the
+# third stop ends the run early.
+$EMU --rom roms/hc91.rom --frames 200 --watch 5C78 --debug "c;c;q" \
+     > "$OUT/dbg_watch.txt" 2>&1
+[ "$(grep -c 'watch: write .* to \$5C78' "$OUT/dbg_watch.txt")" = 3 ]
+check $? "monitor: write watchpoint fires (and quit stops the run)"
+# (c) I/O port watch: boot border OUT (FE),A with A=7.
+$EMU --rom roms/hc91.rom --frames 5 --pwatch FE --debug "q" \
+     > "$OUT/dbg_pwatch.txt" 2>&1
+grep -q 'watch: OUT port \$07FE value \$07' "$OUT/dbg_pwatch.txt"
+check $? "monitor: port watchpoint catches boot border OUT"
+# (d) per-instruction trace of the boot path.
+$EMU --rom roms/hc91.rom --frames 2 --trace "$OUT/dbg_trace.txt" \
+     > /dev/null 2>&1
+head -1 "$OUT/dbg_trace.txt" | grep -q '^0000: DI' \
+  && grep -q '^11CB: LD B,A' "$OUT/dbg_trace.txt" \
+  && [ "$(wc -l < "$OUT/dbg_trace.txt")" -gt 5000 ]
+check $? "trace: boot instructions logged with registers"
 
 if [ "${RUN_Z80TEST:-0}" = 1 ]; then
   echo "== 8. Rak's z80test in-emulator (slow: ~2 min each) =="

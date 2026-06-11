@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "machine.h"
+#include "debug.h"
 
 #define MAX_TYPE_OPTS 16
 #define MAX_KEYS_OPTS 16
@@ -31,8 +32,30 @@ static void usage(const char *prog)
         "  --kempston        attach Kempston interface (port 0x1F)\n"
         "  --joy \"F-G:DIRS\"  hold joystick DIRS (U/D/L/R/F) frames F..G\n"
         "  --joy-type T      kempston (default) | sinclair | cursor\n"
-        "  --trace-frames    print frame/PC every 50 frames to stderr\n",
+        "  --trace-frames    print frame/PC every 50 frames to stderr\n"
+        "debugger (addresses/ports in hex):\n"
+        "  --monitor         stop in the monitor before the first instr\n"
+        "  --break ADDR      PC breakpoint (repeatable)\n"
+        "  --watch ADDR      memory write watchpoint (repeatable)\n"
+        "  --rwatch ADDR     memory read watchpoint (repeatable)\n"
+        "  --pwatch PORT     I/O watchpoint, <=FF matches low byte\n"
+        "  --debug \"C;C;..\"  scripted monitor commands (else stdin)\n"
+        "  --trace FILE      per-instruction trace to FILE\n",
         prog);
+}
+
+/* Hex u16 for --break & friends: optional $ or 0x prefix. */
+static int parse_hex16(const char *s, uint16_t *out)
+{
+    char *end;
+    unsigned long v;
+    if (s[0] == '$') s++;
+    else if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) s += 2;
+    if (!*s) return -1;
+    v = strtoul(s, &end, 16);
+    if (*end || v > 0xFFFF) return -1;
+    *out = (uint16_t)v;
+    return 0;
 }
 
 /* Convert literal "\n" escapes to real newlines, in place (shrinks). */
@@ -65,6 +88,11 @@ int main(int argc, char **argv)
     const char *joy_type = "kempston";
     int njoy = 0, kempston = 0;
     int real_tape = 0, play_at = -1;
+    static Debugger dbg;
+    const char *dbg_script = NULL, *trace_path = NULL;
+    uint16_t dbg_bp[DBG_MAX_BP], dbg_ww[DBG_MAX_BP],
+             dbg_rw[DBG_MAX_BP], dbg_pw[DBG_MAX_BP];
+    int n_bp = 0, n_ww = 0, n_rw = 0, n_pw = 0, monitor = 0;
     char *type_opts[MAX_TYPE_OPTS];
     const char *keys_opts[MAX_KEYS_OPTS];
     int ntype = 0, nkeys = 0;
@@ -149,6 +177,33 @@ int main(int argc, char **argv)
             joy_type = argv[i];
         } else if (!strcmp(a, "--trace-frames")) {
             trace = 1;
+        } else if (!strcmp(a, "--monitor")) {
+            monitor = 1;
+        } else if (!strcmp(a, "--debug")) {
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            dbg_script = argv[i];
+        } else if (!strcmp(a, "--trace")) {
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            trace_path = argv[i];
+        } else if (!strcmp(a, "--break") || !strcmp(a, "--watch")
+                   || !strcmp(a, "--rwatch") || !strcmp(a, "--pwatch")) {
+            uint16_t *arr = !strcmp(a, "--break") ? dbg_bp
+                          : !strcmp(a, "--watch") ? dbg_ww
+                          : !strcmp(a, "--rwatch") ? dbg_rw : dbg_pw;
+            int *n = !strcmp(a, "--break") ? &n_bp
+                   : !strcmp(a, "--watch") ? &n_ww
+                   : !strcmp(a, "--rwatch") ? &n_rw : &n_pw;
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            if (*n >= DBG_MAX_BP) {
+                fprintf(stderr, "error: too many %s options (max %d)\n",
+                        a, DBG_MAX_BP);
+                return 1;
+            }
+            if (parse_hex16(argv[i], &arr[(*n)++]) != 0) {
+                fprintf(stderr, "error: bad %s address '%s' (hex)\n",
+                        a, argv[i]);
+                return 1;
+            }
         } else if (!strcmp(a, "--help") || !strcmp(a, "-h")) {
             usage(argv[0]);
             return 0;
@@ -171,6 +226,23 @@ int main(int argc, char **argv)
     m->real_tape = real_tape;
     if (file_path && machine_load_file(m, file_path) != 0)
         return 1;
+
+    if (monitor || dbg_script || trace_path || n_bp || n_ww || n_rw || n_pw) {
+        debug_attach(m, &dbg);
+        dbg.script = dbg_script;
+        dbg.stop_now = monitor;
+        memcpy(dbg.bp, dbg_bp, sizeof dbg_bp);         dbg.nbp = n_bp;
+        memcpy(dbg.wwatch, dbg_ww, sizeof dbg_ww);     dbg.nww = n_ww;
+        memcpy(dbg.rwatch, dbg_rw, sizeof dbg_rw);     dbg.nrw = n_rw;
+        memcpy(dbg.pwatch, dbg_pw, sizeof dbg_pw);     dbg.npw = n_pw;
+        if (trace_path) {
+            dbg.trace = fopen(trace_path, "w");
+            if (!dbg.trace) {
+                fprintf(stderr, "error: cannot create '%s'\n", trace_path);
+                return 1;
+            }
+        }
+    }
 
     if (real_tape || play_at >= 0)
         m->play_at_frame = (play_at >= 0) ? play_at : (autoload ? 320 : 1);
@@ -286,6 +358,8 @@ int main(int argc, char **argv)
         printf("=== END ===\n");
     }
 
+    if (dbg.trace)
+        fclose(dbg.trace);
     tape_free(m);
     return 0;
 }
