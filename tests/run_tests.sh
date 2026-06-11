@@ -1,0 +1,217 @@
+#!/bin/bash
+# HC-91 emulator test suite. Run from the project root (or via make test).
+# RUN_ZEXALL=1 adds the slow zexall undocumented-flags exerciser.
+set -u
+cd "$(dirname "$0")/.."
+
+EMU=build/hc91emu
+ZEXRUN=build/zexrun
+OUT=tests/out
+mkdir -p "$OUT"
+pass=0; fail=0
+
+check() { # check <name> <condition-result>
+  if [ "$1" = 0 ]; then echo "  PASS: $2"; pass=$((pass+1));
+  else echo "  FAIL: $2"; fail=$((fail+1)); fi
+}
+
+echo "== 0. Unit tests: instruction timing + contention M-cycles =="
+build/ttest; check $? "ttest: official T-state totals (uncontended)"
+build/ctest; check $? "ctest: per-M-cycle contention patterns"
+
+echo "== 1. Z80 CPU core: zexdoc instruction exerciser =="
+$ZEXRUN tests/zexdoc.com > "$OUT/zexdoc.log" 2>&1
+errs=$(grep -c "ERROR" "$OUT/zexdoc.log" || true)
+oks=$(grep -c "OK" "$OUT/zexdoc.log" || true)
+echo "  zexdoc: $oks OK lines, $errs error lines"
+[ "$errs" = 0 ] && [ "$oks" -ge 60 ]; check $? "zexdoc all tests OK"
+
+if [ "${RUN_ZEXALL:-0}" = 1 ]; then
+  echo "== 1b. Z80 CPU core: zexall (slow) =="
+  $ZEXRUN tests/zexall.com > "$OUT/zexall.log" 2>&1
+  errs=$(grep -c "ERROR" "$OUT/zexall.log" || true)
+  oks=$(grep -c "OK" "$OUT/zexall.log" || true)
+  echo "  zexall: $oks OK lines, $errs error lines"
+  [ "$errs" = 0 ] && [ "$oks" -ge 60 ]; check $? "zexall all tests OK"
+fi
+
+echo "== 2. ROM boot: HC-91 banner =="
+$EMU --rom roms/hc91.rom --frames 250 --text --screenshot "$OUT/boot_hc91.png" > "$OUT/boot_hc91.txt" 2>&1
+grep -q "HC - 91" "$OUT/boot_hc91.txt"; check $? "HC-91 boot banner shows 'HC - 91'"
+grep -q "I.C.E. FELIX" "$OUT/boot_hc91.txt"; check $? "HC-91 boot banner shows 'I.C.E. FELIX'"
+
+echo "== 2b. ROM boot: Sinclair 48K =="
+$EMU --rom roms/48.rom --frames 250 --text > "$OUT/boot_48.txt" 2>&1
+grep -q "1982 Sinclair Research" "$OUT/boot_48.txt"; check $? "48K ROM boots to Sinclair banner"
+
+echo "== 3. BASIC: PRINT 2+3*4 =="
+$EMU --rom roms/hc91.rom --frames 450 --type 'p2+3*4\n@260' --text \
+     --screenshot "$OUT/basic.png" > "$OUT/basic.txt" 2>&1
+grep -q "^14" "$OUT/basic.txt" || grep -q " 14" "$OUT/basic.txt"; check $? "BASIC PRINT 2+3*4 = 14"
+grep -q "0 OK" "$OUT/basic.txt"; check $? "BASIC reports '0 OK'"
+
+echo "== 4. Software (auto-detected in software/) =="
+shopt -s nullglob
+for f in software/*.tap software/*.z80 software/*.sna; do
+  base=$(basename "$f"); name=$(echo "$base" | tr '.' '_')
+  # arkanoid.z80 has its own dedicated floating-bus test below
+  [ "$base" = "arkanoid.z80" ] && continue
+  case "$f" in
+    *.tap) args="--autoload --frames 3000";;
+    *)     args="--frames 600";;
+  esac
+  $EMU --rom roms/hc91.rom $args --screenshot "$OUT/sw_$name.png" --text "$f" \
+       > "$OUT/sw_$name.txt" 2>&1
+  rc=$?
+  # success criteria: emulator exited 0 and the screen shows real content:
+  # at least 5 lines containing non-space characters (markers contribute 2;
+  # an unloaded K-cursor screen has only 3)
+  content=$(grep -c '[^ ]' "$OUT/sw_$name.txt" || true)
+  [ $rc = 0 ] && [ "$content" -ge 5 ]; check $? "runs $base (screenshot: tests/out/sw_$name.png)"
+done
+
+echo "== 5. Beeper audio: BASIC BEEP 1,0 =="
+# EXTEND mode (CAPS+SYM) then SYM+Z types the BEEP keyword.
+$EMU --rom roms/hc91.rom --frames 480 --keys '260:CAPS+SYM' --keys '272:SYM+Z' \
+     --type '1,0\n@284' --wav "$OUT/beep.wav" > /dev/null 2>&1
+python3 tests/check_beep.py "$OUT/beep.wav"
+check $? "BEEP 1,0 renders ~1s of ~261.6 Hz (middle C)"
+
+if [ -f software/arkanoid.z80 ]; then
+  echo "== 6. Floating bus (Arkanoid beam-sync) =="
+  # Arkanoid polls an unattached port (floating bus) to sync sprites with
+  # the beam; without it the game freezes at round start. Recipe: answer
+  # the Kempston prompt, then hold SPACE ~70 frames to start round 1.
+  AK="--type n@100"
+  for f in $(seq 200 5 265); do AK="$AK --type \\ @$f"; done
+  eval $EMU --rom roms/hc91.rom --frames 1600 $AK \
+       --screenshot "$OUT/ark_fb_a.png" software/arkanoid.z80 > /dev/null 2>&1
+  eval $EMU --rom roms/hc91.rom --frames 2000 $AK \
+       --screenshot "$OUT/ark_fb_b.png" software/arkanoid.z80 > /dev/null 2>&1
+  eval $EMU --rom roms/hc91.rom --frames 1600 $AK --no-floating-bus \
+       --screenshot "$OUT/ark_nofb_a.png" software/arkanoid.z80 > /dev/null 2>&1
+  eval $EMU --rom roms/hc91.rom --frames 2000 $AK --no-floating-bus \
+       --screenshot "$OUT/ark_nofb_b.png" software/arkanoid.z80 > /dev/null 2>&1
+  fa=$(md5sum < "$OUT/ark_fb_a.png");   fb=$(md5sum < "$OUT/ark_fb_b.png")
+  na=$(md5sum < "$OUT/ark_nofb_a.png"); nb=$(md5sum < "$OUT/ark_nofb_b.png")
+  [ "$fa" != "$fb" ]; check $? "Arkanoid gameplay progresses with floating bus"
+  [ "$na" = "$nb" ];  check $? "Arkanoid freezes without floating bus (sanity)"
+fi
+
+echo "== 7. CCF/Q + contention: z80ccfscr golden pattern =="
+# z80ccfscr fills the screen via POP AF/CCF — the pattern is a fingerprint
+# of the Q-register and SCF/CCF X/Y behavior (Zilog NMOS). Golden frozen
+# from the core that passes z80ccf 160/160.
+$EMU --rom roms/hc91.rom software/z80test/z80ccfscr.tap --autoload --turbo \
+     --frames 2500 --screenshot "$OUT/ccfscr.png" > /dev/null 2>&1
+[ "$(md5sum < "$OUT/ccfscr.png")" = "$(md5sum < tests/ccfscr_golden.png)" ]
+check $? "z80ccfscr pattern matches golden (Q/CCF fingerprint)"
+
+echo "== 7b. Beam renderer: mid-frame border stripes =="
+# A tight OUT-(0xFE) loop (~31 T/color) paints diagonal rainbow border
+# stripes only if rendering follows the beam.
+build/bordertap "$OUT/border.tap"
+$EMU --rom roms/hc91.rom "$OUT/border.tap" --autoload --turbo --frames 400 \
+     --fb-dump "$OUT/border.fb" --screenshot "$OUT/border.png" > /dev/null 2>&1
+build/fbcheck "$OUT/border.fb" | sed 's/^/  /'
+[ "${PIPESTATUS[0]}" = 0 ]; check $? "beam render shows border rainbow stripes"
+
+echo "== 7c. Beam renderer: multicolour (per-scanline attr writes) =="
+# A HALT-synced loop rewrites one attr cell every ~226 T while the beam
+# crosses it; the cell must show >=3 paper colors in its 8 pixel rows.
+build/multitap "$OUT/multi.tap"
+$EMU --rom roms/hc91.rom "$OUT/multi.tap" --autoload --turbo --frames 400 \
+     --fb-dump "$OUT/multi.fb" --screenshot "$OUT/multi.png" > /dev/null 2>&1
+build/fbcheck "$OUT/multi.fb" --band 88 33 3 | sed 's/^/  /'
+[ "${PIPESTATUS[0]}" = 0 ]; check $? "multicolour: one attr cell shows >=3 colors"
+
+echo "== 9. Snapshot saving: .sna/.z80 round-trip + .scr =="
+# Save the running multicolour engine, resume from each snapshot format:
+# the engine only paints bands if PC/SP/registers/IFF/IM survive intact.
+$EMU --rom roms/hc91.rom "$OUT/multi.tap" --autoload --turbo --frames 400 \
+     --save-sna "$OUT/rt.sna" --save-z80 "$OUT/rt.z80" \
+     --save-scr "$OUT/rt.scr" > /dev/null 2>&1
+$EMU --rom roms/hc91.rom "$OUT/rt.sna" --turbo --frames 100 \
+     --fb-dump "$OUT/rt_sna.fb" > /dev/null 2>&1
+build/fbcheck "$OUT/rt_sna.fb" --band 88 33 3 > /dev/null
+check $? ".sna save/load resumes the multicolour engine"
+$EMU --rom roms/hc91.rom "$OUT/rt.z80" --turbo --frames 100 \
+     --fb-dump "$OUT/rt_z80.fb" > /dev/null 2>&1
+build/fbcheck "$OUT/rt_z80.fb" --band 88 33 3 > /dev/null
+check $? ".z80 save/load resumes the multicolour engine"
+$EMU --rom roms/hc91.rom "$OUT/rt.scr" --frames 10 --text 2>/dev/null \
+  | grep -q "Bytes: multi"
+check $? ".scr export/import shows the saved screen"
+
+echo "== 10. Pulse-level tape + TZX + SAVE =="
+# (a) the multicolour tap loaded through the REAL ROM loader, no trap:
+# pilot/sync/bit pulses on the EAR line with cycle timing.
+$EMU --rom roms/hc91.rom "$OUT/multi.tap" --autoload --real-tape --turbo \
+     --frames 1500 --fb-dump "$OUT/real.fb" > /dev/null 2>&1
+build/fbcheck "$OUT/real.fb" --band 88 33 3 > /dev/null
+check $? "real-tape: ROM loads .tap from pulses"
+# (b) same content as TZX (turbo 0x11 blocks + tone/pulse/loop/info blocks)
+build/tap2tzx "$OUT/multi.tap" "$OUT/multi.tzx"
+$EMU --rom roms/hc91.rom "$OUT/multi.tzx" --autoload --real-tape --turbo \
+     --frames 1500 --fb-dump "$OUT/tzx.fb" > /dev/null 2>&1
+build/fbcheck "$OUT/tzx.fb" --band 88 33 3 > /dev/null
+check $? "real-tape: ROM loads .tzx (turbo blocks, tone, loop)"
+# (c) the same TZX through the instant trap (data blocks extracted)
+$EMU --rom roms/hc91.rom "$OUT/multi.tzx" --autoload --turbo --frames 400 \
+     --fb-dump "$OUT/tzxtrap.fb" > /dev/null 2>&1
+build/fbcheck "$OUT/tzxtrap.fb" --band 88 33 3 > /dev/null
+check $? "trap load also works for .tzx"
+# (d) SAVE "x" CODE 16384,10 -> SA-BYTES trap -> byte-exact .tap
+$EMU --rom roms/hc91.rom --frames 700 --save-tape "$OUT/saved.tap" \
+     --type 's"x"@260' --keys '320:CAPS+SYM' --type 'i16384,10\n@334' \
+     --type ' @520' > /dev/null 2>&1
+[ "$(xxd -p "$OUT/saved.tap" | tr -d '\n')" = \
+  "13000003782020202020202020200a0000400080910c00ff00000000000000000000ff" ]
+check $? "SAVE captures byte-exact header+data .tap"
+
+echo "== 11. Joysticks (Kempston port, Sinclair/cursor key aliases) =="
+# PRINT IN 31 with Kempston attached: R+F held = 17, idle = 0.
+JOYIN="--type p@260 --keys 272:CAPS+SYM --keys 284:SYM+I --type 31\\n@296"
+$EMU --rom roms/hc91.rom --frames 480 --kempston --joy '300-480:R+F' \
+     $JOYIN --text 2>/dev/null | grep -q "^17"
+check $? "Kempston: IN 31 reads 17 while R+F held"
+$EMU --rom roms/hc91.rom --frames 480 --kempston $JOYIN --text 2>/dev/null \
+  | grep -q "^0 "
+check $? "Kempston: IN 31 reads 0 when idle"
+$EMU --rom roms/hc91.rom --frames 420 --joy-type sinclair --joy '260-400:F' \
+     --text 2>/dev/null | grep -q "000"
+check $? "Sinclair joystick fire = key 0"
+$EMU --rom roms/hc91.rom --frames 420 --joy-type cursor --joy '260-400:U' \
+     --text 2>/dev/null | grep -q "777"
+check $? "Cursor joystick up = key 7"
+
+echo "== 12. HC-91 CP/M mode: port 0x7E RAM paging =="
+# Generated code pages RAM over ROM, round-trips a marker through the
+# low bank, reads a ROM byte while paged out, then executes at PC=0.
+build/cpmtap "$OUT/cpm.tap"
+$EMU --rom roms/hc91.rom "$OUT/cpm.tap" --autoload --turbo --frames 400 \
+     --save-scr "$OUT/cpm.scr" --fb-dump "$OUT/cpm.fb" > /dev/null 2>&1
+[ "$(xxd -l 2 -p "$OUT/cpm.scr")" = "420d" ]
+check $? "0x7E paging: CP/M RAM read/write + ROM page-out readback"
+[ "$(xxd -l 4 -p "$OUT/cpm.fb")" = "d70000ff" ]
+check $? "0x7E paging: code executes at PC=0 in paged RAM"
+# The genuine ROM bootstrap (RANDOMIZE USR 14446) must land at 0 and park.
+$EMU --rom roms/hc91.rom --frames 500 --type 't@260' --keys '272:CAPS+SYM' \
+     --type 'l14446\n@284' --trace-frames 2>&1 >/dev/null \
+  | tail -1 | grep -q "PC=0001"
+check $? "genuine ROM CP/M stub (USR 14446) lands in paged RAM"
+
+if [ "${RUN_Z80TEST:-0}" = 1 ]; then
+  echo "== 8. Rak's z80test in-emulator (slow: ~2 min each) =="
+  YS=""
+  for f in $(seq 2200 1800 29200); do YS="$YS --type y@$f"; done
+  for t in z80full z80ccf; do
+    eval $EMU --rom roms/hc91.rom software/z80test/$t.tap --autoload --turbo \
+         --frames 38000 --text $YS > "$OUT/$t.txt" 2>&1
+    grep -q "all tests passed" "$OUT/$t.txt"; check $? "$t: all 160 tests passed"
+  done
+fi
+
+echo
+echo "RESULT: $pass passed, $fail failed"
+[ "$fail" = 0 ]
