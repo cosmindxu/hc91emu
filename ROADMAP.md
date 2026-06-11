@@ -7,9 +7,10 @@ beeper (WAV + live SDL audio); pulse tape + TZX; .sna/.z80/.szx/.scr
 save+load and RZX record/replay; Kempston/Sinclair/cursor joysticks;
 HC-91 CP/M paging; scriptable debugger; SDL2 frontend (dlopen, zero
 build deps); HC-85/HC-90/HC-128 (128K banking + AY); CI with an ASan
-job. Suite: 56 tests green (incl. gated slow suites). Open stretch
-items beyond the roadmap: HC-88/HC-2000 disk+CP/M hardware, ULA snow,
-TZX 0x18/0x19 blocks.
+job. Suite green incl. gated slow suites. Beyond the roadmap, also
+done: a 32-title classified game library (tools/get_library.sh) and
+ULA snow. Remaining stretch: TZX 0x18/0x19 blocks (in progress),
+HC-88/HC-2000 disk+CP/M hardware.
 
 ---
 
@@ -70,8 +71,9 @@ observable frames (`fb_live`), so turbo runs lose nothing. Acceptance in
 the suite: generated border-rainbow tap shows 8 colors/228 transitions
 per border column (test 7b); a generated HALT-synced mini multicolour
 engine puts ≥3 (measured 5) paper colors inside one attr cell (test 7c);
-the z80ccfscr golden stays pixel-identical. ULA snow remains unimplemented
-(optional).
+the z80ccfscr golden stays pixel-identical. ULA snow shipped later the
+same day: with I in 0x40-0x7F the fetch low bits come from R (sampled at
+catch-up time), suite-tested for effect and determinism.
 
 ## Phase 3 — Sound (beeper) — ✅ DONE (2026-06-10)
 

@@ -24,8 +24,19 @@ static void paint_cell(const Machine *m, uint32_t *dst, int y, int col)
 {
     uint16_t paddr = (uint16_t)(((y & 0xC0) << 5) |
                                 ((y & 7) << 8) | ((y & 0x38) << 2) | col);
-    uint8_t bits = m->screen[paddr];
-    uint8_t attr = m->screen[0x1800 + (y >> 3) * 32 + col];
+    uint16_t aaddr = (uint16_t)(0x1800 + (y >> 3) * 32 + col);
+    uint8_t bits, attr;
+
+    /* ULA snow: with I in 0x40-0x7F the CPU's refresh address (I:R)
+     * collides with the ULA fetch on the shared bus and the low 7 bits
+     * of the fetch come from R instead. R is sampled at catch-up time,
+     * so the corruption tracks the executing code like real snow. */
+    if ((m->cpu.i & 0xC0) == 0x40) {
+        paddr = (uint16_t)((paddr & 0xFF80) | (m->cpu.r & 0x7F));
+        aaddr = (uint16_t)((aaddr & 0xFF80) | (m->cpu.r & 0x7F));
+    }
+    bits = m->screen[paddr];
+    attr = m->screen[aaddr];
     int ink = attr & 7;
     int paper = (attr >> 3) & 7;
     int bright = (attr >> 6) & 1;
