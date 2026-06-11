@@ -3,3 +3,4 @@ tests/out/
 software/
 *.o
 core
+tests/vectors/

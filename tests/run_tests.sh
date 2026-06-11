@@ -234,6 +234,16 @@ head -1 "$OUT/dbg_trace.txt" | grep -q '^0000: DI' \
   && [ "$(wc -l < "$OUT/dbg_trace.txt")" -gt 5000 ]
 check $? "trace: boot instructions logged with registers"
 
+if [ -n "$(ls tests/vectors/*.json 2>/dev/null)" ]; then
+  echo "== 14. SingleStepTests/z80 vectors (state, T-states, RAM, I/O) =="
+  build/sst tests/vectors/*.json > "$OUT/sst.txt" 2>&1
+  rc=$?
+  tail -1 "$OUT/sst.txt" | sed 's/^/  /'
+  [ $rc = 0 ]; check $? "SingleStepTests vectors all match"
+else
+  echo "== 14. SingleStepTests vectors: SKIP (run tests/get_vectors.sh) =="
+fi
+
 if [ "${RUN_Z80TEST:-0}" = 1 ]; then
   echo "== 8. Rak's z80test in-emulator (slow: ~2 min each) =="
   YS=""
