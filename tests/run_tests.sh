@@ -164,6 +164,20 @@ $EMU --rom roms/hc91.rom "$OUT/multi.tzx" --autoload --turbo --frames 400 \
      --fb-dump "$OUT/tzxtrap.fb" > /dev/null 2>&1
 build/fbcheck "$OUT/tzxtrap.fb" --band 88 33 3 > /dev/null
 check $? "trap load also works for .tzx"
+# (c2) generalized-data blocks (0x19: symbol tables, PRLE pilot, 1-bit
+# data stream, a force-polarity flag) — must load via the real ROM loader
+build/tap2tzx "$OUT/multi.tap" "$OUT/multi_gdb.tzx" gdb
+$EMU --rom roms/hc91.rom "$OUT/multi_gdb.tzx" --autoload --real-tape --turbo \
+     --frames 1500 --fb-dump "$OUT/gdb.fb" > /dev/null 2>&1
+build/fbcheck "$OUT/gdb.fb" --band 88 33 3 > /dev/null
+check $? "real-tape: TZX 0x19 generalized data blocks load"
+# (c3) CSW recording blocks (0x18) at 3.5 MHz, alternating RLE and
+# zlib Z-RLE compression (decoded by the built-in inflater)
+build/tap2tzx "$OUT/multi.tap" "$OUT/multi_csw.tzx" csw
+$EMU --rom roms/hc91.rom "$OUT/multi_csw.tzx" --autoload --real-tape --turbo \
+     --frames 1500 --fb-dump "$OUT/csw.fb" > /dev/null 2>&1
+build/fbcheck "$OUT/csw.fb" --band 88 33 3 > /dev/null
+check $? "real-tape: TZX 0x18 CSW blocks load (RLE + Z-RLE)"
 # (d) SAVE "x" CODE 16384,10 -> SA-BYTES trap -> byte-exact .tap
 $EMU --rom roms/hc91.rom --frames 700 --save-tape "$OUT/saved.tap" \
      --type 's"x"@260' --keys '320:CAPS+SYM' --type 'i16384,10\n@334' \

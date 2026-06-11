@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "machine.h"
+#include "inflate.h"
 
 void tape_free(Machine *m)
 {
@@ -98,6 +99,51 @@ static uint32_t rd24(const uint8_t *p)
     return (uint32_t)(p[0] | (p[1] << 8) | ((uint32_t)p[2] << 16));
 }
 
+static uint32_t rd32(const uint8_t *p)
+{
+    return rd24(p) | ((uint32_t)p[3] << 24);
+}
+
+/* Lengthen the previous pulse (suppresses the edge a new pulse would
+ * make — the generalized-data "no edge" symbol polarity). */
+static void pulse_extend(Machine *m, uint32_t dur)
+{
+    TapePlayer *p = &m->player;
+    if (p->npulses)
+        p->pulses[p->npulses - 1] += dur;
+    else
+        pulse_push(m, dur);
+}
+
+/* Emit one TZX 0x19 symbol: def = flags byte + np u16 durations (0 ends
+ * the symbol). The pulse stream toggles from level 0, so the level of
+ * the next pushed pulse is npulses&1; the flags adjust the first edge:
+ * 0 = toggle (natural), 1 = no edge (merge into the previous pulse),
+ * 2/3 = force low/high (a zero-length pulse flips parity for free). */
+static int gdb_symbol(Machine *m, const uint8_t *def, int np)
+{
+    int flags = def[0] & 3, k, merged = 0;
+
+    if (flags == 1)
+        merged = 1;
+    else if (flags == 2 && (m->player.npulses & 1))
+        pulse_push(m, 0);
+    else if (flags == 3 && !(m->player.npulses & 1))
+        pulse_push(m, 0);
+    for (k = 0; k < np; k++) {
+        uint32_t d = (uint32_t)(def[1 + k * 2] | (def[2 + k * 2] << 8));
+        if (!d)
+            break;
+        if (merged) {
+            pulse_extend(m, d);
+            merged = 0;
+        } else if (pulse_push(m, d)) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
 /* Parse a TZX file: standard/turbo data blocks feed both the trap list
  * and the pulse stream; tone/pulse/pause/loop blocks feed pulses only;
  * info blocks are skipped. Unsupported structural blocks end the pulse
@@ -182,6 +228,118 @@ static int tzx_parse(Machine *m, const uint8_t *buf, long size,
             if (off + (long)len > size) return 0;
             emit_data(m, 0, 0, 0, 0, b0, b1, lastb, pause, buf + off, len);
             off += (long)len;
+            break;
+        }
+        case 0x18: {                       /* CSW recording */
+            uint32_t blen, rate, want, got = 0;
+            uint16_t pause;
+            uint8_t comp;
+            const uint8_t *s;
+            uint8_t *un = NULL;
+            size_t sn, i;
+            if (off + 4 > size) return 0;
+            blen = rd32(buf + off);
+            off += 4;
+            if (blen < 10 || off + (long)blen > size) {
+                fprintf(stderr, "warning: '%s': truncated CSW block\n",
+                        path);
+                return 0;
+            }
+            pause = (uint16_t)(buf[off] | (buf[off + 1] << 8));
+            rate = rd24(buf + off + 2);
+            comp = buf[off + 5];
+            want = rd32(buf + off + 6);
+            if (!rate) rate = 44100;
+            if (comp == 2) {               /* Z-RLE: zlib stream */
+                un = zlib_inflate_alloc(buf + off + 10, blen - 10, &sn);
+                if (!un) {
+                    fprintf(stderr, "warning: '%s': bad Z-RLE CSW data\n",
+                            path);
+                    return 0;
+                }
+                s = un;
+            } else if (comp == 1) {        /* plain RLE */
+                s = buf + off + 10;
+                sn = blen - 10;
+            } else {
+                fprintf(stderr, "warning: '%s': CSW compression %u "
+                        "unsupported\n", path, comp);
+                return 0;
+            }
+            off += blen;
+            for (i = 0; i < sn; ) {
+                uint32_t samp = s[i++];
+                if (samp == 0) {
+                    if (i + 4 > sn) break;
+                    samp = rd32(s + i);
+                    i += 4;
+                }
+                pulse_push(m, (uint32_t)(((uint64_t)samp * 3500000
+                                          + rate / 2) / rate));
+                got++;
+            }
+            free(un);
+            if (got != want)
+                fprintf(stderr, "warning: '%s': CSW pulse count %u != "
+                        "header %u\n", path, got, want);
+            if (pause)
+                pulse_push(m, (uint32_t)pause * T_PER_MS);
+            break;
+        }
+        case 0x19: {                       /* generalized data */
+            uint32_t blen, totp, totd, e;
+            uint16_t pause;
+            int npp, nasp, npd, nasd, nb;
+            long base, sp, pr, sd, ds;
+            if (off + 4 > size) return 0;
+            blen = rd32(buf + off);
+            off += 4;
+            if (blen < 14 || off + (long)blen > size) {
+                fprintf(stderr, "warning: '%s': truncated generalized "
+                        "data block\n", path);
+                return 0;
+            }
+            base = off;
+            off += blen;
+            pause = (uint16_t)(buf[base] | (buf[base + 1] << 8));
+            totp = rd32(buf + base + 2);
+            npp = buf[base + 6];
+            nasp = buf[base + 7] ? buf[base + 7] : 256;
+            totd = rd32(buf + base + 8);
+            npd = buf[base + 12];
+            nasd = buf[base + 13] ? buf[base + 13] : 256;
+            sp = base + 14;                          /* pilot symbols */
+            pr = sp + (totp ? (long)nasp * (1 + 2 * npp) : 0);
+            sd = pr + (totp ? (long)totp * 3 : 0);   /* data symbols */
+            ds = sd + (totd ? (long)nasd * (1 + 2 * npd) : 0);
+            nb = 0;
+            while ((1 << nb) < nasd)
+                nb++;
+            if (ds + (totd ? ((long)totd * nb + 7) / 8 : 0) > base + (long)blen) {
+                fprintf(stderr, "warning: '%s': generalized data block "
+                        "overruns\n", path);
+                return 0;
+            }
+            for (e = 0; e < totp; e++) {             /* pilot: PRLE */
+                uint8_t sym = buf[pr + e * 3];
+                uint32_t rep = (uint32_t)(buf[pr + e * 3 + 1]
+                                          | (buf[pr + e * 3 + 2] << 8));
+                if (sym >= nasp) continue;
+                if (!rep) rep = 1;
+                while (rep--)
+                    gdb_symbol(m, buf + sp + sym * (1 + 2 * npp), npp);
+            }
+            for (e = 0; e < totd; e++) {             /* data: nb-bit syms */
+                uint32_t bit = e * (uint32_t)nb, sym = 0;
+                int k;
+                for (k = 0; k < nb; k++, bit++)
+                    sym = (sym << 1)
+                        | ((buf[ds + (bit >> 3)] >> (7 - (bit & 7))) & 1);
+                if (sym < (uint32_t)nasd)
+                    gdb_symbol(m, buf + sd + sym * (1 + 2 * npd), npd);
+            }
+            if (pause)
+                pulse_push(m, (uint32_t)pause * T_PER_MS);
             break;
         }
         case 0x20: {                       /* pause / stop */

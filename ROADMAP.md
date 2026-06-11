@@ -152,9 +152,11 @@ supported (loops unrolled; 0x10/0x11 also feed the instant trap, so
 `.tzx` works in both modes). SAVE is trapped at SA-BYTES 0x04C2 →
 byte-exact `.tap` (`--save-tape`). Suite test 10 covers ROM pulse-loading
 of .tap and .tzx, trap-loading .tzx, and a byte-exact SAVE; Arkanoid's
-commercial .tap also loads through the real ROM loader. Not covered yet:
-custom loaders needing in-game tape control UI (stop/start), CSW/
-generalized-data blocks (0x18/0x19).
+commercial .tap also loads through the real ROM loader. CSW (0x18, RLE
+and zlib Z-RLE via the built-in inflater) and generalized-data (0x19,
+symbol alphabets/PRLE/polarity flags) blocks were added 2026-06-11 with
+ROM-loader round-trip tests. Still out: in-game tape control UI
+(stop/start) for custom multi-load schemes.
 
 ## Phase 6 — HC-91 specifics: CP/M mode (port 0x7E) — ✅ DONE (2026-06-11)
 
