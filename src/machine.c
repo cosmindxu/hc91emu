@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include "machine.h"
 #include "debug.h"
+#include "rzx.h"
 
 static int ext_eq(const char *a, const char *b)
 {
@@ -159,7 +160,13 @@ static uint8_t bus_io_read_raw(Machine *m, uint16_t port)
 static uint8_t bus_io_read(void *ctx, uint16_t port)
 {
     Machine *m = (Machine *)ctx;
-    uint8_t v = bus_io_read_raw(m, port);
+    uint8_t v;
+    if (m->rzx && rzx_playing(m))
+        v = rzx_in(m);              /* playback: feed the recording */
+    else
+        v = bus_io_read_raw(m, port);
+    if (m->rzx)
+        rzx_log_in(m, v);           /* no-op unless recording */
     if (m->dbg)
         debug_note_io(m, port, v, 0);
     return v;
@@ -234,11 +241,15 @@ int machine_load_file(Machine *m, const char *path)
             return snapshot_load_sna(m, path);
         if (ext_eq(dot, ".z80"))
             return snapshot_load_z80(m, path);
+        if (ext_eq(dot, ".szx"))
+            return snapshot_load_szx(m, path);
         if (ext_eq(dot, ".scr"))
             return screen_load_scr(m, path);
+        if (ext_eq(dot, ".rzx"))
+            return rzx_load(m, path);
     }
     fprintf(stderr, "error: '%s': unknown file type "
-            "(expected .tap/.tzx/.sna/.z80/.scr)\n", path);
+            "(expected .tap/.tzx/.sna/.z80/.szx/.scr/.rzx)\n", path);
     return -1;
 }
 
@@ -252,7 +263,14 @@ void machine_run_frame(Machine *m)
     uint64_t end = m->frame_start_ts + HC91_FRAME_TSTATES;
     int int_taken;
 
+    if (m->rzx && rzx_playing(m)) {      /* fetch-count bounded replay */
+        rzx_play_frame(m);
+        return;
+    }
+
     m->render_pos = 0;                   /* beam to top of frame */
+    if (m->rzx)
+        rzx_frame_begin(m);
     if (m->play_at_frame >= 0 && (int)m->frame_counter == m->play_at_frame)
         tape_play_start(m);
     int_taken = z80_int(&m->cpu, 0xFF);
@@ -268,6 +286,8 @@ void machine_run_frame(Machine *m)
         if (!int_taken && m->cpu.tstates - m->frame_start_ts < HC91_INT_WINDOW)
             int_taken = z80_int(&m->cpu, 0xFF);
     }
+    if (m->rzx)
+        rzx_frame_end(m);
     if (m->fb_live)
         video_beam_finish(m);
     m->frame_start_ts = end;

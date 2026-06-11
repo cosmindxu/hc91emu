@@ -30,6 +30,9 @@ struct Z80 {
                                      (affects SCF/CCF X/Y flags) */
 
     uint64_t tstates;             /* running T-state counter */
+    uint64_t fetches;             /* running M1/refresh counter (every R
+                                     bump incl. prefixes, halt cycles and
+                                     INT acks) — RZX frame currency */
 
     /* Bus callbacks (must all be non-NULL) */
     void *ctx;

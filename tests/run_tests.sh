@@ -261,6 +261,41 @@ else
   echo "== 15. SDL2 frontend: SKIP (libSDL2 runtime not present) =="
 fi
 
+echo "== 16. SZX snapshots + RZX input recording =="
+# (a) szx round-trip of the running multicolour engine
+$EMU --rom roms/hc91.rom "$OUT/multi.tap" --autoload --turbo --frames 400 \
+     --save-szx "$OUT/rt.szx" > /dev/null 2>&1
+$EMU --rom roms/hc91.rom "$OUT/rt.szx" --turbo --frames 100 \
+     --fb-dump "$OUT/rt_szx.fb" > /dev/null 2>&1
+build/fbcheck "$OUT/rt_szx.fb" --band 88 33 3 > /dev/null
+check $? ".szx save/load resumes the multicolour engine"
+# (b) zlib-compressed RAMP pages (what other emulators write) must load
+# through the built-in inflater
+python3 - "$OUT/rt.szx" "$OUT/rt_comp.szx" <<'PYEOF'
+import sys, zlib, struct
+d = open(sys.argv[1],'rb').read()
+out = bytearray(d[:8]); off = 8
+while off + 8 <= len(d):
+    fid = d[off:off+4]; sz = struct.unpack('<I', d[off+4:off+8])[0]
+    pay = d[off+8:off+8+sz]
+    if fid == b'RAMP':
+        pay = struct.pack('<HB', 1, pay[2]) + zlib.compress(bytes(pay[3:]), 9)
+    out += fid + struct.pack('<I', len(pay)) + pay
+    off += 8 + sz
+open(sys.argv[2],'wb').write(bytes(out))
+PYEOF
+$EMU --rom roms/hc91.rom "$OUT/rt_comp.szx" --turbo --frames 100 \
+     --fb-dump "$OUT/rt_csz.fb" > /dev/null 2>&1
+build/fbcheck "$OUT/rt_csz.fb" --band 88 33 3 > /dev/null
+check $? ".szx with zlib-compressed pages loads (built-in inflate)"
+# (c) rzx: record a typed BASIC calculation, then replay it with NO key
+# events — the inputs come back from the recorded port reads alone
+$EMU --rom roms/hc91.rom --frames 450 --type 'p2+3*4\n@260' \
+     --rzx-record "$OUT/calc.rzx" > /dev/null 2>&1
+$EMU --rom roms/hc91.rom "$OUT/calc.rzx" --frames 460 --text 2>/dev/null \
+  | grep -q "^14"
+check $? "RZX replay reproduces the recorded session (PRINT 2+3*4 = 14)"
+
 if [ "${RUN_Z80TEST:-0}" = 1 ]; then
   echo "== 8. Rak's z80test in-emulator (slow: ~2 min each) =="
   YS=""

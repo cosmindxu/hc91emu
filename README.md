@@ -43,7 +43,7 @@ by a built-in encoder; screen contents can also be read back as text
 #  arrows=cursors, gamepad=Kempston, Tab=turbo, F5=pause, F10=quit)
 ./build/hc91emu --sdl software/jet_set_willy.tap --autoload
 
-./build/hc91emu [options] [program.tap|.sna|.z80]
+./build/hc91emu [options] [program.tap/.tzx/.sna/.z80/.szx/.scr/.rzx]
 
   --rom FILE        ROM image (default roms/hc91.rom)
   --frames N        frames to emulate, 50 frames = 1 emulated second (default 300)
@@ -78,10 +78,14 @@ Examples:
 ./build/hc91emu game.tap --autoload --watch 5C78 --pwatch FE   # watchpoints
 ./build/hc91emu --frames 2 --trace boot.txt                    # full trace
 
-# Save state / screen after a run (.sna, .z80 v2, raw .scr)
+# Save state / screen after a run (.sna, .z80 v2, .szx, raw .scr)
 ./build/hc91emu software/manic_miner.tap --autoload --frames 1500 \
-    --save-sna mm.sna --save-z80 mm.z80 --save-scr mm.scr
+    --save-sna mm.sna --save-z80 mm.z80 --save-szx mm.szx --save-scr mm.scr
 ./build/hc91emu mm.scr --frames 10 --screenshot mm.png   # .scr loads too
+
+# Record a session as RZX, replay it later (inputs come from the file)
+./build/hc91emu --frames 450 --type 'p2+3*4\n@260' --rzx-record calc.rzx
+./build/hc91emu calc.rzx --frames 460 --text     # prints 14 again
 ```
 
 ## ROMs
@@ -147,6 +151,13 @@ standard Sinclair 48K ROM, also usable with `--rom`.
   bootstrap (`RANDOMIZE USR 14446`) runs and lands at PC=0 in paged RAM.
   No disk interface yet, so a full CP/M boot is not possible — the bank
   is pre-filled with HALT so the bare bootstrap parks cleanly.
+- **Snapshots & recordings**: `.sna`, `.z80` (v1/v2/v3) and `.szx`
+  (zx-state) all load and save; `.szx` files with zlib-compressed pages
+  load through a built-in DEFLATE inflater (still zero external
+  dependencies). `.rzx` input recordings both record (`--rzx-record`)
+  and replay (pass the `.rzx` as the input file): frames are
+  fetch-counted with port reads fed from the recording, so a captured
+  session replays bit-exactly — ideal for whole-run regression tests.
 - **Debugger/monitor**: full-coverage disassembler (`dtest` locks 124
   cases), PC breakpoints, memory read/write and I/O port watchpoints,
   single-step, hex dump, registers with frame-relative T-states, and
@@ -188,3 +199,5 @@ standard Sinclair 48K ROM, also usable with `--rom`.
 | Beeper: Manic Miner title music | Blue Danube renders as WAV, full melody |
 | SDL2 frontend (dummy drivers, 250-frame session) | boots to banner, paced, audio queue live |
 | SDL2 frontend (real X11) | Jet Set Willy to menu at 50 Hz with sound |
+| SZX round-trip (incl. zlib-compressed pages) | multicolour engine resumes from both |
+| RZX record → replay | typed `PRINT 2+3*4` session replays to the same screen |

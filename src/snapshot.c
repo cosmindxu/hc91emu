@@ -402,3 +402,202 @@ int screen_load_scr(Machine *m, const char *path)
     m->cpu.halted = 1;
     return 0;
 }
+
+/* ---- .szx (zx-state v1.4, 48K machine) ----
+ *
+ * Container: 8-byte header then { u32 fourcc, u32 size, payload } blocks.
+ * We write CRTR + Z80R + SPCR + three uncompressed RAMP pages (5/2/0);
+ * on load, zlib-compressed RAMP pages (the common case in files written
+ * by other emulators) are handled by the built-in inflater. Unknown
+ * blocks are skipped. SZX has a real HALTED flag, so PC is stored as-is
+ * (no snap_pc rewind). dwCyclesStart is written but ignored on load (we
+ * always resume at a frame boundary, like the .sna/.z80 loaders).
+ */
+#include "inflate.h"
+
+#define ZXSTZF_EILAST 1
+#define ZXSTZF_HALTED 2
+#define ZXSTRF_COMPRESSED 1
+
+static void wr32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16);
+    p[3] = (uint8_t)(v >> 24);
+}
+
+static uint32_t rd32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8)
+         | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static uint8_t *szx_block(uint8_t *p, const char id[4], uint32_t size)
+{
+    memcpy(p, id, 4);
+    wr32(p + 4, size);
+    return p + 8;
+}
+
+int snapshot_save_szx(const Machine *m, const char *path)
+{
+    /* 8 hdr + (8+36) CRTR + (8+37) Z80R + (8+8) SPCR + 3*(8+3+16384) */
+    static uint8_t buf[8 + 44 + 45 + 16 + 3 * 16395];
+    uint8_t *p = buf;
+    const Z80 *z = &m->cpu;
+    static const uint8_t pageno[3] = { 5, 2, 0 };
+    static const uint16_t pagebase[3] = { 0x4000, 0x8000, 0xC000 };
+    int i;
+
+    warn_if_paged(m, path);
+
+    memcpy(p, "ZXST", 4);
+    p[4] = 1;                       /* major */
+    p[5] = 4;                       /* minor */
+    p[6] = 1;                       /* machine: 48K */
+    p[7] = 0;
+    p += 8;
+
+    p = szx_block(p, "CRTR", 36);
+    memset(p, 0, 36);
+    strcpy((char *)p, "HC-91 emulator");
+    wr16(p + 32, 1);
+    wr16(p + 34, 0);
+    p += 36;
+
+    p = szx_block(p, "Z80R", 37);
+    wr16(p + 0, z->af.w);
+    wr16(p + 2, z->bc.w);
+    wr16(p + 4, z->de.w);
+    wr16(p + 6, z->hl.w);
+    wr16(p + 8, z->af_.w);
+    wr16(p + 10, z->bc_.w);
+    wr16(p + 12, z->de_.w);
+    wr16(p + 14, z->hl_.w);
+    wr16(p + 16, z->ix.w);
+    wr16(p + 18, z->iy.w);
+    wr16(p + 20, z->sp.w);
+    wr16(p + 22, z->pc.w);
+    p[24] = z->i;
+    p[25] = z->r;
+    p[26] = z->iff1;
+    p[27] = z->iff2;
+    p[28] = z->im;
+    wr32(p + 29, (uint32_t)(z->tstates - m->frame_start_ts));
+    p[33] = 0;                      /* chHoldIntReqCycles */
+    p[34] = (uint8_t)((z->ei_pending ? ZXSTZF_EILAST : 0)
+                      | (z->halted ? ZXSTZF_HALTED : 0));
+    wr16(p + 35, z->memptr.w);
+    p += 37;
+
+    p = szx_block(p, "SPCR", 8);
+    memset(p, 0, 8);
+    p[0] = m->border;
+    p[3] = (uint8_t)(m->border | (m->beeper << 4));   /* last FE OUT */
+    p += 8;
+
+    for (i = 0; i < 3; i++) {
+        p = szx_block(p, "RAMP", 3 + 16384);
+        wr16(p, 0);                 /* uncompressed */
+        p[2] = pageno[i];
+        memcpy(p + 3, m->mem + pagebase[i], 16384);
+        p += 3 + 16384;
+    }
+
+    return write_file(path, buf, (size_t)(p - buf));
+}
+
+int snapshot_load_szx(Machine *m, const char *path)
+{
+    long size;
+    uint8_t *buf = read_whole_file(path, &size);
+    long off = 8;
+    int got_ram = 0;
+
+    if (!buf)
+        return -1;
+    if (size < 8 || memcmp(buf, "ZXST", 4) != 0) {
+        fprintf(stderr, "error: '%s' is not an SZX (zx-state) file\n", path);
+        free(buf);
+        return -1;
+    }
+    if (buf[6] > 1) {
+        fprintf(stderr, "error: '%s': SZX machine id %d not supported "
+                "(only 16K/48K)\n", path, buf[6]);
+        free(buf);
+        return -1;
+    }
+
+    while (off + 8 <= size) {
+        const uint8_t *blk = buf + off + 8;
+        uint32_t bsz = rd32(buf + off + 4);
+        if ((long)bsz > size - off - 8) {
+            fprintf(stderr, "error: '%s': truncated SZX block\n", path);
+            free(buf);
+            return -1;
+        }
+        if (!memcmp(buf + off, "Z80R", 4) && bsz >= 29) {
+            Z80 *z = &m->cpu;
+            z->af.w = rd16(blk + 0);
+            z->bc.w = rd16(blk + 2);
+            z->de.w = rd16(blk + 4);
+            z->hl.w = rd16(blk + 6);
+            z->af_.w = rd16(blk + 8);
+            z->bc_.w = rd16(blk + 10);
+            z->de_.w = rd16(blk + 12);
+            z->hl_.w = rd16(blk + 14);
+            z->ix.w = rd16(blk + 16);
+            z->iy.w = rd16(blk + 18);
+            z->sp.w = rd16(blk + 20);
+            z->pc.w = rd16(blk + 22);
+            z->i = blk[24];
+            z->r = blk[25];
+            z->iff1 = (uint8_t)(blk[26] != 0);
+            z->iff2 = (uint8_t)(blk[27] != 0);
+            z->im = (uint8_t)(blk[28] & 3);
+            z->ei_pending = 0;
+            z->halted = 0;
+            if (bsz >= 35) {
+                z->ei_pending = (uint8_t)((blk[34] & ZXSTZF_EILAST) != 0);
+                z->halted = (uint8_t)((blk[34] & ZXSTZF_HALTED) != 0);
+            }
+            z->memptr.w = (bsz >= 37) ? rd16(blk + 35) : 0;
+            z->q = 0;               /* not represented in SZX */
+        } else if (!memcmp(buf + off, "SPCR", 4) && bsz >= 4) {
+            m->border = (uint8_t)(blk[0] & 7);
+            m->beeper = (uint8_t)((blk[3] >> 4) & 1);
+        } else if (!memcmp(buf + off, "RAMP", 4) && bsz >= 3) {
+            uint16_t flags = rd16(blk);
+            uint8_t page = blk[2];
+            uint16_t base = page == 5 ? 0x4000
+                          : page == 2 ? 0x8000
+                          : page == 0 ? 0xC000 : 0;
+            if (base) {
+                if (flags & ZXSTRF_COMPRESSED) {
+                    if (zlib_inflate(blk + 3, bsz - 3,
+                                     m->mem + base, 16384) != 16384) {
+                        fprintf(stderr, "error: '%s': bad compressed RAM "
+                                "page %d\n", path, page);
+                        free(buf);
+                        return -1;
+                    }
+                } else if (bsz - 3 >= 16384) {
+                    memcpy(m->mem + base, blk + 3, 16384);
+                } else {
+                    fprintf(stderr, "error: '%s': short RAM page %d\n",
+                            path, page);
+                    free(buf);
+                    return -1;
+                }
+                got_ram++;
+            }
+        }
+        off += 8 + (long)bsz;
+    }
+    free(buf);
+    if (got_ram < 3)
+        fprintf(stderr, "warning: '%s': only %d of 3 RAM pages present\n",
+                path, got_ram);
+    return 0;
+}
