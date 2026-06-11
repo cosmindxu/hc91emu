@@ -340,6 +340,32 @@ check $? "HC-128 .z80 reload: AY tone resumes"
 $EMU "$OUT/rt128.z80" --frames 5 2>&1 | grep -q "128K snapshot"
 check $? "48K machine refuses 128K snapshots with a hint"
 
+if [ -d software/library ]; then
+  echo "== 18. Game library (tools/get_library.sh; 32 titles) =="
+  # representative smoke: one big isometric 48K title and one 128K AY
+  # title whose menu music must come out of the PSG.
+  $EMU software/library/isometric/head_over_heels.tap --autoload --turbo \
+       --frames 3000 --text > "$OUT/lib_hoh.txt" 2>&1
+  [ $? = 0 ] && [ "$(grep -c '[^ ]' "$OUT/lib_hoh.txt")" -ge 5 ]
+  check $? "library: Head over Heels loads"
+  $EMU --machine hc128 software/library/shooter/cybernoid_128.tap \
+       --autoload --turbo --frames 3800 --wav "$OUT/lib_cyb.wav" \
+       > /dev/null 2>&1
+  python3 - "$OUT/lib_cyb.wav" <<'PYEOF'
+import sys, wave, struct
+w = wave.open(sys.argv[1])
+n, rate = w.getnframes(), w.getframerate()
+d = struct.unpack('<%dh' % n, w.readframes(n))
+seg = d[-2*rate:]
+m = sum(seg)/len(seg)
+cross = sum(1 for i in range(1,len(seg)) if (seg[i]>m)!=(seg[i-1]>m))
+sys.exit(0 if cross > 2000 and max(abs(s-m) for s in seg) > 500 else 1)
+PYEOF
+  check $? "library: Cybernoid 128 title music plays on the AY (hc128)"
+else
+  echo "== 18. Game library: SKIP (run tools/get_library.sh) =="
+fi
+
 if [ "${RUN_Z80TEST:-0}" = 1 ]; then
   echo "== 8. Rak's z80test in-emulator (slow: ~2 min each) =="
   YS=""
