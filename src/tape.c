@@ -1,0 +1,438 @@
+/* tape.c — .tap/.tzx parsing, trap-based instant LD-BYTES loading, the
+ * pulse-level tape player, and the SA-BYTES SAVE trap. */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "machine.h"
+
+void tape_free(Machine *m)
+{
+    int i;
+    for (i = 0; i < m->tape.nblocks; i++)
+        free(m->tape.blocks[i].data);
+    free(m->tape.blocks);
+    memset(&m->tape, 0, sizeof(m->tape));
+    free(m->player.pulses);
+    memset(&m->player, 0, sizeof(m->player));
+}
+
+/* ---- Pulse stream compiler ----
+ * Standard ROM timings (T-states). */
+#define T_PILOT     2168
+#define T_SYNC1      667
+#define T_SYNC2      735
+#define T_BIT0       855
+#define T_BIT1      1710
+#define PILOT_HDR   8063
+#define PILOT_DATA  3223
+#define T_PER_MS    3500
+
+static int pulse_push(Machine *m, uint32_t dur)
+{
+    TapePlayer *p = &m->player;
+    static size_t cap;                  /* tracked per load; reset below */
+    if (p->npulses == 0)
+        cap = 0;
+    if (p->npulses == cap) {
+        uint32_t *np;
+        cap = cap ? cap * 2 : 4096;
+        np = realloc(p->pulses, cap * sizeof(uint32_t));
+        if (!np)
+            return -1;
+        p->pulses = np;
+    }
+    p->pulses[p->npulses++] = dur;
+    return 0;
+}
+
+/* Emit one data block: pilot tone, two sync pulses, MSB-first data bits
+ * (two equal pulses per bit), trailing pause. Any element can be zero to
+ * skip it. */
+static int emit_data(Machine *m, uint32_t pilot, uint32_t pilot_cnt,
+                     uint32_t s1, uint32_t s2, uint32_t b0, uint32_t b1,
+                     int last_bits, uint32_t pause_ms,
+                     const uint8_t *data, uint32_t n)
+{
+    uint32_t i;
+    int b;
+    for (i = 0; i < pilot_cnt; i++)
+        if (pulse_push(m, pilot)) return -1;
+    if (s1 && pulse_push(m, s1)) return -1;
+    if (s2 && pulse_push(m, s2)) return -1;
+    for (i = 0; i < n; i++) {
+        int nb = (i == n - 1) ? last_bits : 8;
+        for (b = 0; b < nb; b++) {
+            uint32_t t = (data[i] & (0x80u >> b)) ? b1 : b0;
+            if (pulse_push(m, t) || pulse_push(m, t))
+                return -1;
+        }
+    }
+    if (pause_ms && pulse_push(m, pause_ms * T_PER_MS))
+        return -1;
+    return 0;
+}
+
+/* Append a flag+data+checksum block to the trap-loader list. */
+static int trap_block_add(Machine *m, const uint8_t *data, uint16_t len,
+                          int *cap)
+{
+    if (m->tape.nblocks == *cap) {
+        TapBlock *nb;
+        *cap = *cap ? *cap * 2 : 16;
+        nb = realloc(m->tape.blocks, (size_t)*cap * sizeof(TapBlock));
+        if (!nb)
+            return -1;
+        m->tape.blocks = nb;
+    }
+    m->tape.blocks[m->tape.nblocks].len = len;
+    m->tape.blocks[m->tape.nblocks].data = malloc(len ? len : 1);
+    if (!m->tape.blocks[m->tape.nblocks].data)
+        return -1;
+    memcpy(m->tape.blocks[m->tape.nblocks].data, data, len);
+    m->tape.nblocks++;
+    return 0;
+}
+
+static uint32_t rd24(const uint8_t *p)
+{
+    return (uint32_t)(p[0] | (p[1] << 8) | ((uint32_t)p[2] << 16));
+}
+
+/* Parse a TZX file: standard/turbo data blocks feed both the trap list
+ * and the pulse stream; tone/pulse/pause/loop blocks feed pulses only;
+ * info blocks are skipped. Unsupported structural blocks end the pulse
+ * compile (with a warning) but keep whatever was parsed. */
+static int tzx_parse(Machine *m, const uint8_t *buf, long size,
+                     const char *path, int *cap)
+{
+    long off = 10;
+    long loop_off = -1;
+    uint32_t loop_left = 0;
+
+    while (off < size) {
+        uint8_t id = buf[off++];
+        switch (id) {
+        case 0x10: {                       /* standard speed data */
+            uint32_t pause, len;
+            if (off + 4 > size) return 0;
+            pause = (uint32_t)(buf[off] | (buf[off+1] << 8));
+            len = (uint32_t)(buf[off+2] | (buf[off+3] << 8));
+            off += 4;
+            if (off + (long)len > size) return 0;
+            trap_block_add(m, buf + off, (uint16_t)len, cap);
+            emit_data(m, T_PILOT,
+                      (len && buf[off] < 128) ? PILOT_HDR : PILOT_DATA,
+                      T_SYNC1, T_SYNC2, T_BIT0, T_BIT1, 8,
+                      pause ? pause : 1000, buf + off, len);
+            off += (long)len;
+            break;
+        }
+        case 0x11: {                       /* turbo speed data */
+            uint32_t pilot, s1, s2, b0, b1, pcnt, pause, len;
+            int lastb;
+            if (off + 18 > size) return 0;
+            pilot = (uint32_t)(buf[off] | (buf[off+1] << 8));
+            s1 = (uint32_t)(buf[off+2] | (buf[off+3] << 8));
+            s2 = (uint32_t)(buf[off+4] | (buf[off+5] << 8));
+            b0 = (uint32_t)(buf[off+6] | (buf[off+7] << 8));
+            b1 = (uint32_t)(buf[off+8] | (buf[off+9] << 8));
+            pcnt = (uint32_t)(buf[off+10] | (buf[off+11] << 8));
+            lastb = buf[off+12];
+            pause = (uint32_t)(buf[off+13] | (buf[off+14] << 8));
+            len = rd24(buf + off + 15);
+            off += 18;
+            if (off + (long)len > size) return 0;
+            trap_block_add(m, buf + off, (uint16_t)len, cap);
+            emit_data(m, pilot, pcnt, s1, s2, b0, b1, lastb, pause,
+                      buf + off, len);
+            off += (long)len;
+            break;
+        }
+        case 0x12: {                       /* pure tone */
+            uint32_t t, n, i;
+            if (off + 4 > size) return 0;
+            t = (uint32_t)(buf[off] | (buf[off+1] << 8));
+            n = (uint32_t)(buf[off+2] | (buf[off+3] << 8));
+            off += 4;
+            for (i = 0; i < n; i++)
+                pulse_push(m, t);
+            break;
+        }
+        case 0x13: {                       /* pulse sequence */
+            uint32_t n, i;
+            if (off + 1 > size) return 0;
+            n = buf[off++];
+            if (off + (long)n * 2 > size) return 0;
+            for (i = 0; i < n; i++)
+                pulse_push(m, (uint32_t)(buf[off + i*2] |
+                                         (buf[off + i*2 + 1] << 8)));
+            off += (long)n * 2;
+            break;
+        }
+        case 0x14: {                       /* pure data */
+            uint32_t b0, b1, pause, len;
+            int lastb;
+            if (off + 10 > size) return 0;
+            b0 = (uint32_t)(buf[off] | (buf[off+1] << 8));
+            b1 = (uint32_t)(buf[off+2] | (buf[off+3] << 8));
+            lastb = buf[off+4];
+            pause = (uint32_t)(buf[off+5] | (buf[off+6] << 8));
+            len = rd24(buf + off + 7);
+            off += 10;
+            if (off + (long)len > size) return 0;
+            emit_data(m, 0, 0, 0, 0, b0, b1, lastb, pause, buf + off, len);
+            off += (long)len;
+            break;
+        }
+        case 0x20: {                       /* pause / stop */
+            uint32_t ms;
+            if (off + 2 > size) return 0;
+            ms = (uint32_t)(buf[off] | (buf[off+1] << 8));
+            off += 2;
+            if (ms == 0)                   /* "stop the tape" */
+                return 0;
+            pulse_push(m, ms * T_PER_MS);
+            break;
+        }
+        case 0x21:                         /* group start (name skipped) */
+            if (off + 1 > size) return 0;
+            off += 1 + buf[off];
+            break;
+        case 0x22:                         /* group end */
+            break;
+        case 0x24:                         /* loop start */
+            if (off + 2 > size) return 0;
+            loop_left = (uint32_t)(buf[off] | (buf[off+1] << 8));
+            off += 2;
+            loop_off = off;
+            if (loop_left)
+                loop_left--;               /* first pass plays now */
+            break;
+        case 0x25:                         /* loop end */
+            if (loop_left && loop_off >= 0) {
+                loop_left--;
+                off = loop_off;
+            }
+            break;
+        case 0x2A:                         /* stop if 48K: we are 48K */
+            return 0;
+        case 0x30:                         /* text description */
+            if (off + 1 > size) return 0;
+            off += 1 + buf[off];
+            break;
+        case 0x31:                         /* message */
+            if (off + 2 > size) return 0;
+            off += 2 + buf[off + 1];
+            break;
+        case 0x32:                         /* archive info */
+            if (off + 2 > size) return 0;
+            off += 2 + (long)(buf[off] | (buf[off+1] << 8));
+            break;
+        case 0x33:                         /* hardware type */
+            if (off + 1 > size) return 0;
+            off += 1 + 3 * (long)buf[off];
+            break;
+        case 0x35:                         /* custom info */
+            if (off + 14 > size) return 0;
+            off += 14 + (long)(buf[off+10] | (buf[off+11] << 8) |
+                               ((uint32_t)buf[off+12] << 16) |
+                               ((uint32_t)buf[off+13] << 24));
+            break;
+        case 0x5A:                         /* glue */
+            off += 9;
+            break;
+        default:
+            fprintf(stderr, "warning: '%s': unsupported TZX block 0x%02X; "
+                    "tape ends here\n", path, id);
+            return 0;
+        }
+    }
+    return 0;
+}
+
+int tape_load(Machine *m, const char *path)
+{
+    FILE *f;
+    long size;
+    uint8_t *buf;
+    long off;
+    int cap = 0;
+
+    f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "error: cannot open tape file '%s'\n", path);
+        return -1;
+    }
+    fseek(f, 0, SEEK_END);
+    size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (size <= 0) {
+        fprintf(stderr, "error: tape file '%s' is empty\n", path);
+        fclose(f);
+        return -1;
+    }
+    buf = malloc((size_t)size);
+    if (!buf) {
+        fclose(f);
+        return -1;
+    }
+    if (fread(buf, 1, (size_t)size, f) != (size_t)size) {
+        fprintf(stderr, "error: cannot read tape file '%s'\n", path);
+        free(buf);
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+
+    tape_free(m);
+
+    if (size > 10 && memcmp(buf, "ZXTape!\x1A", 8) == 0) {
+        tzx_parse(m, buf, size, path, &cap);
+    } else {
+        off = 0;
+        while (off + 2 <= size) {
+            uint16_t len = (uint16_t)(buf[off] | (buf[off + 1] << 8));
+            off += 2;
+            if (off + len > size) {
+                fprintf(stderr,
+                        "warning: tape '%s': truncated block %d, ignored\n",
+                        path, m->tape.nblocks);
+                break;
+            }
+            if (trap_block_add(m, buf + off, len, &cap)) {
+                free(buf);
+                tape_free(m);
+                return -1;
+            }
+            emit_data(m, T_PILOT,
+                      (len && buf[off] < 128) ? PILOT_HDR : PILOT_DATA,
+                      T_SYNC1, T_SYNC2, T_BIT0, T_BIT1, 8, 1000,
+                      buf + off, len);
+            off += len;
+        }
+    }
+    free(buf);
+
+    if (m->tape.nblocks == 0 && m->player.npulses == 0) {
+        fprintf(stderr, "error: tape '%s' contains no blocks\n", path);
+        return -1;
+    }
+    m->tape.pos = 0;
+    m->tape.attached = 1;
+    return 0;
+}
+
+/* ---- Pulse player ---- */
+
+void tape_play_start(Machine *m)
+{
+    TapePlayer *p = &m->player;
+    if (!p->npulses)
+        return;
+    p->idx = 0;
+    p->ear = 0;
+    p->edge_ts = m->cpu.tstates + p->pulses[0];
+    p->playing = 1;
+}
+
+int tape_player_ear(Machine *m)
+{
+    TapePlayer *p = &m->player;
+    while (p->playing && m->cpu.tstates >= p->edge_ts) {
+        p->ear ^= 1;
+        p->idx++;
+        if (p->idx < p->npulses) {
+            p->edge_ts += p->pulses[p->idx];
+        } else {
+            p->playing = 0;
+            p->ear = 0;
+        }
+    }
+    return p->ear;
+}
+
+/* Simulate RET. */
+static void trap_ret(Machine *m)
+{
+    Z80 *z = &m->cpu;
+    uint16_t lo = z->mem_read(z->ctx, z->sp.w);
+    uint16_t hi = z->mem_read(z->ctx, (uint16_t)(z->sp.w + 1));
+    z->pc.w = (uint16_t)(lo | (hi << 8));
+    z->sp.w = (uint16_t)(z->sp.w + 2);
+    z->memptr.w = z->pc.w;
+}
+
+/* ROM SA-BYTES trap at PC=0x04C2: append the block to the --save-tape
+ * .tap file. Entry: A = flag byte, IX = start, DE = length. */
+void tape_save_trap(Machine *m)
+{
+    Z80 *z = &m->cpu;
+    uint16_t n = z->de.w;
+    uint8_t flag = z->af.b.h, cs;
+    uint16_t i;
+    FILE *f = fopen(m->save_tape, "ab");
+
+    if (!f) {
+        fprintf(stderr, "error: cannot append to '%s'\n", m->save_tape);
+        z->af.b.l &= (uint8_t)~ZF_C;
+        trap_ret(m);
+        return;
+    }
+    fputc((n + 2) & 0xFF, f);
+    fputc(((n + 2) >> 8) & 0xFF, f);
+    fputc(flag, f);
+    cs = flag;
+    for (i = 0; i < n; i++) {
+        uint8_t b = z->mem_read(z->ctx, (uint16_t)(z->ix.w + i));
+        fputc(b, f);
+        cs ^= b;
+    }
+    fputc(cs, f);
+    fclose(f);
+
+    z->ix.w = (uint16_t)(z->ix.w + n);
+    z->de.w = 0;
+    z->af.b.l |= ZF_C;                 /* success */
+    trap_ret(m);
+}
+
+/* ROM LD-BYTES trap at PC=0x0556.
+ * Entry: A = expected flag byte, IX = destination, DE = byte count,
+ * carry set = LOAD (verify treated identically). */
+void tape_trap(Machine *m)
+{
+    Z80 *z = &m->cpu;
+    TapBlock *blk;
+    uint8_t want = z->af.b.h;
+    uint16_t requested = z->de.w;
+
+    if (m->tape.pos >= m->tape.nblocks) {
+        z->af.b.l &= (uint8_t)~ZF_C;   /* no more data: error */
+        trap_ret(m);
+        return;
+    }
+
+    blk = &m->tape.blocks[m->tape.pos++];
+
+    if (blk->len < 1 || blk->data[0] != want) {
+        z->af.b.l &= (uint8_t)~ZF_C;   /* flag mismatch */
+        trap_ret(m);
+        return;
+    }
+
+    {
+        uint32_t avail = (blk->len >= 2) ? (uint32_t)(blk->len - 2) : 0;
+        uint32_t n = requested < avail ? requested : avail;
+        uint32_t i;
+        for (i = 0; i < n; i++)
+            z->mem_write(z->ctx, (uint16_t)(z->ix.w + i), blk->data[1 + i]);
+        z->ix.w = (uint16_t)(z->ix.w + n);
+        z->de.w = (uint16_t)(z->de.w - n);
+        if (n == requested)
+            z->af.b.l |= ZF_C;          /* success */
+        else
+            z->af.b.l &= (uint8_t)~ZF_C;
+        z->af.b.h = 0;
+    }
+    trap_ret(m);
+}
