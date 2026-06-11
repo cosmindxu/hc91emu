@@ -72,6 +72,8 @@ typedef struct Beeper {
 } Beeper;
 
 /* ---- Machine ---- */
+struct Debugger;                 /* debug.h (optional monitor) */
+
 typedef struct Machine {
     Z80 cpu;
     uint8_t mem[65536];      /* 0x0000-0x3FFF ROM (write-protected) */
@@ -109,6 +111,8 @@ typedef struct Machine {
     uint32_t render_pos;     /* frame T painted so far */
     int fb_live;             /* 1 = paint this frame while executing */
     int fb_valid;            /* fb holds a completed beam-painted frame */
+
+    struct Debugger *dbg;    /* attached monitor, or NULL (debug.c) */
 } Machine;
 
 /* wav.c */
@@ -120,6 +124,7 @@ int  beep_save(Machine *m, const char *path, uint64_t now_ts);
 int  machine_init(Machine *m, const char *rom_path);   /* 0 ok, -1 error */
 int  machine_load_file(Machine *m, const char *path);  /* by extension */
 void machine_run_frame(Machine *m);
+uint8_t machine_peek(const Machine *m, uint16_t addr); /* no side effects */
 
 /* video.c */
 void video_render(const Machine *m, uint32_t *fb /* HC91_FB_W*HC91_FB_H */);
