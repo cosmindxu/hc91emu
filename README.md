@@ -164,8 +164,11 @@ overrides it.
   runtime. Headless remains the default; tests use SDL's dummy drivers.
 - **Tape**: `.tap`/`.tzx` load instantly via the LD-BYTES ROM trap by
   default, or at pulse level with `--real-tape` (the tape becomes an
-  EAR edge stream with exact T-state timing; TZX turbo/tone/pulse/loop
-  blocks supported). `SAVE` output is captured to `.tap` via the
+  EAR edge stream with exact T-state timing). The TZX block repertoire
+  covers standard/turbo data, tone/pulse/pause/loop/info blocks, **CSW
+  recordings (0x18, RLE and zlib Z-RLE)** and **generalized data blocks
+  (0x19**, symbol alphabets + PRLE pilot + bit stream, incl. the
+  polarity flags**)**. `SAVE` output is captured to `.tap` via the
   SA-BYTES trap (`--save-tape FILE`).
 - 50 Hz frame interrupt (drift-free 69888 T frames).
 - **HC-91 CP/M mode**: port `0x7E` bit 0 pages a separate low 16K RAM
