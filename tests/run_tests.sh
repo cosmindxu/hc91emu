@@ -296,6 +296,50 @@ $EMU --rom roms/hc91.rom "$OUT/calc.rzx" --frames 460 --text 2>/dev/null \
   | grep -q "^14"
 check $? "RZX replay reproduces the recorded session (PRINT 2+3*4 = 14)"
 
+echo "== 17. HC family: HC-85/HC-90 ROMs + HC-128 (0x7FFD banks, AY) =="
+$EMU --machine hc85 --frames 250 --text 2>/dev/null | grep -q "HC - 85"
+check $? "HC-85 ROM boots to its banner"
+$EMU --machine hc90 --frames 250 --text 2>/dev/null | grep -q "HC - 90"
+check $? "HC-90 ROM boots to its banner"
+# HC-128 = HC-91-derived ROM + 128K RAM via 0x7FFD + AY at FFFD/BFFD
+# (both confirmed by code in the genuine ROM). BASIC recipe: CLEAR the
+# stack below the banked region, write different values to banks 0/1 at
+# 0xC000, switch back and PEEK (= 11); then program a 1007.6 Hz AY tone
+# on channel A through OUTs and save snapshots while it plays.
+$EMU --machine hc128 --frames 2140 --wav "$OUT/ay128.wav" \
+     --save-szx "$OUT/rt128.szx" --save-z80 "$OUT/rt128.z80" \
+     --type 'x32767\n@260' --type ' @392' \
+     --keys '404:CAPS+SYM' --keys '416:SYM+O' --type '32765,16:@428' \
+     --type 'o49152,11:@548' \
+     --keys '680:CAPS+SYM' --keys '692:SYM+O' --type '32765,17:@704' \
+     --type 'o49152,22:@824' \
+     --keys '956:CAPS+SYM' --keys '968:SYM+O' --type '32765,16:@980' \
+     --type 'p@1100' --keys '1112:CAPS+SYM' --type 'o49152\n@1124' \
+     --type ' @1248' \
+     --keys '1260:CAPS+SYM' --keys '1272:SYM+O' --type '65533,0:@1284' \
+     --keys '1392:CAPS+SYM' --keys '1404:SYM+O' --type '49149,110:@1416' \
+     --keys '1548:CAPS+SYM' --keys '1560:SYM+O' --type '65533,7:@1572' \
+     --keys '1680:CAPS+SYM' --keys '1692:SYM+O' --type '49149,62:@1704' \
+     --keys '1824:CAPS+SYM' --keys '1836:SYM+O' --type '65533,8:@1848' \
+     --keys '1956:CAPS+SYM' --keys '1968:SYM+O' --type '49149,15\n@1980' \
+     --text > "$OUT/hc128.txt" 2>/dev/null
+grep -qE "^11 " "$OUT/hc128.txt"
+check $? "HC-128: 0x7FFD pages distinct banks at 0xC000"
+python3 tests/check_beep.py "$OUT/ay128.wav" 1007.6 1 14 > /dev/null
+check $? "HC-128: AY channel A tone measures ~1007.6 Hz"
+$EMU --machine hc128 "$OUT/rt128.szx" --frames 100 --wav "$OUT/rl128.wav" \
+     --text 2>/dev/null | grep -qE "^11 "
+check $? "HC-128 .szx (8 pages + AY block) round-trips"
+python3 tests/check_beep.py "$OUT/rl128.wav" 1007.6 10 22 > /dev/null
+check $? "HC-128 .szx reload: AY tone resumes"
+$EMU --machine hc128 "$OUT/rt128.z80" --frames 100 --wav "$OUT/rl128b.wav" \
+     --text 2>/dev/null | grep -qE "^11 "
+check $? "HC-128 .z80 (v2 mode 3, banks 0-7) round-trips"
+python3 tests/check_beep.py "$OUT/rl128b.wav" 1007.6 10 22 > /dev/null
+check $? "HC-128 .z80 reload: AY tone resumes"
+$EMU "$OUT/rt128.z80" --frames 5 2>&1 | grep -q "128K snapshot"
+check $? "48K machine refuses 128K snapshots with a hint"
+
 if [ "${RUN_Z80TEST:-0}" = 1 ]; then
   echo "== 8. Rak's z80test in-emulator (slow: ~2 min each) =="
   YS=""

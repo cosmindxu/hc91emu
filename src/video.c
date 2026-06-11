@@ -18,13 +18,14 @@ static uint32_t spec_color(int idx, int bright)
     return r | (g << 8) | (b << 16) | 0xFF000000u;
 }
 
-/* Paint one 8x1-px character cell column at display line y. */
+/* Paint one 8x1-px character cell column at display line y. Reads go
+ * through m->screen (bank 5/7 on the HC-128, 0x4000 on 48K models). */
 static void paint_cell(const Machine *m, uint32_t *dst, int y, int col)
 {
-    uint16_t paddr = (uint16_t)(0x4000 | ((y & 0xC0) << 5) |
+    uint16_t paddr = (uint16_t)(((y & 0xC0) << 5) |
                                 ((y & 7) << 8) | ((y & 0x38) << 2) | col);
-    uint8_t bits = m->mem[paddr];
-    uint8_t attr = m->mem[0x5800 + (y >> 3) * 32 + col];
+    uint8_t bits = m->screen[paddr];
+    uint8_t attr = m->screen[0x1800 + (y >> 3) * 32 + col];
     int ink = attr & 7;
     int paper = (attr >> 3) & 7;
     int bright = (attr >> 6) & 1;
@@ -157,11 +158,10 @@ void video_screen_text(const Machine *m, char out[24][33])
             char ch = '?';
 
             for (line = 0; line < 8; line++) {
-                uint16_t paddr = (uint16_t)(0x4000 |
-                                            ((row & 0x18) << 8) |
+                uint16_t paddr = (uint16_t)(((row & 0x18) << 8) |
                                             (line << 8) |
                                             ((row & 7) << 5) | col);
-                cell[line] = m->mem[paddr];
+                cell[line] = m->screen[paddr];
                 if (cell[line])
                     allzero = 0;
             }
@@ -170,12 +170,13 @@ void video_screen_text(const Machine *m, char out[24][33])
                 continue;
             }
             for (c = 32; c < 128 && ch == '?'; c++) {
-                const uint8_t *g = &m->mem[0x3D00 + (c - 32) * 8];
                 int direct = 1, inverted = 1;
                 for (line = 0; line < 8; line++) {
-                    if (cell[line] != g[line])
+                    uint8_t g = machine_peek(m, (uint16_t)(0x3D00 +
+                                             (c - 32) * 8 + line));
+                    if (cell[line] != g)
                         direct = 0;
-                    if (cell[line] != (uint8_t)(g[line] ^ 0xFF))
+                    if (cell[line] != (uint8_t)(g ^ 0xFF))
                         inverted = 0;
                 }
                 if (direct || inverted)

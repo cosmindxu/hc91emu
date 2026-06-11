@@ -6,7 +6,7 @@ SRC     := src
 MACHINE_OBJS := $(BUILD)/z80.o $(BUILD)/machine.o $(BUILD)/video.o \
                 $(BUILD)/tape.o $(BUILD)/snapshot.o $(BUILD)/keys.o \
                 $(BUILD)/png.o $(BUILD)/wav.o $(BUILD)/disasm.o \
-                $(BUILD)/debug.o $(BUILD)/sdl.o $(BUILD)/inflate.o \
+                $(BUILD)/debug.o $(BUILD)/sdl.o $(BUILD)/inflate.o $(BUILD)/ay.o \
                 $(BUILD)/rzx.o $(BUILD)/main.o
 
 # sdl.c dlopen()s the SDL2 runtime; -ldl covers pre-2.34 glibc.

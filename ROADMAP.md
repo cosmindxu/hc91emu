@@ -1,11 +1,15 @@
 # HC-91 Emulator — Roadmap
 
-Current state (2026-06-11): Z80 core passes zexdoc/zexall, Rak's
-z80full/z80ccf/z80memptr (160/160) and 162,000 SingleStepTests vectors;
-cycle-exact contention + beam video, beeper WAV, pulse tape + TZX, all
-snapshot formats save/load, joysticks, HC-91 CP/M paging, debugger; suite
-43/43 green (incl. gated slow suites), CI configured. Remaining phases:
-4 (SDL2 frontend), 8b (SZX/RZX), 10 (HC family stretch).
+Current state (2026-06-11): **all ten phases complete.** Z80 core passes
+zexdoc/zexall, Rak's z80full/z80ccf/z80memptr (160/160) and 162,000
+SingleStepTests vectors; cycle-exact contention + beam-accurate video;
+beeper (WAV + live SDL audio); pulse tape + TZX; .sna/.z80/.szx/.scr
+save+load and RZX record/replay; Kempston/Sinclair/cursor joysticks;
+HC-91 CP/M paging; scriptable debugger; SDL2 frontend (dlopen, zero
+build deps); HC-85/HC-90/HC-128 (128K banking + AY); CI with an ASan
+job. Suite: 56 tests green (incl. gated slow suites). Open stretch
+items beyond the roadmap: HC-88/HC-2000 disk+CP/M hardware, ULA snow,
+TZX 0x18/0x19 blocks.
 
 ---
 
@@ -259,7 +263,7 @@ Git history started (software/ and vectors excluded);
 (vectors cached). `tests/pchist.c` stays as a standalone PC-histogram
 tool; the monitor supersedes it for interactive work.
 
-## Phase 10 — Stretch: the rest of the HC family
+## Phase 10 — Stretch: the rest of the HC family — ✅ DONE (2026-06-11)
 
 The same chassis can host the HC-85/HC-88/HC-90 (ROMs already at
 speccy4ever, all 48K-class) and, more ambitiously, the **HC-128 /
@@ -267,6 +271,28 @@ HC-2000** (128K-class: AY-3-8912 sound, memory paging via `0x7FFD`,
 two screens, disk). That means AY emulation, 128K paging/contention
 variants, and `.z80`/`.szx` 128K page sets — a separate project phase
 of its own.
+
+**Status: shipped** (`--machine hc85|hc90|48k|hc91|hc128`). Research on
+the genuine ROM dumps corrected the assumptions above: HC-85/HC-90 are
+27-byte banner variants of the 48K ROM (boot tests in the suite);
+**HC-128 is HC-91-derived** — its ROM replaces the CP/M stub region
+(0x386E-0x3C46) with code that drives **port 0x7FFD** banking and an
+**AY-3-8912 at 0xFFFD/0xBFFD** (both read out of the disassembly), so
+exactly the planned hardware was implemented: 8×16K banks (0x4000=5,
+0x8000=2, 0xC000=latch bits 0-2), shadow screen bit 3 (beam renderer
+follows `m->screen`), ROM-select bit 4 (`--rom1`; the single dumped
+image is duplicated by default), lock bit 5, odd-bank contention, and a
+full AY (tone/noise/envelope, measured volume curve, clock/8 master
+tick) mixed into the beeper stream sample-accurately. `.z80` (v2
+hardware mode 3, pages 3-10) and `.szx` (machine id 2, 8 RAMP pages +
+AY block) save/load the 128K state; 48K snapshots load into USR0-style
+banks; the 48K machine refuses 128K files with a hint. Suite: 9 tests
+(banner boots; bank round-trip via BASIC OUT/POKE/PEEK; AY tone A
+measured at 1007.5 Hz vs the ideal 1007.6; snapshot round-trips with
+the tone resuming). Out of scope, documented: HC-88 (a CP/M machine —
+its dump is a 2K boot ROM needing disk hardware) and the HC-2000's
+floppy/CP/M side (its ROM 0 is a 48K BASIC variant that would boot
+today; the disk interface is its own project).
 
 ---
 

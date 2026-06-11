@@ -6,14 +6,17 @@
 #include "debug.h"
 #include "rzx.h"
 
-#define MAX_TYPE_OPTS 16
-#define MAX_KEYS_OPTS 16
+#define MAX_TYPE_OPTS 32
+#define MAX_KEYS_OPTS 32
 
 static void usage(const char *prog)
 {
     fprintf(stderr,
         "usage: %s [options] [file.tap/.tzx/.sna/.z80/.szx/.scr/.rzx]\n"
-        "  --rom FILE        ROM image (default: roms/hc91.rom)\n"
+        "  --machine M       hc91 (default) | hc85 | hc90 | 48k | hc128\n"
+        "                    (hc128: 128K RAM via 0x7FFD + AY at 0xFFFD)\n"
+        "  --rom FILE        ROM image (default: per --machine)\n"
+        "  --rom1 FILE       second 16K ROM for hc128 (default: copy of ROM 0)\n"
         "  --frames N        frames to run (default 300)\n"
         "  --screenshot F    write PNG of final frame\n"
         "  --text            print 24x32 OCR text of final screen\n"
@@ -83,7 +86,10 @@ int main(int argc, char **argv)
 {
     static Machine machine;       /* large: keep off the stack */
     Machine *m = &machine;
-    const char *rom_path = "roms/hc91.rom";
+    const char *rom_path = NULL;  /* default chosen per --machine */
+    const char *rom1_path = NULL;
+    const char *machine_name = "hc91";
+    int model_128 = 0;
     const char *file_path = NULL;
     const char *screenshot_path = NULL;
     const char *wav_path = NULL;
@@ -114,6 +120,12 @@ int main(int argc, char **argv)
         if (!strcmp(a, "--rom")) {
             if (++i >= argc) { usage(argv[0]); return 1; }
             rom_path = argv[i];
+        } else if (!strcmp(a, "--rom1")) {
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            rom1_path = argv[i];
+        } else if (!strcmp(a, "--machine")) {
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            machine_name = argv[i];
         } else if (!strcmp(a, "--frames")) {
             if (++i >= argc) { usage(argv[0]); return 1; }
             frames = atoi(argv[i]);
@@ -239,7 +251,26 @@ int main(int argc, char **argv)
         }
     }
 
+    {
+        const char *def_rom;
+        if (!strcmp(machine_name, "hc91"))       def_rom = "roms/hc91.rom";
+        else if (!strcmp(machine_name, "hc85"))  def_rom = "roms/hc-85.rom";
+        else if (!strcmp(machine_name, "hc90"))  def_rom = "roms/hc-90.rom";
+        else if (!strcmp(machine_name, "48k"))   def_rom = "roms/48.rom";
+        else if (!strcmp(machine_name, "hc128")) {
+            def_rom = "roms/hc-128.rom";
+            model_128 = 1;
+        } else {
+            fprintf(stderr, "error: unknown --machine '%s'\n", machine_name);
+            return 1;
+        }
+        if (!rom_path)
+            rom_path = def_rom;
+    }
+
     if (machine_init(m, rom_path) != 0)
+        return 1;
+    if (model_128 && machine_set_128(m, rom1_path) != 0)
         return 1;
     if (no_floating_bus)
         m->floating_bus = 0;
