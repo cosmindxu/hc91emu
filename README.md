@@ -12,8 +12,8 @@ home computer produced from 1991 in Bucharest
 | ROM       | 16 KB — Sinclair-derived BASIC, boot banner "HC - 91  I.C.E. FELIX" |
 | RAM       | 48 KB usable (64 KB address space incl. ROM) |
 | Video     | 256×192, 15 colours, ULA-compatible (rendered here with border, 320×240) |
-| Storage   | Cassette tape (`.tap` images, instant ROM-trap loading) |
-| Extras    | CP/M bootstrap hook via port `0x7E` (present in ROM, not emulated) |
+| Storage   | Cassette tape (`.tap`/`.tzx`, ROM-trap or pulse-level loading) |
+| Extras    | CP/M mode: port `0x7E` pages RAM over ROM (emulated; the machine has 64K RAM) |
 
 The HC-91 ROM differs from the original Sinclair 48K ROM in only 50 bytes
 (the copyright banner and a small CP/M boot stub), so the machine is fully
@@ -24,9 +24,11 @@ the test suite demonstrates with period software.
 
 ```sh
 make            # builds build/hc91emu (the emulator) and build/zexrun (CPU test harness)
-make test       # suite: unit tests (timing/contention) + zexdoc + boot/BASIC/software
+make test       # suite: unit tests (timing/contention/disasm) + zexdoc + boot/BASIC/software
 make test-full  # same but also runs the (slow) zexall undocumented-flags exerciser
                 # RUN_Z80TEST=1 additionally re-runs Rak's z80full+z80ccf taps (~4 min)
+tests/get_vectors.sh   # one-time: fetch the SingleStepTests/z80 vector subset
+                       # (~130 MB); 'make test' then cross-checks all 162,000
 ```
 
 No external dependencies: plain C99 + libc. Screenshots are written as PNG
@@ -36,6 +38,11 @@ by a built-in encoder; screen contents can also be read back as text
 ## Usage
 
 ```sh
+# Play interactively: SDL2 window, 50 Hz, live beeper audio.
+# (Shift=CAPS SHIFT, Ctrl=SYMBOL SHIFT, Backspace=DELETE, Esc=BREAK,
+#  arrows=cursors, gamepad=Kempston, Tab=turbo, F5=pause, F10=quit)
+./build/hc91emu --sdl software/jet_set_willy.tap --autoload
+
 ./build/hc91emu [options] [program.tap|.sna|.z80]
 
   --rom FILE        ROM image (default roms/hc91.rom)
@@ -46,6 +53,8 @@ by a built-in encoder; screen contents can also be read back as text
   --keys "F:NAMES"  press raw key chord (e.g. "100:SYM+P") at frame F
   --autoload        types LOAD "" automatically (for .tap files)
   --wav FILE        record beeper audio to a 44.1 kHz mono WAV
+  --break ADDR      debugger: stop at PC (also --watch/--rwatch/--pwatch,
+                    --monitor, --debug "cmds", --trace FILE; see below)
 ```
 
 Examples:
@@ -63,6 +72,12 @@ Examples:
 # Resume a snapshot
 ./build/hc91emu software/game.z80 --frames 500 --screenshot snap.png
 
+# Debug: break at an address, inspect, single-step (scripted or stdin REPL)
+./build/hc91emu --frames 5 --break 11CB \
+    --debug "regs;dis pc 8;mem 5C00 32;step 3;regs;cont"
+./build/hc91emu game.tap --autoload --watch 5C78 --pwatch FE   # watchpoints
+./build/hc91emu --frames 2 --trace boot.txt                    # full trace
+
 # Save state / screen after a run (.sna, .z80 v2, raw .scr)
 ./build/hc91emu software/manic_miner.tap --autoload --frames 1500 \
     --save-sna mm.sna --save-z80 mm.z80 --save-scr mm.scr
@@ -77,13 +92,17 @@ standard Sinclair 48K ROM, also usable with `--rom`.
 
 ## Emulation notes / limitations
 
-- Full Z80 core incl. undocumented opcodes/flags, MEMPTR (WZ), the internal
-  **Q register** (SCF/CCF X/Y behavior; not latched by `POP AF`/`EX AF,AF'`,
-  matching Zilog NMOS) and interrupted-block-instruction flag leakage.
-  Validation: **zexdoc and zexall pass (67/67 each)** and Patrik Rak's
-  in-machine suites pass — **z80doc, the strict z80full, AND z80ccf all
-  report "all tests passed" (160/160)**, with the core correctly
-  identifying as a Zilog NMOS part (NEC/ST variant tests skip).
+- Full Z80 core incl. undocumented opcodes/flags, MEMPTR (WZ — incl. the
+  repeat-taken `WZ=PC+1` of INxR/OTxR), the internal **Q register**
+  (SCF/CCF X/Y behavior; not latched by `POP AF`/`EX AF,AF'`, matching
+  Zilog NMOS) and interrupted-block-instruction flag leakage.
+  Validation: **zexdoc and zexall pass (67/67 each)**; Patrik Rak's
+  in-machine suites pass — **z80doc, the strict z80full, z80ccf AND
+  z80memptr all report "all tests passed" (160/160)**, with the core
+  correctly identifying as a Zilog NMOS part; and **all 162,000
+  SingleStepTests/z80 vectors** in the suite's 162-file subset match
+  (registers, WZ/Q/EI-pending, RAM, T-state totals, I/O transactions) —
+  `tests/get_vectors.sh` fetches them, `build/sst` replays them.
 - **Memory & I/O contention**: T-states are charged per M-cycle with the
   ULA's `6,5,4,3,2,1,0,0` stall pattern (T=14335 origin, 224 T lines) on
   0x4000–0x7FFF accesses and on I/O per the documented port-decoding
@@ -108,9 +127,15 @@ standard Sinclair 48K ROM, also usable with `--rom`.
   and cursor-key joysticks as matrix aliases; drive any of them in
   scripts with `--joy "F-G:U+D+L+R+F"` and `--joy-type`.
 - **Beeper audio**: ULA speaker-bit transitions are box-filtered into
-  44.1 kHz mono WAV (`--wav out.wav`); verified to tuning accuracy
-  (BASIC `BEEP 1,0` renders 261.1 Hz vs the ideal 261.63 Hz middle C).
-  No live audio yet (that arrives with the SDL frontend).
+  44.1 kHz mono samples — recorded to WAV (`--wav out.wav`; verified to
+  tuning accuracy: BASIC `BEEP 1,0` renders 261.1 Hz vs the ideal
+  261.63 Hz middle C) and played live in the SDL frontend.
+- **SDL2 frontend** (`--sdl`): resizable 2× window, audio-clocked 50 Hz
+  pacing, live beeper, host keyboard → matrix (incl. composed keys),
+  game controller → Kempston, Tab turbo / F5 pause / F10 quit. The
+  frontend dlopen()s the SDL2 runtime, so building still needs **no**
+  SDL headers or libraries — `--sdl` just needs `libSDL2-2.0.so.0` at
+  runtime. Headless remains the default; tests use SDL's dummy drivers.
 - **Tape**: `.tap`/`.tzx` load instantly via the LD-BYTES ROM trap by
   default, or at pulse level with `--real-tape` (the tape becomes an
   EAR edge stream with exact T-state timing; TZX turbo/tone/pulse/loop
@@ -122,6 +147,15 @@ standard Sinclair 48K ROM, also usable with `--rom`.
   bootstrap (`RANDOMIZE USR 14446`) runs and lands at PC=0 in paged RAM.
   No disk interface yet, so a full CP/M boot is not possible — the bank
   is pre-filled with HALT so the bare bootstrap parks cleanly.
+- **Debugger/monitor**: full-coverage disassembler (`dtest` locks 124
+  cases), PC breakpoints, memory read/write and I/O port watchpoints,
+  single-step, hex dump, registers with frame-relative T-states, and
+  per-instruction trace-to-file. Scriptable (`--debug "regs;step 3;cont"`)
+  for tests, interactive on a tty; commands: `regs dis mem step cont
+  break watch rwatch pwatch trace quit help`.
+- **CI**: GitHub Actions workflow builds, fetches/caches the
+  SingleStepTests vectors, runs the suite, and repeats the unit/machine
+  tests under AddressSanitizer + UBSan.
 
 ## Test results (2026-06-11)
 
@@ -132,9 +166,13 @@ standard Sinclair 48K ROM, also usable with `--rom`.
 | z80doc (Rak, in-machine, tape-loaded) | all 160 passed |
 | z80full (Rak, strict: Q reg, MEMPTR, block flags) | all 160 passed |
 | z80ccf (Rak, CCF after every instruction — Q + flags) | all 160 passed |
+| z80memptr (Rak, WZ behavior) | all 160 passed |
+| SingleStepTests/z80 vectors (162-file subset) | 162,000/162,000 match |
 | z80ccfscr (visual CCF pattern) | matches frozen golden (`make test`) |
 | ttest (45 instruction T-state totals) | all OK |
 | ctest (50 per-M-cycle contention breakdowns) | all OK |
+| dtest (124 disassembly cases, all prefixes) | all OK |
+| Debugger (breakpoint/step/watch/pwatch/trace) | 5 suite tests pass |
 | Beam video: border rainbow tap | 8 colors, 228 transitions per border column |
 | Beam video: multicolour attr racing | 5 paper colors inside one 8×8 cell |
 | HC-91 ROM boot | "HC - 91 … I.C.E. FELIX" banner |
@@ -148,3 +186,5 @@ standard Sinclair 48K ROM, also usable with `--rom`.
 | Arkanoid (.tap + .z80) | loads; round 1 playable — floating-bus beam-sync works (game freezes with `--no-floating-bus`) |
 | Beeper: BASIC `BEEP 1,0` | 1.0 s tone at 261.1 Hz (middle C, 0.2% off ideal — ROM quantization) |
 | Beeper: Manic Miner title music | Blue Danube renders as WAV, full melody |
+| SDL2 frontend (dummy drivers, 250-frame session) | boots to banner, paced, audio queue live |
+| SDL2 frontend (real X11) | Jet Set Willy to menu at 50 Hz with sound |

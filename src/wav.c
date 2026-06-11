@@ -74,6 +74,15 @@ void beep_edge(Machine *m, uint64_t now_ts, int new_level)
     b->level = new_level;
 }
 
+/* Synthesize up to `now` without a level change — the live (SDL) frontend
+ * calls this once per frame, drains buf[0..n) to the audio device and
+ * resets n; pos/acc/last_td carry the fractional state across frames. */
+void beep_flush(Machine *m, uint64_t now_ts)
+{
+    if (m->beep.enabled)
+        advance(m, now_ts);
+}
+
 static void put32(FILE *f, uint32_t v) { fputc(v & 0xff, f); fputc((v >> 8) & 0xff, f); fputc((v >> 16) & 0xff, f); fputc(v >> 24, f); }
 static void put16(FILE *f, uint16_t v) { fputc(v & 0xff, f); fputc(v >> 8, f); }
 

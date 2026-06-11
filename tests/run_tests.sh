@@ -99,14 +99,16 @@ if [ -f software/arkanoid.z80 ]; then
   [ "$na" = "$nb" ];  check $? "Arkanoid freezes without floating bus (sanity)"
 fi
 
-echo "== 7. CCF/Q + contention: z80ccfscr golden pattern =="
-# z80ccfscr fills the screen via POP AF/CCF — the pattern is a fingerprint
-# of the Q-register and SCF/CCF X/Y behavior (Zilog NMOS). Golden frozen
-# from the core that passes z80ccf 160/160.
-$EMU --rom roms/hc91.rom software/z80test/z80ccfscr.tap --autoload --turbo \
-     --frames 2500 --screenshot "$OUT/ccfscr.png" > /dev/null 2>&1
-[ "$(md5sum < "$OUT/ccfscr.png")" = "$(md5sum < tests/ccfscr_golden.png)" ]
-check $? "z80ccfscr pattern matches golden (Q/CCF fingerprint)"
+if [ -f software/z80test/z80ccfscr.tap ]; then
+  echo "== 7. CCF/Q + contention: z80ccfscr golden pattern =="
+  # z80ccfscr fills the screen via POP AF/CCF — the pattern is a fingerprint
+  # of the Q-register and SCF/CCF X/Y behavior (Zilog NMOS). Golden frozen
+  # from the core that passes z80ccf 160/160.
+  $EMU --rom roms/hc91.rom software/z80test/z80ccfscr.tap --autoload --turbo \
+       --frames 2500 --screenshot "$OUT/ccfscr.png" > /dev/null 2>&1
+  [ "$(md5sum < "$OUT/ccfscr.png")" = "$(md5sum < tests/ccfscr_golden.png)" ]
+  check $? "z80ccfscr pattern matches golden (Q/CCF fingerprint)"
+fi
 
 echo "== 7b. Beam renderer: mid-frame border stripes =="
 # A tight OUT-(0xFE) loop (~31 T/color) paints diagonal rainbow border
@@ -242,6 +244,21 @@ if [ -n "$(ls tests/vectors/*.json 2>/dev/null)" ]; then
   [ $rc = 0 ]; check $? "SingleStepTests vectors all match"
 else
   echo "== 14. SingleStepTests vectors: SKIP (run tests/get_vectors.sh) =="
+fi
+
+if ldconfig -p 2>/dev/null | grep -q "libSDL2-2\.0\.so\.0"; then
+  echo "== 15. SDL2 frontend (dlopen, dummy video/audio drivers) =="
+  # Interactive loop headlessly: window+renderer+audio open, 150 paced
+  # frames run, then the normal screenshot path shows the boot banner.
+  SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+    $EMU --rom roms/hc91.rom --sdl --sdl-frames 250 --text \
+    > "$OUT/sdl.txt" 2>"$OUT/sdl_err.txt"
+  rc=$?
+  grep -q "sdl: exiting after 250 frames" "$OUT/sdl_err.txt" \
+    && grep -q "HC - 91" "$OUT/sdl.txt" && [ $rc = 0 ]
+  check $? "SDL session runs 250 frames and boots to the banner"
+else
+  echo "== 15. SDL2 frontend: SKIP (libSDL2 runtime not present) =="
 fi
 
 if [ "${RUN_Z80TEST:-0}" = 1 ]; then
