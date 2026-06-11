@@ -200,7 +200,7 @@ absent ⇒ port keeps floating, so Arkanoid's beam-sync still works);
 matrix keys. Suite test 11 reads the port from BASIC (`IN 31` = 17/0)
 and checks both key aliases.
 
-## Phase 8 — Formats & state — 8a ✅ DONE (2026-06-11)
+## Phase 8 — Formats & state — ✅ DONE (8a + 8b, 2026-06-11)
 
 - Snapshot *saving*: `.sna` and `.z80` (we only load today) — also makes
   test recipes trivial (snapshot right before the interesting moment,
@@ -215,7 +215,21 @@ and checks both key aliases.
 pages) / `--save-scr`; `.scr` also loads (parks the CPU so the ROM can't
 wipe it). HALT state survives by re-pointing PC at the HALT opcode.
 Suite test 9 saves the running multicolour engine and resumes it from
-both snapshot formats. Remaining: 8b (`.szx`, `.rzx`).
+both snapshot formats.
+
+**Status: 8b shipped** — `.szx` (zx-state v1.4, 48K) saves
+(`--save-szx`: CRTR/Z80R/SPCR/RAMP, uncompressed) and loads, including
+**zlib-compressed RAM pages via a built-in ~300-line DEFLATE inflater**
+(`src/inflate.c`, validated against Python zlib output at all levels) —
+no external dependency added. SZX's real EI/HALTED flags and WZ are
+honored. `.rzx` is implemented as a **recorder + player pair**
+(`--rzx-record FILE` / pass a `.rzx` as input): frames are
+fetch-count-bounded (the core grew a `fetches` counter on every R bump)
+with port reads fed from the recording, so a recorded session replays
+exactly — suite test 16 records a typed BASIC calculation and replays
+it to the same screen with no key events; compressed/foreign RZX input
+blocks are supported (protected/encrypted ones are rejected). Playback
+falls back to normal emulation when the recording ends.
 
 ## Phase 9 — Debugger & tooling — ✅ DONE (2026-06-11)
 

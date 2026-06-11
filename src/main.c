@@ -4,6 +4,7 @@
 #include <string.h>
 #include "machine.h"
 #include "debug.h"
+#include "rzx.h"
 
 #define MAX_TYPE_OPTS 16
 #define MAX_KEYS_OPTS 16
@@ -11,7 +12,7 @@
 static void usage(const char *prog)
 {
     fprintf(stderr,
-        "usage: %s [options] [file.tap|file.sna|file.z80]\n"
+        "usage: %s [options] [file.tap/.tzx/.sna/.z80/.szx/.scr/.rzx]\n"
         "  --rom FILE        ROM image (default: roms/hc91.rom)\n"
         "  --frames N        frames to run (default 300)\n"
         "  --screenshot F    write PNG of final frame\n"
@@ -25,7 +26,9 @@ static void usage(const char *prog)
         "  --fb-dump FILE    write final frame as raw 320x240 RGBA\n"
         "  --save-sna FILE   save .sna snapshot after the run\n"
         "  --save-z80 FILE   save .z80 (v2) snapshot after the run\n"
+        "  --save-szx FILE   save .szx (zx-state) snapshot after the run\n"
         "  --save-scr FILE   save raw 6912-byte screen after the run\n"
+        "  --rzx-record FILE record inputs to .rzx (replays with FILE.rzx)\n"
         "  --real-tape       load via the pulse player (no ROM trap)\n"
         "  --play-at N       press PLAY at frame N (default 320 w/ autoload)\n"
         "  --save-tape FILE  capture SAVE (SA-BYTES) output as .tap\n"
@@ -86,6 +89,8 @@ int main(int argc, char **argv)
     const char *wav_path = NULL;
     const char *fbdump_path = NULL;
     const char *save_sna = NULL, *save_z80 = NULL, *save_scr = NULL;
+    const char *save_szx = NULL, *rzx_record = NULL;
+    static Rzx rzx_state;
     const char *save_tape = NULL;
     const char *joy_opts[MAX_KEYS_OPTS];
     const char *joy_type = "kempston";
@@ -158,6 +163,12 @@ int main(int argc, char **argv)
         } else if (!strcmp(a, "--save-scr")) {
             if (++i >= argc) { usage(argv[0]); return 1; }
             save_scr = argv[i];
+        } else if (!strcmp(a, "--save-szx")) {
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            save_szx = argv[i];
+        } else if (!strcmp(a, "--rzx-record")) {
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            rzx_record = argv[i];
         } else if (!strcmp(a, "--real-tape")) {
             real_tape = 1;
         } else if (!strcmp(a, "--play-at")) {
@@ -233,6 +244,7 @@ int main(int argc, char **argv)
     if (no_floating_bus)
         m->floating_bus = 0;
     m->real_tape = real_tape;
+    m->rzx = &rzx_state;
     if (file_path && machine_load_file(m, file_path) != 0)
         return 1;
 
@@ -318,6 +330,9 @@ int main(int argc, char **argv)
     if (wav_path)
         beep_start(m, m->cpu.tstates);
 
+    if (rzx_record && rzx_record_start(m, rzx_record) != 0)
+        return 1;
+
     if (sdl_mode) {
         if (sdl_run(m, sdl_frames) != 0)
             return 1;
@@ -332,12 +347,17 @@ int main(int argc, char **argv)
         }
     }
 
+    if (rzx_record && rzx_record_finish(m) != 0)
+        return 1;
+
     if (wav_path && beep_save(m, wav_path, m->cpu.tstates) != 0)
         return 1;
 
     if (save_sna && snapshot_save_sna(m, save_sna) != 0)
         return 1;
     if (save_z80 && snapshot_save_z80(m, save_z80) != 0)
+        return 1;
+    if (save_szx && snapshot_save_szx(m, save_szx) != 0)
         return 1;
     if (save_scr && screen_save_scr(m, save_scr) != 0)
         return 1;
@@ -374,6 +394,7 @@ int main(int argc, char **argv)
 
     if (dbg.trace)
         fclose(dbg.trace);
+    rzx_free(m);
     tape_free(m);
     return 0;
 }

@@ -116,6 +116,7 @@ static void io_out(Z80 *z, uint16_t port, uint8_t v)
 static void r_inc(Z80 *z)
 {
     z->r = (uint8_t)((z->r & 0x80) | ((z->r + 1) & 0x7f));
+    z->fetches++;
 }
 
 static uint8_t fetch8(Z80 *z)            /* operand fetch: 3T */

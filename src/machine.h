@@ -73,6 +73,7 @@ typedef struct Beeper {
 
 /* ---- Machine ---- */
 struct Debugger;                 /* debug.h (optional monitor) */
+struct Rzx;                      /* rzx.h (input record/playback) */
 
 typedef struct Machine {
     Z80 cpu;
@@ -113,6 +114,7 @@ typedef struct Machine {
     int fb_valid;            /* fb holds a completed beam-painted frame */
 
     struct Debugger *dbg;    /* attached monitor, or NULL (debug.c) */
+    struct Rzx *rzx;         /* input record/playback state (rzx.c) */
 } Machine;
 
 /* wav.c */
@@ -144,8 +146,10 @@ void tape_free(Machine *m);
 /* snapshot.c */
 int  snapshot_load_sna(Machine *m, const char *path);
 int  snapshot_load_z80(Machine *m, const char *path);
+int  snapshot_load_szx(Machine *m, const char *path);
 int  snapshot_save_sna(const Machine *m, const char *path);
 int  snapshot_save_z80(const Machine *m, const char *path);
+int  snapshot_save_szx(const Machine *m, const char *path);
 int  screen_save_scr(const Machine *m, const char *path);
 int  screen_load_scr(Machine *m, const char *path);
 
