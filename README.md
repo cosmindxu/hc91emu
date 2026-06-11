@@ -96,6 +96,18 @@ Examples:
 ./build/hc91emu calc.rzx --frames 460 --text     # prints 14 again
 ```
 
+## Game library
+
+`tools/get_library.sh` builds a local library of 32 period classics
+under `software/library/`, classified by genre (platform, arcade,
+isometric, shooter, puzzle, adventure, sports), from the World of
+Spectrum file archive — including 128K AY versions of Cybernoid and
+Tetris for the HC-128. `tools/verify_library.sh` smoke-loads every
+title (screenshots in `tests/out/library/`); the suite plays one 48K
+and one 128K title when the library is present. The files are
+copyrighted period software and are never committed; the library
+README carries the full index.
+
 ## ROMs
 
 `roms/` carries the genuine I.C.E. Felix dumps from
