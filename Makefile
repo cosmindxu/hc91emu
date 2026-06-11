@@ -10,7 +10,7 @@ MACHINE_OBJS := $(BUILD)/z80.o $(BUILD)/machine.o $(BUILD)/video.o \
 
 all: $(BUILD)/hc91emu $(BUILD)/zexrun $(BUILD)/ttest $(BUILD)/ctest \
      $(BUILD)/bordertap $(BUILD)/multitap $(BUILD)/fbcheck \
-     $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/dtest
+     $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/dtest $(BUILD)/sst
 
 $(BUILD)/hc91emu: $(MACHINE_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^
@@ -42,6 +42,9 @@ $(BUILD)/cpmtap: tests/cpmtap.c
 $(BUILD)/dtest: tests/dtest.c $(BUILD)/disasm.o
 	$(CC) $(CFLAGS) -o $@ tests/dtest.c $(BUILD)/disasm.o
 
+$(BUILD)/sst: tests/sst.c $(BUILD)/z80.o
+	$(CC) $(CFLAGS) -o $@ tests/sst.c $(BUILD)/z80.o
+
 $(BUILD)/%.o: $(SRC)/%.c $(SRC)/z80.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -55,6 +58,6 @@ test-full: all
 clean:
 	rm -f $(BUILD)/*.o $(BUILD)/hc91emu $(BUILD)/zexrun $(BUILD)/ttest \
 	      $(BUILD)/ctest $(BUILD)/bordertap $(BUILD)/multitap \
-	      $(BUILD)/fbcheck $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/dtest
+	      $(BUILD)/fbcheck $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/dtest $(BUILD)/sst
 
 .PHONY: all test test-full clean

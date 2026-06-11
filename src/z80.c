@@ -587,6 +587,7 @@ static void do_ed(Z80 *z)
             if (repeat && rB) {
                 intern(z, wa, 5);
                 wPC -= 2;
+                wMP = (uint16_t)(wPC + 1);   /* repeat taken: WZ=PC+1 */
                 IO_REPEAT_FIXUP(v);
             }
             return;
@@ -608,6 +609,7 @@ static void do_ed(Z80 *z)
             if (repeat && rB) {
                 intern(z, wBC, 5);
                 wPC -= 2;
+                wMP = (uint16_t)(wPC + 1);   /* repeat taken: WZ=PC+1 */
                 IO_REPEAT_FIXUP(v);
             }
             return;
