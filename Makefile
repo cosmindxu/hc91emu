@@ -6,14 +6,17 @@ SRC     := src
 MACHINE_OBJS := $(BUILD)/z80.o $(BUILD)/machine.o $(BUILD)/video.o \
                 $(BUILD)/tape.o $(BUILD)/snapshot.o $(BUILD)/keys.o \
                 $(BUILD)/png.o $(BUILD)/wav.o $(BUILD)/disasm.o \
-                $(BUILD)/debug.o $(BUILD)/main.o
+                $(BUILD)/debug.o $(BUILD)/sdl.o $(BUILD)/main.o
+
+# sdl.c dlopen()s the SDL2 runtime; -ldl covers pre-2.34 glibc.
+LDLIBS  := -ldl
 
 all: $(BUILD)/hc91emu $(BUILD)/zexrun $(BUILD)/ttest $(BUILD)/ctest \
      $(BUILD)/bordertap $(BUILD)/multitap $(BUILD)/fbcheck \
      $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/dtest $(BUILD)/sst
 
 $(BUILD)/hc91emu: $(MACHINE_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 $(BUILD)/zexrun: $(SRC)/zexrun.c $(SRC)/z80.c $(SRC)/z80.h
 	$(CC) $(CFLAGS) -o $@ $(SRC)/zexrun.c $(SRC)/z80.c

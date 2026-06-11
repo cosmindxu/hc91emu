@@ -1,0 +1,71 @@
+# CI for the HC-91 emulator. The repo ships everything the suite needs
+# except period software (TOSEC dumps are not redistributable) — the
+# suite skips those sections — and the SingleStepTests vectors, which
+# are fetched (and cached) here.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SDL2 runtime (frontend smoke test uses dummy drivers)
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-2.0-0
+
+      - name: Build
+        run: make
+
+      - name: Cache SingleStepTests vectors
+        uses: actions/cache@v4
+        with:
+          path: tests/vectors
+          key: sst-vectors-${{ hashFiles('tests/get_vectors.sh') }}
+
+      - name: Fetch SingleStepTests vectors
+        run: ./tests/get_vectors.sh
+
+      - name: Test suite (units, zexdoc, machine, debugger, vectors)
+        run: make test
+
+  asan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with ASan + UBSan
+        run: >
+          make CFLAGS="-std=c99 -O1 -g -fsanitize=address,undefined
+          -fno-sanitize-recover=all -Wall -Wextra"
+
+      - name: Cache SingleStepTests vectors
+        uses: actions/cache@v4
+        with:
+          path: tests/vectors
+          key: sst-vectors-${{ hashFiles('tests/get_vectors.sh') }}
+
+      - name: Fetch SingleStepTests vectors
+        run: ./tests/get_vectors.sh
+
+      - name: Unit tests under sanitizers
+        run: |
+          ./build/ttest
+          ./build/ctest
+          ./build/dtest
+
+      - name: Machine smoke test under sanitizers
+        run: |
+          ./build/hc91emu --frames 250 --text | grep -q "HC - 91"
+          ./build/multitap multi.tap
+          ./build/hc91emu multi.tap --autoload --real-tape --turbo \
+              --frames 1500 --fb-dump multi.fb
+          ./build/fbcheck multi.fb --band 88 33 3
+          ./build/hc91emu --frames 3 --break 11CB \
+              --debug "regs;dis pc 4;step 3;regs;cont" | grep -q "PC=11D0"
+
+      - name: SingleStepTests vectors under sanitizers
+        run: ./build/sst tests/vectors/*.json

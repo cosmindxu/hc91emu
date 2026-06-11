@@ -33,6 +33,9 @@ static void usage(const char *prog)
         "  --joy \"F-G:DIRS\"  hold joystick DIRS (U/D/L/R/F) frames F..G\n"
         "  --joy-type T      kempston (default) | sinclair | cursor\n"
         "  --trace-frames    print frame/PC every 50 frames to stderr\n"
+        "  --sdl             interactive SDL2 window (50 Hz, live audio;\n"
+        "                    Shift=CAPS Ctrl=SYM Tab=turbo F5=pause F10=quit)\n"
+        "  --sdl-frames N    auto-quit the SDL session after N frames\n"
         "debugger (addresses/ports in hex):\n"
         "  --monitor         stop in the monitor before the first instr\n"
         "  --break ADDR      PC breakpoint (repeatable)\n"
@@ -98,6 +101,7 @@ int main(int argc, char **argv)
     int ntype = 0, nkeys = 0;
     int frames = 300;
     int want_text = 0, autoload = 0, trace = 0, no_floating_bus = 0;
+    int sdl_mode = 0, sdl_frames = 0;
     int i, f;
 
     for (i = 1; i < argc; i++) {
@@ -177,6 +181,11 @@ int main(int argc, char **argv)
             joy_type = argv[i];
         } else if (!strcmp(a, "--trace-frames")) {
             trace = 1;
+        } else if (!strcmp(a, "--sdl")) {
+            sdl_mode = 1;
+        } else if (!strcmp(a, "--sdl-frames")) {
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            sdl_frames = atoi(argv[i]);
         } else if (!strcmp(a, "--monitor")) {
             monitor = 1;
         } else if (!strcmp(a, "--debug")) {
@@ -309,13 +318,18 @@ int main(int argc, char **argv)
     if (wav_path)
         beep_start(m, m->cpu.tstates);
 
-    for (f = 0; f < frames; f++) {
-        keys_apply(m, (int)m->frame_counter);
-        /* beam-paint only the frame a screenshot/dump can observe */
-        m->fb_live = (f == frames - 1);
-        machine_run_frame(m);
-        if (trace && (f % 50) == 0)
-            fprintf(stderr, "frame %d  PC=%04X\n", f, m->cpu.pc.w);
+    if (sdl_mode) {
+        if (sdl_run(m, sdl_frames) != 0)
+            return 1;
+    } else {
+        for (f = 0; f < frames; f++) {
+            keys_apply(m, (int)m->frame_counter);
+            /* beam-paint only the frame a screenshot/dump can observe */
+            m->fb_live = (f == frames - 1);
+            machine_run_frame(m);
+            if (trace && (f % 50) == 0)
+                fprintf(stderr, "frame %d  PC=%04X\n", f, m->cpu.pc.w);
+        }
     }
 
     if (wav_path && beep_save(m, wav_path, m->cpu.tstates) != 0)

@@ -214,6 +214,12 @@ static int name_pos(const char *name, int len, int *row, int *bit)
     return -1;
 }
 
+/* Public lookup for live frontends: one key name -> matrix row/bit. */
+int keys_name_pos(const char *name, int len, int *row, int *bit)
+{
+    return name_pos(name, len, row, bit);
+}
+
 int keys_raw(Machine *m, int frame, const char *names)
 {
     const char *p = names;

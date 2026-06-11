@@ -118,6 +118,7 @@ typedef struct Machine {
 /* wav.c */
 void beep_start(Machine *m, uint64_t now_ts);
 void beep_edge(Machine *m, uint64_t now_ts, int new_level);
+void beep_flush(Machine *m, uint64_t now_ts);   /* synth to now, no edge */
 int  beep_save(Machine *m, const char *path, uint64_t now_ts);
 
 /* machine.c */
@@ -153,6 +154,12 @@ void keys_apply(Machine *m, int frame);                /* set keyrows */
 void keys_type(Machine *m, const char *text, int start_frame);
 int  keys_raw(Machine *m, int frame, const char *names); /* 0 ok, -1 bad name */
 int  keys_joy(Machine *m, int f0, int f1, const char *dirs); /* UDLRF */
+int  keys_name_pos(const char *name, int len, int *row, int *bit);
+
+/* sdl.c — optional SDL2 frontend (dlopen'd at runtime; no build deps).
+ * Runs the interactive loop; max_frames > 0 auto-quits (for tests).
+ * Returns 0 on clean exit, -1 if SDL2 is unavailable. */
+int  sdl_run(Machine *m, int max_frames);
 
 /* png.c */
 int  png_write(const char *path, const uint32_t *rgba, int w, int h);

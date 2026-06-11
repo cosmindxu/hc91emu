@@ -1,10 +1,11 @@
 # HC-91 Emulator — Roadmap
 
-Current state (2026-06-10): Z80 core passes zexdoc/zexall and Rak's z80full
-(160/160); ULA keyboard/border/EAR, floating bus, instant `.tap` loading,
-`.sna`/`.z80` snapshots, headless PNG + screen-OCR testing; 14/14 tests green.
-This roadmap covers everything the emulator does *not* yet do, ordered so
-that each phase builds on the previous one.
+Current state (2026-06-11): Z80 core passes zexdoc/zexall, Rak's
+z80full/z80ccf/z80memptr (160/160) and 162,000 SingleStepTests vectors;
+cycle-exact contention + beam video, beeper WAV, pulse tape + TZX, all
+snapshot formats save/load, joysticks, HC-91 CP/M paging, debugger; suite
+43/43 green (incl. gated slow suites), CI configured. Remaining phases:
+4 (SDL2 frontend), 8b (SZX/RZX), 10 (HC family stretch).
 
 ---
 
@@ -90,7 +91,7 @@ WAV (`--wav`); suite test 5 asserts `BEEP 1,0` = 1.0 s @ 261.1 Hz
 Remaining from this phase: band-limited resampling polish, EAR/MIC mix,
 live output (folds into Phase 4 SDL).
 
-## Phase 4 — Interactive frontend (SDL2)
+## Phase 4 — Interactive frontend (SDL2) — ✅ DONE (2026-06-11)
 
 **What:** Today the emulator is headless-only. Add a real-time frontend:
 
@@ -104,6 +105,21 @@ live output (folds into Phase 4 SDL).
 **Acceptance:** play Jet Set Willy by hand at correct speed with sound.
 
 **Effort:** medium. Depends on Phase 3 for audio, benefits from Phase 2.
+
+**Status: shipped** (better than planned: no build split needed —
+`src/sdl.c` dlopen()s the SDL2 runtime and declares the minimal ABI
+itself, so the single `make` target keeps zero build dependencies and
+`--sdl` simply errors politely if the .so is missing). 640×480 resizable
+window (beam-painted frames), audio-clocked 50 Hz pacing with a
+20 ms-tick fallback, live beeper via SDL_QueueAudio (coexists with
+`--wav`), full host-keyboard matrix map (Shift=CAPS, Ctrl/LAlt=SYM,
+Backspace=DELETE, Esc=BREAK, arrows→cursors/Kempston, punctuation
+composes), first game controller → Kempston (d-pad + left stick + A),
+Tab=turbo, F5=pause, F10/close=quit; `--sdl-frames N` auto-quits for
+tests. Suite test 15 runs a 250-frame session under SDL's dummy drivers
+(gated on the runtime being present; CI installs it); verified on a real
+X11 display with Jet Set Willy to its menu screen at correct speed with
+audio. ROM-switch reset key not implemented (use `--rom` per launch).
 
 ## Phase 5 — Real tape emulation + TZX — ✅ DONE (2026-06-11)
 
@@ -201,7 +217,7 @@ wipe it). HALT state survives by re-pointing PC at the HALT opcode.
 Suite test 9 saves the running multicolour engine and resumes it from
 both snapshot formats. Remaining: 8b (`.szx`, `.rzx`).
 
-## Phase 9 — Debugger & tooling
+## Phase 9 — Debugger & tooling — ✅ DONE (2026-06-11)
 
 - Promote `tests/pchist.c` into a proper monitor: Z80 disassembler,
   breakpoints/watchpoints (PC, memory, port), single-step, register and
@@ -212,6 +228,22 @@ both snapshot formats. Remaining: 8b (`.szx`, `.rzx`).
   WAV/pitch test from Phase 3), AddressSanitizer build in CI.
 
 **Effort:** incremental; the disassembler is the main chunk.
+
+**Status: shipped.** `src/disasm.c` disassembles every opcode (undocumented
+DDCB result-copy forms, ED no-ops, dead prefixes; 124-case `dtest`);
+`src/debug.c` is a monitor with PC breakpoints, memory read/write and
+I/O-port watchpoints, single-step, hex dump, registers with frame-relative
+T-state, and per-instruction trace-to-file — scriptable via
+`--debug "cmd;cmd"` (then stdin), so the suite drives it (5 tests).
+`tests/sst.c` + `tests/get_vectors.sh` replay a 162-file subset of the
+SingleStepTests/z80 vectors (registers incl. WZ/Q/EI-pending, full-RAM
+diff, T-state totals, I/O transactions): **all 162,000 pass** — after
+fixing a real bug they caught (repeating INIR/INDR/OTIR/OTDR set WZ=PC+1
+when the repeat is taken); Rak's z80full/z80ccf/z80memptr still pass.
+Git history started (software/ and vectors excluded);
+`.github/workflows/ci.yml` runs build + suite + an ASan/UBSan job
+(vectors cached). `tests/pchist.c` stays as a standalone PC-histogram
+tool; the monitor supersedes it for interactive work.
 
 ## Phase 10 — Stretch: the rest of the HC family
 
