@@ -57,7 +57,12 @@ static void advance(Machine *m, uint64_t now)
         t += take;
         if (b->pos >= TPS - 1e-9) {
             double avg = b->acc / TPS;          /* 0..1 duty in sample */
-            if (append(b, (int16_t)((avg - 0.5) * 2.0 * BEEP_AMP)))
+            int s = (int)((avg - 0.5) * 2.0 * BEEP_AMP);
+            if (m->model == HC91_MODEL_128)
+                s += ay_sample(&m->ay);         /* mix the PSG */
+            if (s > 32767) s = 32767;
+            if (s < -32768) s = -32768;
+            if (append(b, (int16_t)s))
                 return;
             b->acc = 0.0;
             b->pos = 0.0;

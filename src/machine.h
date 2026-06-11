@@ -12,6 +12,12 @@
 #define HC91_FRAME_TSTATES 69888   /* 3.5 MHz / 50 Hz */
 #define HC91_INT_WINDOW    32      /* ULA INT pulse length (T-states) */
 
+/* Machine models: the 48K-class HC-85/90/91 differ only in ROM; the
+ * HC-128 adds 128K RAM banked via port 0x7FFD and an AY-3-8912 at
+ * 0xFFFD/0xBFFD (both confirmed by code in its ROM), keeping the
+ * HC-91-derived 48K BASIC and ULA timing. */
+enum { HC91_MODEL_48 = 0, HC91_MODEL_128 = 1 };
+
 /* Framebuffer geometry: 256x192 paper + 32px L/R, 24px T/B border. */
 #define HC91_FB_W 320
 #define HC91_FB_H 240
@@ -59,6 +65,22 @@ typedef struct JoyEvent {
 
 enum { JOY_KEMPSTON = 0, JOY_SINCLAIR = 1, JOY_CURSOR = 2 };
 
+/* ---- AY-3-8912 (HC-128; ay.c) ---- */
+typedef struct Ay {
+    uint8_t reg[16];
+    uint8_t sel;             /* selected register */
+    /* synthesis state (stepped at chip-clock/16 from wav.c) */
+    double frac;             /* fractional chip ticks per output sample */
+    uint32_t tone_cnt[3];
+    int tone_out[3];
+    uint32_t noise_cnt;
+    uint32_t lfsr;
+    int noise_out;
+    uint32_t env_cnt;
+    int env_pos;             /* 0..63 position in the shape pattern */
+    uint8_t env_vol;
+} Ay;
+
 /* ---- Beeper audio capture (wav.c) ---- */
 typedef struct Beeper {
     int enabled;
@@ -77,11 +99,22 @@ struct Rzx;                      /* rzx.h (input record/playback) */
 
 typedef struct Machine {
     Z80 cpu;
-    uint8_t mem[65536];      /* 0x0000-0x3FFF ROM (write-protected) */
+    uint8_t mem[65536];      /* model 48: full map, 16K ROM write-prot. */
     uint8_t mem_cpm[0x4000]; /* low 16K RAM, paged over ROM by port 0x7E
                                 (HC-91 CP/M mode); filled with HALT so a
                                 bare boot into it parks deterministically */
     int ram_paged;           /* 1 = mem_cpm mapped at 0x0000-0x3FFF */
+
+    /* model 128 (HC-128): mem[0..0x3FFF] = ROM 0, rom1 = ROM 1, eight
+     * 16K banks; 0x4000 = bank 5, 0x8000 = bank 2, 0xC000 = bank 0-7
+     * per port_7ffd bits 0-2; bit 3 = shadow screen (bank 7), bit 4 =
+     * ROM select, bit 5 = lock. Odd banks are contended. */
+    int model;               /* HC91_MODEL_* */
+    uint8_t ram128[8][0x4000];
+    uint8_t rom1[0x4000];
+    uint8_t port_7ffd;
+    uint8_t *screen;         /* active display bank (also set for 48K) */
+    Ay ay;
     uint8_t border;          /* last OUT to ULA, bits 0-2 */
     uint8_t beeper;          /* last beeper bit (OUT bit 4) */
     uint32_t frame_counter;
@@ -125,9 +158,17 @@ int  beep_save(Machine *m, const char *path, uint64_t now_ts);
 
 /* machine.c */
 int  machine_init(Machine *m, const char *rom_path);   /* 0 ok, -1 error */
+int  machine_set_128(Machine *m, const char *rom1_path); /* NULL = dup */
 int  machine_load_file(Machine *m, const char *path);  /* by extension */
 void machine_run_frame(Machine *m);
 uint8_t machine_peek(const Machine *m, uint16_t addr); /* no side effects */
+
+/* ay.c — AY-3-8912 (model 128) */
+void ay_reset(Ay *ay);
+void ay_select(Ay *ay, uint8_t v);
+void ay_write(Ay *ay, uint8_t v);
+uint8_t ay_read(const Ay *ay);
+int  ay_sample(Ay *ay);          /* one 44.1 kHz sample, signed mix */
 
 /* video.c */
 void video_render(const Machine *m, uint32_t *fb /* HC91_FB_W*HC91_FB_H */);

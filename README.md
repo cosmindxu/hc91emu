@@ -20,6 +20,14 @@ The HC-91 ROM differs from the original Sinclair 48K ROM in only 50 bytes
 ZX Spectrum 48K software-compatible — which this emulator exploits and which
 the test suite demonstrates with period software.
 
+Other members of the I.C.E. Felix HC family are emulated too
+(`--machine`): the **HC-85** and **HC-90** (banner-variant 48K ROMs) and
+the **HC-128**, whose genuine ROM turns out to be HC-91-derived with
+added support for **128K RAM banking via port `0x7FFD`** and an
+**AY-3-8912** at `0xFFFD`/`0xBFFD` — both implemented here (8×16K banks,
+shadow screen, ROM select, odd-bank contention, full PSG mixed into the
+audio path). The plain Sinclair 48K is available as `--machine 48k`.
+
 ## Building
 
 ```sh
@@ -90,9 +98,11 @@ Examples:
 
 ## ROMs
 
-`roms/hc91.rom` is the genuine HC-91 ROM dump (from
-[speccy4ever](https://speccy4ever.speccy.org/_IC.htm)); `roms/48.rom` is the
-standard Sinclair 48K ROM, also usable with `--rom`.
+`roms/` carries the genuine I.C.E. Felix dumps from
+[speccy4ever](https://speccy4ever.speccy.org/_IC.htm) — HC-85, HC-90,
+HC-91, HC-128 (plus the HC-2000 ROM set for future disk work) — and the
+standard Sinclair 48K ROM. `--machine` picks the right one; `--rom`
+overrides it.
 
 ## Emulation notes / limitations
 
@@ -164,6 +174,13 @@ standard Sinclair 48K ROM, also usable with `--rom`.
   per-instruction trace-to-file. Scriptable (`--debug "regs;step 3;cont"`)
   for tests, interactive on a tty; commands: `regs dis mem step cont
   break watch rwatch pwatch trace quit help`.
+- **HC-128**: 128K banking (`0x7FFD`: banks 0-7 at `0xC000`, shadow
+  screen, ROM select with `--rom1`, lock; odd banks contended) and an
+  AY-3-8912 (`0xFFFD`/`0xBFFD`, tone/noise/envelope, measured volume
+  curve) mixed sample-accurately with the beeper. 128K `.z80`/`.szx`
+  snapshots round-trip; 48K snapshots load into a locked USR0-style
+  bank set. ULA timing is kept at the 48K clone values (the HC-128 ROM
+  is HC-91-derived; no evidence of 228 T lines).
 - **CI**: GitHub Actions workflow builds, fetches/caches the
   SingleStepTests vectors, runs the suite, and repeats the unit/machine
   tests under AddressSanitizer + UBSan.
@@ -201,3 +218,7 @@ standard Sinclair 48K ROM, also usable with `--rom`.
 | SDL2 frontend (real X11) | Jet Set Willy to menu at 50 Hz with sound |
 | SZX round-trip (incl. zlib-compressed pages) | multicolour engine resumes from both |
 | RZX record → replay | typed `PRINT 2+3*4` session replays to the same screen |
+| HC-85 / HC-90 boots | family banners |
+| HC-128 banking | distinct banks at 0xC000 via `OUT 32765`, PEEK round-trip |
+| HC-128 AY tone (reg writes via OUT) | 1007.5 Hz vs ideal 1007.6 Hz |
+| HC-128 .z80/.szx round-trip | screen + bank latch + AY state resume (tone continues) |

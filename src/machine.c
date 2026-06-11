@@ -21,6 +21,14 @@ static int ext_eq(const char *a, const char *b)
 
 uint8_t machine_peek(const Machine *m, uint16_t addr)
 {
+    if (m->model == HC91_MODEL_128) {
+        switch (addr >> 14) {
+        case 0:  return ((m->port_7ffd & 0x10) ? m->rom1 : m->mem)[addr];
+        case 1:  return m->ram128[5][addr & 0x3FFF];
+        case 2:  return m->ram128[2][addr & 0x3FFF];
+        default: return m->ram128[m->port_7ffd & 7][addr & 0x3FFF];
+        }
+    }
     if (addr < 0x4000 && m->ram_paged)
         return m->mem_cpm[addr];
     return m->mem[addr];
@@ -40,6 +48,20 @@ static void bus_mem_write(void *ctx, uint16_t addr, uint8_t val)
     Machine *m = (Machine *)ctx;
     if (m->dbg)
         debug_note_mem_write(m, addr, val);
+    if (m->model == HC91_MODEL_128) {
+        uint8_t *p;
+        uint32_t off = addr & 0x3FFF;
+        switch (addr >> 14) {
+        case 0:  return;                       /* ROM */
+        case 1:  p = m->ram128[5]; break;
+        case 2:  p = m->ram128[2]; break;
+        default: p = m->ram128[m->port_7ffd & 7]; break;
+        }
+        if (m->fb_live && p == m->screen && off < 0x1B00 && p[off] != val)
+            video_beam_catchup(m);
+        p[off] = val;
+        return;
+    }
     if (addr < 0x4000) {         /* ROM (ignore) or paged CP/M RAM */
         if (m->ram_paged)
             m->mem_cpm[addr] = val;
@@ -75,7 +97,12 @@ static int contention_delay(const Machine *m)
 static int bus_mem_contend(void *ctx, uint16_t addr)
 {
     Machine *m = (Machine *)ctx;
-    return ((addr & 0xC000) == 0x4000) ? contention_delay(m) : 0;
+    if ((addr & 0xC000) == 0x4000)
+        return contention_delay(m);          /* bank 5 / 48K screen RAM */
+    if (m->model == HC91_MODEL_128 && (addr >> 14) == 3
+        && (m->port_7ffd & 1))
+        return contention_delay(m);          /* odd bank paged at 0xC000 */
+    return 0;
 }
 
 /* I/O contention per the documented table (high byte 0x40-0x7F is a
@@ -131,6 +158,9 @@ static uint8_t bus_io_read_raw(Machine *m, uint16_t port)
     /* Kempston interface (when attached) decodes A7-A5 = 0. */
     if (m->kempston_enabled && (port & 0x00E0) == 0)
         return m->kempston;
+    /* AY register read at 0xFFFD (model 128). */
+    if (m->model == HC91_MODEL_128 && (port & 0xC002) == 0xC000)
+        return ay_read(&m->ay);
     /* Unattached port: floating bus. While the ULA fetches display data
      * it leaves the byte on the bus; idle/border periods read 0xFF.
      * Frame layout: 224 T per line, lines 64-255 visible; within a line
@@ -145,10 +175,10 @@ static uint8_t bus_io_read_raw(Machine *m, uint16_t port)
             uint32_t col = (lt >> 3) * 2 + ((lt & 7) >= 2 ? 1 : 0);
             switch (lt & 7) {
             case 0: case 2:
-                return m->mem[0x4000 | ((y & 0xC0) << 5) | ((y & 7) << 8)
-                              | ((y & 0x38) << 2) | col];
+                return m->screen[((y & 0xC0) << 5) | ((y & 7) << 8)
+                                 | ((y & 0x38) << 2) | col];
             case 1: case 3:
-                return m->mem[0x5800 + (y >> 3) * 32 + col];
+                return m->screen[0x1800 + (y >> 3) * 32 + col];
             default:
                 break;
             }
@@ -177,10 +207,26 @@ static void bus_io_write(void *ctx, uint16_t port, uint8_t val)
     Machine *m = (Machine *)ctx;
     if (m->dbg)
         debug_note_io(m, port, val, 1);
+    if (m->model == HC91_MODEL_128) {
+        if ((port & 0x8002) == 0) {              /* 0x7FFD bank latch */
+            if (!(m->port_7ffd & 0x20)) {        /* not locked */
+                uint8_t *scr = m->ram128[(val & 0x08) ? 7 : 5];
+                if (m->fb_live && scr != m->screen)
+                    video_beam_catchup(m);       /* mid-frame flip */
+                m->port_7ffd = val;
+                m->screen = scr;
+            }
+        } else if ((port & 0xC002) == 0xC000) {  /* AY select */
+            ay_select(&m->ay, val);
+        } else if ((port & 0xC002) == 0x8000) {  /* AY data */
+            beep_flush(m, m->cpu.tstates);       /* sample-accurate */
+            ay_write(&m->ay, val);
+        }
+    }
     /* HC-91 CP/M paging: the ROM bootstrap at 0x386E does OUT (0x7E),1
      * and jumps to 0 expecting RAM there (64K machine). Full low-byte
      * decode; bit 0 = RAM over ROM. The ULA also sees this even port. */
-    if ((port & 0xFF) == 0x7E)
+    if (m->model == HC91_MODEL_48 && (port & 0xFF) == 0x7E)
         m->ram_paged = val & 1;
     if ((port & 1) == 0) {
         if (m->fb_live && ((val ^ m->border) & 7))
@@ -216,6 +262,8 @@ int machine_init(Machine *m, const char *rom_path)
         return -1;
     }
 
+    m->screen = m->mem + 0x4000;
+
     m->cpu.ctx = m;
     m->cpu.mem_read = bus_mem_read;
     m->cpu.mem_write = bus_mem_write;
@@ -226,6 +274,32 @@ int machine_init(Machine *m, const char *rom_path)
     m->cpu.io_contend_late = bus_io_contend_late;
     z80_reset(&m->cpu);
     m->border = 7;
+    return 0;
+}
+
+/* Switch to the HC-128 model: 8 banked 16K pages, second ROM (rom1_path,
+ * or a duplicate of ROM 0 when NULL — only one HC-128 ROM image is
+ * dumped), AY. Call right after machine_init. */
+int machine_set_128(Machine *m, const char *rom1_path)
+{
+    m->model = HC91_MODEL_128;
+    m->port_7ffd = 0;
+    m->screen = m->ram128[5];
+    ay_reset(&m->ay);
+    if (rom1_path) {
+        FILE *f = fopen(rom1_path, "rb");
+        size_t n = 0;
+        if (f) {
+            n = fread(m->rom1, 1, 0x4000, f);
+            fclose(f);
+        }
+        if (n != 0x4000) {
+            fprintf(stderr, "error: cannot read 16K ROM '%s'\n", rom1_path);
+            return -1;
+        }
+    } else {
+        memcpy(m->rom1, m->mem, 0x4000);
+    }
     return 0;
 }
 
