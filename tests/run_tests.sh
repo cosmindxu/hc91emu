@@ -340,6 +340,23 @@ check $? "HC-128 .z80 reload: AY tone resumes"
 $EMU "$OUT/rt128.z80" --frames 5 2>&1 | grep -q "128K snapshot"
 check $? "48K machine refuses 128K snapshots with a hint"
 
+echo "== 19. ULA snow (I in a contended page corrupts ULA fetches) =="
+# Same program, I=0x40 vs I=0x00: the screen is filled with a
+# position-dependent pattern, so R-corrupted fetches change the output.
+build/snowtap "$OUT/snow40.tap" 40
+build/snowtap "$OUT/snow00.tap" 00
+$EMU "$OUT/snow40.tap" --autoload --turbo --frames 320 \
+     --fb-dump "$OUT/snow40.fb" > /dev/null 2>&1
+$EMU "$OUT/snow00.tap" --autoload --turbo --frames 320 \
+     --fb-dump "$OUT/snow00.fb" > /dev/null 2>&1
+d=$(cmp -l "$OUT/snow40.fb" "$OUT/snow00.fb" | wc -l)
+[ "$d" -ge 10000 ]
+check $? "I=0x40 corrupts display fetches (snow; $d fb bytes differ)"
+$EMU "$OUT/snow40.tap" --autoload --turbo --frames 320 \
+     --fb-dump "$OUT/snow40b.fb" > /dev/null 2>&1
+cmp -s "$OUT/snow40.fb" "$OUT/snow40b.fb"
+check $? "snow is deterministic (purely R-driven)"
+
 if [ -d software/library ]; then
   echo "== 18. Game library (tools/get_library.sh; 32 titles) =="
   # representative smoke: one big isometric 48K title and one 128K AY
