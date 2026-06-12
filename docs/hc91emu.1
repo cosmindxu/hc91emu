@@ -239,13 +239,16 @@ foreign RZX files replay too; "protected" ones are rejected.
 .SS SDL frontend
 .TP
 .B \-\-sdl
-Open an interactive window (640\(mu480, resizable) at 50 Hz with live
-audio. Needs only the SDL2 runtime library at run time. See
+Open an interactive window (resizable, aspect\-kept) at 50 Hz with
+live audio. Needs only the SDL2 runtime library at run time. See
 .B SDL CONTROLS
 below.
 .TP
 .BI \-\-sdl\-frames " N"
 Auto\-quit the SDL session after N frames (used by the test suite).
+.TP
+.BI \-\-scale " N"
+Initial window size multiplier, 1\-8 (default 2 = 640\(mu480).
 .TP
 .B \-\-trace\-frames
 Print the frame number and PC to stderr every 50 frames (cheap
@@ -332,8 +335,23 @@ controller's d\-pad, left stick and A button map to Kempston too.
 .TP
 .B Emulator keys
 Tab = turbo while held (no pacing); F5 = pause; F6 = tape play/stop;
-F7 = rewind tape; F8 = swap cassette side (with \-\-tape\-b); F10 or
-closing the window = quit.
+F7 = rewind tape; F8 = swap cassette side (with \-\-tape\-b);
+F2 = quick state save; F4 = quick state load; F11 = fullscreen;
+F10 or closing the window = quit.
+.TP
+.B Quick save slot
+F2/F4 use a single .szx slot at
+.IR $XDG_STATE_HOME/hc91emu/quick.szx
+(default
+.IR ~/.local/state/hc91emu/quick.szx ;
+.I %APPDATA%\ehc91emu\equick.szx
+on Windows), so it works no matter which directory the emulator was
+started from.
+.TP
+.B Drag and drop
+Dropping a tape, snapshot, screen or RZX file onto the window loads
+it: tapes get a clean reset followed by the usual autoload typing;
+snapshots apply on the spot.
 .SH BASIC KEY TOKENS
 The 48K BASIC keyword entry needed with
 .BR \-\-type / \-\-keys :
@@ -477,6 +495,15 @@ hc91emu \-\-frames 3 \-\-break 11CB \e
 .TP
 .I roms/
 Genuine HC\-85/90/91/128/2000 ROM dumps and the Sinclair 48K ROM.
+When absent (a fresh checkout),
+.B tools/get_roms.sh
+fetches all twelve from their preservation sources and verifies them
+against pinned sha256 checksums
+.RB ( "tools/get_roms.sh --verify"
+re\-checks offline).
+.TP
+.I ~/.local/state/hc91emu/quick.szx
+The F2/F4 quick save slot of the SDL frontend.
 .TP
 .I /usr/share/hc91emu/roms/
 Fallback location for the default ROMs: when a default ROM is not

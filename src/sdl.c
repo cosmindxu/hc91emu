@@ -8,6 +8,9 @@
  * arrows = BASIC cursors (plain 5678 with --joy-type cursor, Kempston
  * with --kempston, fire = RAlt). First game controller drives Kempston.
  * Tab = turbo while held, F5 = pause, F10/close = quit.
+ * F2/F4 = quick state save/load (one .szx slot under $XDG_STATE_HOME),
+ * F11 = fullscreen; dropping a tape/snapshot file onto the window loads
+ * it (tapes get a reset + autoload, like --autoload).
  *
  * Pacing is audio-clocked: beeper samples are queued each frame and the
  * loop sleeps while more than ~4 frames are buffered; without an audio
@@ -31,8 +34,14 @@
 #define SDL_LIB_FALLBACK    "SDL2.dll"
 #define RTLD_NOW    0
 #define RTLD_GLOBAL 0
+#include <direct.h>
+#define MKDIR(p) _mkdir(p)
+#define PATHSEP "\\"
 #else
 #include <dlfcn.h>
+#include <sys/stat.h>
+#define MKDIR(p) mkdir((p), 0755)
+#define PATHSEP "/"
 #define SDL_LIB_PRIMARY     "libSDL2-2.0.so.0"
 #define SDL_LIB_FALLBACK    "libSDL2.so"
 #endif
@@ -46,8 +55,10 @@
 #define MYSDL_QUIT_EV             0x100u
 #define MYSDL_KEYDOWN             0x300u
 #define MYSDL_KEYUP               0x301u
+#define MYSDL_DROPFILE            0x1000u
 #define MYSDL_WINDOWPOS_CENTERED  0x2FFF0000u
 #define MYSDL_WINDOW_RESIZABLE    0x20u
+#define MYSDL_WINDOW_FS_DESKTOP   0x1001u
 #define MYSDL_PIXFMT_ABGR8888     0x16762004u   /* bytes R,G,B,A */
 #define MYSDL_TEXTURE_STREAMING   1
 #define MYSDL_AUDIO_S16LSB        0x8010u
@@ -75,9 +86,16 @@ typedef struct {
     MyKeysym keysym;
 } MyKeyEvent;
 
+typedef struct {
+    uint32_t type, timestamp;
+    char *file;                      /* SDL-allocated; pass to S.free() */
+    uint32_t windowID;
+} MyDropEvent;
+
 typedef union {
     uint32_t type;
     MyKeyEvent key;
+    MyDropEvent drop;
     uint8_t pad[56];                 /* sizeof(SDL_Event) */
 } MyEvent;
 
@@ -92,11 +110,14 @@ typedef union {
 #define K_LEFT   0x40000050
 #define K_DOWN   0x40000051
 #define K_UP     0x40000052
+#define K_F2     0x4000003B
+#define K_F4     0x4000003D
 #define K_F5     0x4000003E
 #define K_F6     0x4000003F
 #define K_F7     0x40000040
 #define K_F8     0x40000041
 #define K_F10    0x40000043
+#define K_F11    0x40000044
 
 static struct {
     int (*Init)(uint32_t);
@@ -124,6 +145,10 @@ static struct {
     void *(*GameControllerOpen)(int);
     uint8_t (*GameControllerGetButton)(void *, int);
     int16_t (*GameControllerGetAxis)(void *, int);
+    /* optional (QoL: fullscreen, aspect-kept scaling, file drop) */
+    int (*SetWindowFullscreen)(void *, uint32_t);
+    int (*RenderSetLogicalSize)(void *, int, int);
+    void (*free)(void *);
 } S;
 
 static int sdl_load(void)
@@ -152,9 +177,80 @@ static int sdl_load(void)
     REQ(QueueAudio); REQ(GetQueuedAudioSize);
     OPT(NumJoysticks); OPT(IsGameController); OPT(GameControllerOpen);
     OPT(GameControllerGetButton); OPT(GameControllerGetAxis);
+    OPT(SetWindowFullscreen); OPT(RenderSetLogicalSize); OPT(free);
 #undef REQ
 #undef OPT
     return 0;
+}
+
+/* Case-insensitive extension match; ext is given lowercase (".tap"). */
+static int ext_is(const char *dot, const char *ext)
+{
+    size_t i;
+    if (!dot) return 0;
+    for (i = 0; dot[i] && ext[i]; i++)
+        if ((dot[i] | 32) != ext[i])
+            return 0;
+    return dot[i] == ext[i];
+}
+
+/* The quick save/load slot: a single .szx under the per-user state
+ * directory ($XDG_STATE_HOME or ~/.local/state; %APPDATA% on Windows),
+ * so it works no matter where the emulator was started from. */
+static const char *quick_path(void)
+{
+    static char p[560];
+    size_t l;
+#ifdef _WIN32
+    const char *base = getenv("APPDATA");
+    if (!base) base = ".";
+    snprintf(p, sizeof p, "%s" PATHSEP "hc91emu", base);
+    MKDIR(p);
+#else
+    const char *base = getenv("XDG_STATE_HOME");
+    if (base && *base) {
+        snprintf(p, sizeof p, "%s", base);
+        MKDIR(p);
+    } else {
+        const char *home = getenv("HOME");
+        if (!home || !*home) home = ".";
+        snprintf(p, sizeof p, "%s/.local", home);
+        MKDIR(p);
+        l = strlen(p);
+        snprintf(p + l, sizeof p - l, "/state");
+        MKDIR(p);
+    }
+    l = strlen(p);
+    snprintf(p + l, sizeof p - l, "/hc91emu");
+    MKDIR(p);
+#endif
+    l = strlen(p);
+    snprintf(p + l, sizeof p - l, PATHSEP "quick.szx");
+    return p;
+}
+
+/* A file dropped onto the window: tapes get a clean reset + autoload
+ * (like --autoload); snapshots/screens/RZX apply on the spot. */
+static void drop_file(Machine *m, void *win, char *path)
+{
+    const char *dot = strrchr(path, '.');
+    int is_tape = ext_is(dot, ".tap") || ext_is(dot, ".tzx");
+
+    if (is_tape) {
+        machine_reset(m);
+        tape_free(m);
+    }
+    if (machine_load_file(m, path) == 0) {
+        fprintf(stderr, "sdl: loaded '%s'\n", path);
+        S.SetWindowTitle(win, path);
+        if (is_tape) {
+            int now = (int)m->frame_counter;
+            keys_type(m, "j\"\"\n", now + 250);
+            m->play_at_frame = now + 320;
+        }
+    }
+    if (S.free)
+        S.free(path);
 }
 
 /* ---- host keyboard -> Spectrum matrix ---- */
@@ -277,16 +373,18 @@ static void apply_pad(Machine *m, void *pad)
 #define AUDIO_RATE 44100
 #define FRAME_SAMPLES (AUDIO_RATE / 50)          /* 882 per 20 ms frame */
 
-int sdl_run(Machine *m, int max_frames)
+int sdl_run(Machine *m, int max_frames, int scale)
 {
     static uint32_t fb[HC91_FB_W * HC91_FB_H];
     void *win, *ren, *tex, *pad = NULL;
     uint32_t dev = 0, next_tick;
-    int frames = 0, paused = 0, turbo = 0, quit = 0;
+    int frames = 0, paused = 0, turbo = 0, quit = 0, fullscreen = 0;
     int keep_samples;                /* --wav active: don't drain buffer */
     size_t sent = 0;
     MyAudioSpec want, have;
 
+    if (scale < 1 || scale > 8)
+        scale = 2;
     if (sdl_load() != 0)
         return -1;
     if (S.Init(MYSDL_INIT_VIDEO | MYSDL_INIT_AUDIO |
@@ -299,9 +397,11 @@ int sdl_run(Machine *m, int max_frames)
 
     win = S.CreateWindow("HC-91", (int)MYSDL_WINDOWPOS_CENTERED,
                          (int)MYSDL_WINDOWPOS_CENTERED,
-                         HC91_FB_W * 2, HC91_FB_H * 2,
+                         HC91_FB_W * scale, HC91_FB_H * scale,
                          MYSDL_WINDOW_RESIZABLE);
     ren = win ? S.CreateRenderer(win, -1, 0) : NULL;
+    if (ren && S.RenderSetLogicalSize)   /* keep 4:3, letterbox the rest */
+        S.RenderSetLogicalSize(ren, HC91_FB_W, HC91_FB_H);
     tex = ren ? S.CreateTexture(ren, MYSDL_PIXFMT_ABGR8888,
                                 MYSDL_TEXTURE_STREAMING,
                                 HC91_FB_W, HC91_FB_H) : NULL;
@@ -337,7 +437,7 @@ int sdl_run(Machine *m, int max_frames)
     }
 
     fprintf(stderr, "sdl: %dx%d window, audio %s%s\n",
-            HC91_FB_W * 2, HC91_FB_H * 2, dev ? "on" : "off",
+            HC91_FB_W * scale, HC91_FB_H * scale, dev ? "on" : "off",
             pad ? ", controller on" : "");
 
     next_tick = S.GetTicks() + 20;
@@ -374,11 +474,30 @@ int sdl_run(Machine *m, int max_frames)
                 } else if (sym == K_F8) {        /* swap cassette side */
                     if (m->tape_next)
                         tape_swap(m, m->tape_next);
+                } else if (sym == K_F2) {        /* quick state save */
+                    const char *qp = quick_path();
+                    if (snapshot_save_szx(m, qp) == 0)
+                        fprintf(stderr, "sdl: state saved -> %s\n", qp);
+                } else if (sym == K_F4) {        /* quick state load */
+                    const char *qp = quick_path();
+                    if (machine_load_file(m, qp) == 0) {
+                        fprintf(stderr, "sdl: state restored <- %s\n", qp);
+                        paused = 0;
+                    }
+                } else if (sym == K_F11) {       /* fullscreen toggle */
+                    if (S.SetWindowFullscreen) {
+                        fullscreen = !fullscreen;
+                        S.SetWindowFullscreen(win, fullscreen
+                                              ? MYSDL_WINDOW_FS_DESKTOP : 0);
+                    }
                 } else if (sym == 9) turbo = 1;  /* Tab */
                 else key_down(sym);
             } else if (ev.type == MYSDL_KEYUP) {
                 if (ev.key.keysym.sym == 9) turbo = 0;
                 else key_up(ev.key.keysym.sym);
+            } else if (ev.type == MYSDL_DROPFILE && ev.drop.file) {
+                drop_file(m, win, ev.drop.file);
+                paused = 0;
             }
         }
 

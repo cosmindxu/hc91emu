@@ -8,20 +8,31 @@ set -e
 umask 022                      # Policy perms: 0755 dirs, 0644 files
 cd "$(dirname "$0")/.."
 
-VER=1.0.0
+VER=1.1.0
 ARCH=$(dpkg --print-architecture)
 PKG=dist/deb/hc91emu_${VER}_${ARCH}
 MAINT="HC91 Dev <dcosmin22@icloud.com>"
 
+bash tools/get_roms.sh --verify >/dev/null || {
+  echo "error: ROM dumps missing/bad - run tools/get_roms.sh first" >&2
+  exit 1
+}
+
 make clean >/dev/null
 make >/dev/null
+make build/mkicon >/dev/null
 
 rm -rf "$PKG"
 mkdir -p "$PKG/DEBIAN" \
          "$PKG/usr/bin" \
          "$PKG/usr/share/hc91emu/roms" \
          "$PKG/usr/share/man/man1" \
-         "$PKG/usr/share/doc/hc91emu"
+         "$PKG/usr/share/doc/hc91emu" \
+         "$PKG/usr/share/applications" \
+         "$PKG/usr/share/mime/packages" \
+         "$PKG/usr/share/icons/hicolor/256x256/apps" \
+         "$PKG/usr/share/icons/hicolor/128x128/apps" \
+         "$PKG/usr/share/icons/hicolor/48x48/apps"
 
 install -m 755 build/hc91emu "$PKG/usr/bin/hc91emu"
 strip "$PKG/usr/bin/hc91emu"
@@ -29,6 +40,47 @@ install -m 644 roms/*.rom "$PKG/usr/share/hc91emu/roms/"
 gzip -9n < docs/hc91emu.1 > "$PKG/usr/share/man/man1/hc91emu.1.gz"
 install -m 644 docs/manual.pdf "$PKG/usr/share/doc/hc91emu/manual.pdf"
 install -m 644 README.md "$PKG/usr/share/doc/hc91emu/README.md"
+
+# Desktop integration: launcher, icon (rendered from the machine's own
+# ROM font by tools/mkicon.c), MIME types for the loadable files. The
+# dpkg triggers of shared-mime-info/desktop-file-utils refresh the
+# databases on install.
+build/mkicon roms/hc91.rom \
+  "$PKG/usr/share/icons/hicolor/256x256/apps/hc91emu.png" 256 \
+  "$PKG/usr/share/icons/hicolor/128x128/apps/hc91emu.png" 128 \
+  "$PKG/usr/share/icons/hicolor/48x48/apps/hc91emu.png"   48  >/dev/null
+
+cat > "$PKG/usr/share/applications/hc91emu.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=HC-91 Emulator
+GenericName=I.C.E. Felix HC / ZX Spectrum emulator
+Comment=Emulator for the I.C.E. Felix HC-85/90/91/128/2000 home computers
+Exec=hc91emu --sdl %f
+TryExec=hc91emu
+Icon=hc91emu
+Terminal=false
+Categories=Game;Emulator;
+MimeType=application/x-hc91-tape;application/x-hc91-snapshot;
+Keywords=spectrum;sinclair;felix;retro;emulator;tape;
+EOF
+
+cat > "$PKG/usr/share/mime/packages/hc91emu.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-hc91-tape">
+    <comment>ZX Spectrum tape image</comment>
+    <glob pattern="*.tap"/>
+    <glob pattern="*.tzx"/>
+  </mime-type>
+  <mime-type type="application/x-hc91-snapshot">
+    <comment>ZX Spectrum snapshot</comment>
+    <glob pattern="*.sna"/>
+    <glob pattern="*.z80"/>
+    <glob pattern="*.szx"/>
+  </mime-type>
+</mime-info>
+EOF
 
 cat > "$PKG/usr/share/doc/hc91emu/copyright" <<EOF
 hc91emu - emulator for the I.C.E. Felix HC family
@@ -48,10 +100,17 @@ time (zlib license, see the libsdl2-2.0-0 package).
 EOF
 
 DATE=$(date -R)
-{ printf 'hc91emu (%s) unstable; urgency=medium\n\n' "$VER"
+{ printf 'hc91emu (1.1.0) unstable; urgency=medium\n\n'
+  printf '  * SDL: quick state save/load (F2/F4), drag-and-drop loading,\n'
+  printf '    fullscreen (F11), --scale N window multiplier.\n'
+  printf '  * Desktop integration: launcher, icon, MIME types for the\n'
+  printf '    tape and snapshot formats.\n'
+  printf '  * tools/get_roms.sh fetches the ROM dumps on demand.\n\n'
+  printf ' -- %s  %s\n\n' "$MAINT" "$DATE"
+  printf 'hc91emu (1.0.0) unstable; urgency=medium\n\n'
   printf '  * Initial packaged release: HC-85/90/91/128/2000 emulation,\n'
   printf '    SDL2 frontend, tape/disk/CP/M, snapshots, RZX, debugger.\n\n'
-  printf ' -- %s  %s\n' "$MAINT" "$DATE"
+  printf ' -- %s  Fri, 12 Jun 2026 15:21:36 +0000\n' "$MAINT"
 } | gzip -9n > "$PKG/usr/share/doc/hc91emu/changelog.gz"  # native version, no -revision
 
 SIZE=$(du -sk --exclude=DEBIAN "$PKG" | cut -f1)

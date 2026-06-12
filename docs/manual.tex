@@ -85,6 +85,7 @@ Patrik Rak's \texttt{z80full}/\texttt{z80ccf}/\texttt{z80memptr}
 \section{Quick start}
 
 \begin{Verbatim}
+tools/get_roms.sh    # fetch the ROM dumps (sha256-verified) if absent
 make                 # build (no dependencies)
 make test            # run the test suite
 
@@ -176,13 +177,30 @@ Spectrum matrix.
 \textbf{Key} & \textbf{Action} \\
 \midrule
 \key{Tab} & turbo while held (no pacing) \\
+\key{F2} & quick state save (one \texttt{.szx} slot, see below) \\
+\key{F4} & quick state load \\
 \key{F5} & pause / resume the emulation \\
 \key{F6} & tape: manual play/stop \\
 \key{F7} & tape: rewind (paused at the start) \\
 \key{F8} & tape: swap cassette side (with \opt{--tape-b}; toggles) \\
+\key{F11} & fullscreen on/off (aspect kept, letterboxed) \\
 \key{F10} / close & quit \\
 \bottomrule
 \end{tabularx}
+
+The quick save slot is a single \texttt{.szx} file at
+\texttt{\$XDG\_STATE\_HOME/hc91emu/quick.szx} (by default
+\texttt{\textasciitilde/.local/state/hc91emu/quick.szx};
+\texttt{\%APPDATA\%\textbackslash hc91emu} on Windows), so it works no
+matter which directory the emulator was started from. The initial
+window is $640\times480$; \opt{--scale}~\textit{N} picks another
+multiplier (1--8), and the window can be resized or toggled
+fullscreen freely --- the image keeps its 4:3 aspect.
+
+\textbf{Drag and drop:} dropping a tape, snapshot, screen or RZX file
+onto the window loads it. Tapes get a clean machine reset followed by
+the usual autoload typing (like \opt{--autoload}); snapshots and
+screens apply on the spot.
 
 \subsection{Game controllers}
 
@@ -595,6 +613,7 @@ log), \texttt{HC91\_TAPE\_DEBUG=1} (tape block progression),
 \toprule
 \optrow{--sdl}{interactive window, 50\,Hz, live audio}
 \optrow{--sdl-frames N}{auto-quit after N frames}
+\optrow{--scale N}{initial window size multiplier 1--8 (default 2)}
 \optrow{--trace-frames}{frame/PC progress on stderr}
 \bottomrule
 \end{tabularx}

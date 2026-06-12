@@ -55,6 +55,10 @@ $(BUILD)/dtest: tests/dtest.c $(BUILD)/disasm.o
 $(BUILD)/sst: tests/sst.c $(BUILD)/z80.o
 	$(CC) $(CFLAGS) -o $@ tests/sst.c $(BUILD)/z80.o
 
+# application icon generator (used by tools/release_deb.sh)
+$(BUILD)/mkicon: tools/mkicon.c $(BUILD)/png.o
+	$(CC) $(CFLAGS) -o $@ tools/mkicon.c $(BUILD)/png.o
+
 $(BUILD)/%.o: $(SRC)/%.c $(SRC)/z80.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -97,6 +101,7 @@ manual:
 clean:
 	rm -f $(BUILD)/*.o $(BUILD)/hc91emu $(BUILD)/zexrun $(BUILD)/ttest \
 	      $(BUILD)/ctest $(BUILD)/bordertap $(BUILD)/multitap \
-	      $(BUILD)/fbcheck $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/snowtap $(BUILD)/fliptap $(BUILD)/dtest $(BUILD)/sst
+	      $(BUILD)/fbcheck $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/snowtap $(BUILD)/fliptap $(BUILD)/dtest $(BUILD)/sst \
+	      $(BUILD)/mkicon
 
 .PHONY: all test test-full manual windows clean
