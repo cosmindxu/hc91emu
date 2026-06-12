@@ -66,6 +66,7 @@ fetch arcade skool_daze          s/SkoolDaze.tap.zip
 fetch arcade thrust              t/Thrust.tap.zip
 fetch arcade deathchase          d/Deathchase.tap.zip
 fetch arcade starquake           s/Starquake.tap.zip
+fetch arcade batty               b/Batty.tap.zip
 
 # ---- isometric ----
 fetch isometric head_over_heels  h/HeadOverHeels.tap.zip
@@ -82,6 +83,9 @@ fetch shooter cybernoid_128      c/Cybernoid128.tap.zip
 fetch shooter uridium            u/Uridium.tap.zip
 fetch shooter light_force        l/LightForce.tap.zip
 fetch shooter quazatron          q/Quazatron.tap.zip
+fetch shooter harrier_attack     h/HarrierAttack.tap.zip
+fetch shooter chronos            c/Chronos.tap.zip
+fetch shooter p47_thunderbolt    p/P-47Thunderbolt.tap.zip
 
 # ---- puzzle ----
 fetch puzzle boulder_dash        b/BoulderDash.tap.zip

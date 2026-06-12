@@ -103,7 +103,7 @@ Examples:
 
 ## Game library
 
-`tools/get_library.sh` builds a local library of 32 period classics
+`tools/get_library.sh` builds a local library of 36 period classics
 under `software/library/`, classified by genre (platform, arcade,
 isometric, shooter, puzzle, adventure, sports), from the World of
 Spectrum file archive — including 128K AY versions of Cybernoid and
