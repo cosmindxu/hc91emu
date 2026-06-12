@@ -65,6 +65,25 @@ test: all
 test-full: all
 	RUN_ZEXALL=1 ./tests/run_tests.sh
 
+# Cross-compile a Windows x86-64 console build (needs a mingw-w64
+# toolchain, e.g. gcc-mingw-w64 or llvm-mingw; override CROSSCC).
+# The exe depends only on KERNEL32 + the Universal CRT; SDL2.dll is
+# loaded at run time only when --sdl is used. Package a release zip
+# with tools/release_windows.sh.
+CROSSCC ?= x86_64-w64-mingw32-clang
+WINSRC  := z80 machine video tape snapshot keys png wav disasm debug \
+           sdl inflate ay fdc rzx main
+
+windows:
+	@mkdir -p $(BUILD)/win
+	@for f in $(WINSRC); do \
+	    echo "  CROSSCC src/$$f.c"; \
+	    $(CROSSCC) $(CFLAGS) -c src/$$f.c -o $(BUILD)/win/$$f.o || exit 1; \
+	done
+	$(CROSSCC) $(CFLAGS) -o $(BUILD)/win/hc91emu.exe \
+	    $(addprefix $(BUILD)/win/,$(addsuffix .o,$(WINSRC)))
+	@echo "built $(BUILD)/win/hc91emu.exe"
+
 # Rebuild the documentation: the PDF user manual (needs pdflatex) and a
 # render check of the man page (needs groff). docs/manual.pdf is
 # committed, so end users need neither tool.
@@ -80,4 +99,4 @@ clean:
 	      $(BUILD)/ctest $(BUILD)/bordertap $(BUILD)/multitap \
 	      $(BUILD)/fbcheck $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/snowtap $(BUILD)/fliptap $(BUILD)/dtest $(BUILD)/sst
 
-.PHONY: all test test-full manual clean
+.PHONY: all test test-full manual windows clean
