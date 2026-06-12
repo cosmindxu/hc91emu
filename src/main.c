@@ -14,9 +14,13 @@ static void usage(const char *prog)
     fprintf(stderr,
         "usage: %s [options] [file.tap/.tzx/.sna/.z80/.szx/.scr/.rzx]\n"
         "  --machine M       hc91 (default) | hc85 | hc90 | 48k | hc128\n"
-        "                    (hc128: 128K RAM via 0x7FFD + AY at 0xFFFD)\n"
+        "                    | hc2000 (disk interface: i8272 + IF1 ROM)\n"
         "  --rom FILE        ROM image (default: per --machine)\n"
         "  --rom1 FILE       second 16K ROM for hc128 (default: copy of ROM 0)\n"
+        "  --rom-if1 FILE    HC-2000 disk interface ROM (roms/hc2ki1.rom)\n"
+        "  --disk FILE       drive A disk image (raw .img/.dsk; implies IF1)\n"
+        "  --disk-b FILE     drive B disk image\n"
+        "  --boot-cpm        hc2000: reset into the CP/M boot ROM\n"
         "  --frames N        frames to run (default 300)\n"
         "  --screenshot F    write PNG of final frame\n"
         "  --text            print 24x32 OCR text of final screen\n"
@@ -88,8 +92,10 @@ int main(int argc, char **argv)
     Machine *m = &machine;
     const char *rom_path = NULL;  /* default chosen per --machine */
     const char *rom1_path = NULL;
+    const char *romif1_path = NULL;
+    const char *disk_a = NULL, *disk_b = NULL;
     const char *machine_name = "hc91";
-    int model_128 = 0;
+    int model_128 = 0, model_2000 = 0, boot_cpm = 0;
     const char *file_path = NULL;
     const char *screenshot_path = NULL;
     const char *wav_path = NULL;
@@ -123,6 +129,17 @@ int main(int argc, char **argv)
         } else if (!strcmp(a, "--rom1")) {
             if (++i >= argc) { usage(argv[0]); return 1; }
             rom1_path = argv[i];
+        } else if (!strcmp(a, "--rom-if1")) {
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            romif1_path = argv[i];
+        } else if (!strcmp(a, "--disk")) {
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            disk_a = argv[i];
+        } else if (!strcmp(a, "--disk-b")) {
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            disk_b = argv[i];
+        } else if (!strcmp(a, "--boot-cpm")) {
+            boot_cpm = 1;
         } else if (!strcmp(a, "--machine")) {
             if (++i >= argc) { usage(argv[0]); return 1; }
             machine_name = argv[i];
@@ -260,6 +277,9 @@ int main(int argc, char **argv)
         else if (!strcmp(machine_name, "hc128")) {
             def_rom = "roms/hc-128.rom";
             model_128 = 1;
+        } else if (!strcmp(machine_name, "hc2000")) {
+            def_rom = "roms/hc2k1-0.rom";
+            model_2000 = 1;
         } else {
             fprintf(stderr, "error: unknown --machine '%s'\n", machine_name);
             return 1;
@@ -272,6 +292,27 @@ int main(int argc, char **argv)
         return 1;
     if (model_128 && machine_set_128(m, rom1_path) != 0)
         return 1;
+    if (model_2000 && machine_set_if1(m, romif1_path ? romif1_path
+                                      : "roms/hc2ki1.rom") != 0)
+        return 1;
+    if (model_2000 && machine_set_boot(m, "roms/hc2k1-1.rom") != 0)
+        return 1;
+    if (boot_cpm) {
+        if (!model_2000) {
+            fprintf(stderr, "error: --boot-cpm needs --machine hc2000\n");
+            return 1;
+        }
+        m->cfg_7e = 0x01;        /* reset with the CP/M ROM mapped low */
+    }
+    if (disk_a || disk_b) {
+        if (!m->have_if1 && machine_set_if1(m, romif1_path ? romif1_path
+                                            : "roms/hc2ki1.rom") != 0)
+            return 1;
+        if (disk_a && fdc_insert(&m->fdc, 0, disk_a) != 0)
+            return 1;
+        if (disk_b && fdc_insert(&m->fdc, 1, disk_b) != 0)
+            return 1;
+    }
     if (no_floating_bus)
         m->floating_bus = 0;
     m->real_tape = real_tape;
@@ -425,6 +466,7 @@ int main(int argc, char **argv)
 
     if (dbg.trace)
         fclose(dbg.trace);
+    fdc_free(&m->fdc);          /* writes back dirty disk images */
     rzx_free(m);
     tape_free(m);
     return 0;

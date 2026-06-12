@@ -397,6 +397,50 @@ else
   echo "== 18. Game library: SKIP (run tools/get_library.sh) =="
 fi
 
+echo "== 20. HC-2000: IF1 disk interface (i8272) + CP/M =="
+$EMU --machine hc2000 --frames 250 --text 2>/dev/null | grep -q "HC2000"
+check $? "HC-2000 boots to its banner"
+if [ -f software/goldenaxe.img ]; then
+  # IF1 BASIC reads the HC BASIC disk catalog through the FDC
+  $EMU --machine hc2000 --disk software/goldenaxe.img --frames 1500 \
+       --keys '260:CAPS+SYM' --keys '272:SYM+9' --type '1\n@284' \
+       --text 2>/dev/null > "$OUT/hc2000_cat.txt"
+  grep -q "kbytes free" "$OUT/hc2000_cat.txt"
+  check $? "HC-2000: CAT 1 lists an HC BASIC disk via the i8272"
+fi
+if [ -f software/cpm22-hc.img ]; then
+  # CP/M 2.2 cold boot from the system tracks; deterministic, so the
+  # banner+prompt screen is golden-frozen. Both entry paths (reset into
+  # the CP/M ROM, and BASIC's RANDOMIZE USR 14446 stub) must converge
+  # to the same screen.
+  cp software/cpm22-hc.img "$OUT/cpm_a.img"
+  $EMU --machine hc2000 --boot-cpm --disk "$OUT/cpm_a.img" --frames 2500 \
+       --screenshot "$OUT/cpm_boot.png" > /dev/null 2>&1
+  [ "$(md5sum < "$OUT/cpm_boot.png")" = "$(md5sum < tests/cpm_golden.png)" ]
+  check $? "CP/M 2.2 boots to the A> prompt (golden)"
+  $EMU --machine hc2000 --disk "$OUT/cpm_a.img" --frames 3600 \
+       --type 't@260' --keys '272:CAPS+SYM' --type 'l14446\n@284' \
+       --screenshot "$OUT/cpm_usr.png" > /dev/null 2>&1
+  [ "$(md5sum < "$OUT/cpm_usr.png")" = "$(md5sum < tests/cpm_golden.png)" ]
+  check $? "RANDOMIZE USR 14446 boots CP/M from BASIC (same screen)"
+  # DIR renders a directory listing: the relocated 0xC000 screen gains
+  # a significant amount of rendered pixels vs the bare prompt.
+  $EMU --machine hc2000 --boot-cpm --disk "$OUT/cpm_a.img" --frames 3400 \
+       --type 'dir\n@2600' --save-z80 "$OUT/cpm_dir.z80" > /dev/null 2>&1
+  python3 - "$OUT/cpm_dir.z80" <<'PYEOF'
+import sys
+d = open(sys.argv[1],'rb').read()
+off = 30+2+23
+pages = {}
+while off + 3 <= len(d):
+    pages[d[off+2]] = d[off+3:off+3+16384]; off += 3+16384
+pix = pages[5][:0x1800]                    # 0xC000 page pixel area
+n = sum(1 for b in pix if b)
+sys.exit(0 if n > 800 else 1)
+PYEOF
+  check $? "CP/M DIR lists the disk (WordStar/Turbo Pascal/dBASE...)"
+fi
+
 if [ "${RUN_Z80TEST:-0}" = 1 ]; then
   echo "== 8. Rak's z80test in-emulator (slow: ~2 min each) =="
   YS=""
