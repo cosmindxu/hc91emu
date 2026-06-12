@@ -101,6 +101,24 @@ fetch sports match_day_2         m/MatchDayII.tap.zip m/MatchDay2.tap.zip
 fetch sports daley_decathlon     d/DaleyThompsonsDecathlon.tap.zip
 fetch sports chequered_flag      c/ChequeredFlag.tap.zip
 
+# ---- two-sided originals (separate cassette sides for the in-game
+# tape-swap flow: --tape-b / F8) ----
+if ! ls "$LIB/shooter/p47_side_a.tzx" >/dev/null 2>&1; then
+  tmp=$(mktemp)
+  if curl -sfL --retry 2 --max-time 120 \
+       "$BASE/p/P-47Thunderbolt.tzx.zip" -o "$tmp"; then
+    unzip -p "$tmp" "P-47 Thunderbolt - Side A.tzx" \
+        > "$LIB/shooter/p47_side_a.tzx" &&
+    unzip -p "$tmp" "P-47 Thunderbolt - Side B.tzx" \
+        > "$LIB/shooter/p47_side_b.tzx" &&
+    echo "  OK   shooter/p47_side_a.tzx + p47_side_b.tzx" &&
+    ok=$((ok+2))
+  fi
+  rm -f "$tmp"
+else
+  have=$((have+1))
+fi
+
 echo
 echo "library: $ok fetched, $have already present, $fail failed"
 [ -n "$failures" ] && echo "failed:$failures"

@@ -37,7 +37,14 @@ typedef struct Tape {
 } Tape;
 
 /* Pulse-level tape player: the whole tape is compiled into a flat list
- * of pulse durations (T-states); EAR toggles at each boundary. */
+ * of pulse durations (T-states); EAR toggles at each boundary.
+ *
+ * Multi-load support: block starts are recorded as boundaries. At a
+ * boundary the player pauses unless the CPU is actively polling the
+ * EAR port (a loader reads it every ~50-200 T; keyboard scanning stays
+ * far below the hot threshold), and resumes when hot polling returns —
+ * so "stop the tape / press a key" schemes work. TZX stop markers
+ * (0x20 len 0, 0x2A) pause unconditionally. */
 typedef struct TapePlayer {
     uint32_t *pulses;
     size_t npulses;
@@ -45,6 +52,12 @@ typedef struct TapePlayer {
     uint64_t edge_ts;    /* T-state of the next EAR toggle */
     int ear;             /* current level 0/1 */
     int playing;
+    size_t *bounds;      /* pulse indices where blocks start */
+    uint8_t *bstop;      /* 1 = unconditional stop marker */
+    size_t nbounds, nextb;
+    int paused;
+    uint64_t win_start;  /* EAR-poll rate window */
+    int win_reads, hot;
 } TapePlayer;
 
 /* ---- Scheduled key events ---- */
@@ -160,6 +173,9 @@ typedef struct Machine {
     int real_tape;           /* 1 = no LD-BYTES trap; load via player */
     int play_at_frame;       /* frame to press PLAY at, -1 = never */
     const char *save_tape;   /* append SA-BYTES output here (SAVE trap) */
+    const char *tape_cur;    /* path of the attached tape */
+    const char *tape_next;   /* the other cassette side (--tape-b);
+                                tape_swap() exchanges the two */
 
     KeyEvent key_events[HC91_MAX_KEY_EVENTS];
     int nkey_events;
@@ -214,6 +230,7 @@ void video_beam_finish(Machine *m);    /* paint to frame end; fb_valid=1 */
 
 /* tape.c */
 int  tape_load(Machine *m, const char *path);   /* attach .tap/.tzx */
+int  tape_swap(Machine *m, const char *path);   /* insert other side */
 void tape_trap(Machine *m);                     /* LD-BYTES @0x0556 */
 void tape_save_trap(Machine *m);                /* SA-BYTES @0x04C2 */
 void tape_play_start(Machine *m);               /* press PLAY now */
