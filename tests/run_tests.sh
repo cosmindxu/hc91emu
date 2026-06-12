@@ -287,6 +287,12 @@ if ldconfig -p 2>/dev/null | grep -q "libSDL2-2\.0\.so\.0"; then
   grep -q "sdl: exiting after 250 frames" "$OUT/sdl_err.txt" \
     && grep -q "HC - 91" "$OUT/sdl.txt" && [ $rc = 0 ]
   check $? "SDL session runs 250 frames and boots to the banner"
+  # --scale changes the initial window size (logged at startup)
+  SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+    $EMU --rom roms/hc91.rom --sdl --sdl-frames 10 --scale 3 \
+    > /dev/null 2>"$OUT/sdl_scale.txt"
+  grep -q "sdl: 960x720 window" "$OUT/sdl_scale.txt"
+  check $? "SDL --scale 3 opens a 960x720 window"
 else
   echo "== 15. SDL2 frontend: SKIP (libSDL2 runtime not present) =="
 fi
@@ -455,7 +461,21 @@ n = sum(1 for b in pix if b)
 sys.exit(0 if n > 800 else 1)
 PYEOF
   check $? "CP/M DIR lists the disk (WordStar/Turbo Pascal/dBASE...)"
+  # FDC write path end-to-end: CP/M's SAVE creates a directory entry
+  # (plain ASCII 8+3 in the directory track) and fdc_flush writes the
+  # dirty image back on exit, so the entry must be in the .img bytes.
+  cp software/cpm22-hc.img "$OUT/cpm_w.img"
+  $EMU --machine hc2000 --boot-cpm --disk "$OUT/cpm_w.img" --frames 4200 \
+       --type 'save 4 fdctest.com\n@2600' > /dev/null 2>&1
+  ! grep -aq "FDCTEST COM" software/cpm22-hc.img \
+    && grep -aq "FDCTEST COM" "$OUT/cpm_w.img" \
+    && ! cmp -s "$OUT/cpm_w.img" software/cpm22-hc.img
+  check $? "CP/M SAVE writes through the FDC back into the disk image"
 fi
+
+echo "== 21. ROM dumps (tools/get_roms.sh) =="
+bash tools/get_roms.sh --verify > "$OUT/roms_verify.txt" 2>&1
+check $? "all 12 ROM dumps present with the pinned sha256"
 
 if [ "${RUN_Z80TEST:-0}" = 1 ]; then
   echo "== 8. Rak's z80test in-emulator (slow: ~2 min each) =="

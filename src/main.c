@@ -49,8 +49,11 @@ static void usage(const char *prog)
         "  --trace-frames    print frame/PC every 50 frames to stderr\n"
         "  --sdl             interactive SDL2 window (50 Hz, live audio;\n"
         "                    Shift=CAPS Ctrl=SYM Tab=turbo F5=pause F6=tape\n"
-        "                    play/stop F7=rewind F8=swap side F10=quit)\n"
+        "                    play/stop F7=rewind F8=swap side F2/F4=quick\n"
+        "                    save/load F11=fullscreen F10=quit; drop a\n"
+        "                    tape/snapshot file on the window to load it)\n"
         "  --sdl-frames N    auto-quit the SDL session after N frames\n"
+        "  --scale N         SDL window size multiplier 1..8 (default 2)\n"
         "debugger (addresses/ports in hex):\n"
         "  --monitor         stop in the monitor before the first instr\n"
         "  --break ADDR      PC breakpoint (repeatable)\n"
@@ -147,7 +150,7 @@ int main(int argc, char **argv)
     int ntype = 0, nkeys = 0;
     int frames = 300;
     int want_text = 0, autoload = 0, trace = 0, no_floating_bus = 0;
-    int sdl_mode = 0, sdl_frames = 0;
+    int sdl_mode = 0, sdl_frames = 0, sdl_scale = 2;
     int i, f;
 
     for (i = 1; i < argc; i++) {
@@ -261,6 +264,13 @@ int main(int argc, char **argv)
         } else if (!strcmp(a, "--sdl-frames")) {
             if (++i >= argc) { usage(argv[0]); return 1; }
             sdl_frames = atoi(argv[i]);
+        } else if (!strcmp(a, "--scale")) {
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            sdl_scale = atoi(argv[i]);
+            if (sdl_scale < 1 || sdl_scale > 8) {
+                fprintf(stderr, "error: --scale wants 1..8\n");
+                return 1;
+            }
         } else if (!strcmp(a, "--monitor")) {
             monitor = 1;
         } else if (!strcmp(a, "--debug")) {
@@ -443,7 +453,7 @@ int main(int argc, char **argv)
         return 1;
 
     if (sdl_mode) {
-        if (sdl_run(m, sdl_frames) != 0)
+        if (sdl_run(m, sdl_frames, sdl_scale) != 0)
             return 1;
     } else {
         for (f = 0; f < frames; f++) {

@@ -213,6 +213,7 @@ int  machine_set_if1(Machine *m, const char *rom_path); /* 8K or 16K */
 int  machine_set_boot(Machine *m, const char *rom_path); /* CP/M boot */
 int  machine_load_file(Machine *m, const char *path);  /* by extension */
 void machine_run_frame(Machine *m);
+void machine_reset(Machine *m);    /* warm reset: clock/RAM/media kept */
 uint8_t machine_peek(const Machine *m, uint16_t addr); /* no side effects */
 
 /* ay.c — AY-3-8912 (model 128) */
@@ -255,9 +256,10 @@ int  keys_joy(Machine *m, int f0, int f1, const char *dirs); /* UDLRF */
 int  keys_name_pos(const char *name, int len, int *row, int *bit);
 
 /* sdl.c — optional SDL2 frontend (dlopen'd at runtime; no build deps).
- * Runs the interactive loop; max_frames > 0 auto-quits (for tests).
+ * Runs the interactive loop; max_frames > 0 auto-quits (for tests);
+ * scale is the initial window size multiplier (1..8).
  * Returns 0 on clean exit, -1 if SDL2 is unavailable. */
-int  sdl_run(Machine *m, int max_frames);
+int  sdl_run(Machine *m, int max_frames, int scale);
 
 /* png.c */
 int  png_write(const char *path, const uint32_t *rgba, int w, int h);

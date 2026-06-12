@@ -46,6 +46,8 @@ Sinclair 48K is available as `--machine 48k`.
 ## Building
 
 ```sh
+tools/get_roms.sh      # if roms/ is absent: fetch the ROM dumps on demand
+                       # (sha256-verified; --verify re-checks offline)
 make            # builds build/hc91emu (the emulator) and build/zexrun (CPU test harness)
 make test       # suite: unit tests (timing/contention/disasm) + zexdoc + boot/BASIC/software
 make test-full  # same but also runs the (slow) zexall undocumented-flags exerciser
@@ -53,6 +55,11 @@ make test-full  # same but also runs the (slow) zexall undocumented-flags exerci
 tests/get_vectors.sh   # one-time: fetch the SingleStepTests/z80 vector subset
                        # (~130 MB); 'make test' then cross-checks all 162,000
 ```
+
+Releases: `tools/release_deb.sh` builds a Debian/Ubuntu package (binary,
+ROMs, man page, manual, desktop launcher + icon + MIME types);
+`tools/release_windows.sh` cross-builds a Windows x86-64 zip (needs a
+mingw-w64 toolchain).
 
 No external dependencies: plain C99 + libc. Screenshots are written as PNG
 by a built-in encoder; screen contents can also be read back as text

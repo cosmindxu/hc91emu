@@ -460,6 +460,41 @@ int machine_load_file(Machine *m, const char *path)
     return -1;
 }
 
+/* Warm reset (the RESET button): CPU registers and the I/O latches
+ * return to power-on state; RAM contents, loaded media and the T-state
+ * clock are kept (the running clock keeps audio and the frame phase
+ * continuous across the reset). The FDC keeps its inserted disks. */
+void machine_reset(Machine *m)
+{
+    uint64_t ts = m->cpu.tstates, fe = m->cpu.fetches;
+    z80_reset(&m->cpu);
+    m->cpu.tstates = ts;
+    m->cpu.fetches = fe;
+
+    m->ram_paged = 0;
+    m->if1_paged = 0;
+    m->cfg_7e = 0;
+    m->cfg_locked = 0;
+    m->cpm_page = 0;
+    m->port_7ffd = 0;
+    m->screen = (m->model == HC91_MODEL_128) ? m->ram128[5]
+                                             : m->mem + 0x4000;
+    ay_reset(&m->ay);
+    m->border = 7;
+    memset(m->keyrows, 0, sizeof(m->keyrows));
+    m->kempston = 0;
+    m->nkey_events = 0;
+    m->njoy_events = 0;
+    m->play_at_frame = -1;
+    m->player.playing = 0;
+    m->player.paused = 0;
+    m->player.idx = 0;
+    m->player.ear = 0;
+    m->player.nextb = 1;
+    m->player.hot = 0;
+    m->player.win_reads = 0;
+}
+
 /* ---- Frame loop ---- */
 
 void machine_run_frame(Machine *m)
