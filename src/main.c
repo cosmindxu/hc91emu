@@ -62,6 +62,28 @@ static void usage(const char *prog)
         prog);
 }
 
+/* Resolve a default data file (ROMs): use the relative path when it
+ * exists (running from the source tree), else fall back to the
+ * installed data directory. Explicit --rom paths are never touched. */
+#ifndef HC91_DATADIR
+#define HC91_DATADIR "/usr/share/hc91emu"
+#endif
+static const char *find_data(const char *rel)
+{
+    static char bufs[4][512];
+    static int slot;
+    FILE *f = fopen(rel, "rb");
+    char *buf;
+    if (f) {
+        fclose(f);
+        return rel;
+    }
+    buf = bufs[slot];
+    slot = (slot + 1) & 3;
+    snprintf(buf, 512, "%s/%s", HC91_DATADIR, rel);
+    return buf;
+}
+
 /* Hex u16 for --break & friends: optional $ or 0x prefix. */
 static int parse_hex16(const char *s, uint16_t *out)
 {
@@ -298,7 +320,7 @@ int main(int argc, char **argv)
             return 1;
         }
         if (!rom_path)
-            rom_path = def_rom;
+            rom_path = find_data(def_rom);
     }
 
     if (machine_init(m, rom_path) != 0)
@@ -306,9 +328,10 @@ int main(int argc, char **argv)
     if (model_128 && machine_set_128(m, rom1_path) != 0)
         return 1;
     if (model_2000 && machine_set_if1(m, romif1_path ? romif1_path
-                                      : "roms/hc2ki1.rom") != 0)
+                                      : find_data("roms/hc2ki1.rom")) != 0)
         return 1;
-    if (model_2000 && machine_set_boot(m, "roms/hc2k1-1.rom") != 0)
+    if (model_2000 && machine_set_boot(m,
+                                       find_data("roms/hc2k1-1.rom")) != 0)
         return 1;
     if (boot_cpm) {
         if (!model_2000) {
@@ -319,7 +342,7 @@ int main(int argc, char **argv)
     }
     if (disk_a || disk_b) {
         if (!m->have_if1 && machine_set_if1(m, romif1_path ? romif1_path
-                                            : "roms/hc2ki1.rom") != 0)
+                                            : find_data("roms/hc2ki1.rom")) != 0)
             return 1;
         if (disk_a && fdc_insert(&m->fdc, 0, disk_a) != 0)
             return 1;

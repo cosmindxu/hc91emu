@@ -478,6 +478,12 @@ hc91emu \-\-frames 3 \-\-break 11CB \e
 .I roms/
 Genuine HC\-85/90/91/128/2000 ROM dumps and the Sinclair 48K ROM.
 .TP
+.I /usr/share/hc91emu/roms/
+Fallback location for the default ROMs: when a default ROM is not
+found relative to the current directory (a source tree), the emulator
+looks here.
+This is where the Debian package installs the ROMs.
+.TP
 .I software/library/
 The local classic\-game library built by
 .IR tools/get_library.sh ,
