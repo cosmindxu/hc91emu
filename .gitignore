@@ -4,3 +4,4 @@ software/
 *.o
 core
 tests/vectors/
+dist/

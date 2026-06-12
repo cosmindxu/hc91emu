@@ -50,6 +50,20 @@ static uint32_t rd32b(const uint8_t *p)
          | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
+/* Portable temp-file template (honors TMPDIR; TEMP/TMP on Windows). */
+static void tmp_template(char *buf, size_t sz)
+{
+    const char *d = getenv("TMPDIR");
+#ifdef _WIN32
+    if (!d) d = getenv("TEMP");
+    if (!d) d = getenv("TMP");
+    if (!d) d = ".";
+#else
+    if (!d) d = "/tmp";
+#endif
+    snprintf(buf, sz, "%s/hc91rzxXXXXXX", d);
+}
+
 static int grow(uint8_t **buf, size_t *cap, size_t need)
 {
     if (need <= *cap)
@@ -78,7 +92,7 @@ int rzx_playing(const Machine *m)
 int rzx_record_start(Machine *m, const char *path)
 {
     Rzx *r = m->rzx;
-    char tmp[] = "/tmp/hc91rzxXXXXXX";
+    char tmp[512];
     int fd;
     long n;
     FILE *f;
@@ -89,6 +103,7 @@ int rzx_record_start(Machine *m, const char *path)
                 "(use --real-tape)\n");
 
     /* snapshot of the state at recording start, embedded later */
+    tmp_template(tmp, sizeof tmp);
     fd = mkstemp(tmp);
     if (fd < 0) {
         fprintf(stderr, "error: rzx: cannot create temp snapshot\n");
@@ -259,8 +274,10 @@ static int parse_frames(Machine *m, Rzx *r, uint8_t *data, size_t n,
 static int load_embedded_snap(Machine *m, const char ext[4],
                               const uint8_t *data, size_t n)
 {
-    char tmp[] = "/tmp/hc91rzxXXXXXX";
-    int fd = mkstemp(tmp);
+    char tmp[512];
+    int fd;
+    tmp_template(tmp, sizeof tmp);
+    fd = mkstemp(tmp);
     FILE *f;
     int rc;
 

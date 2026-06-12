@@ -18,7 +18,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#ifdef _WIN32
+/* the same late-binding idea, via the Win32 loader */
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#undef CreateWindow             /* windows.h macros vs our members */
+#define dlopen(name, flags) ((void *)LoadLibraryA(name))
+#define dlsym(handle, sym)  ((void *)(uintptr_t)GetProcAddress( \
+                                 (HMODULE)(handle), (sym)))
+#define dlerror()           "LoadLibrary failed"
+#define SDL_LIB_PRIMARY     "SDL2.dll"
+#define SDL_LIB_FALLBACK    "SDL2.dll"
+#define RTLD_NOW    0
+#define RTLD_GLOBAL 0
+#else
 #include <dlfcn.h>
+#define SDL_LIB_PRIMARY     "libSDL2-2.0.so.0"
+#define SDL_LIB_FALLBACK    "libSDL2.so"
+#endif
 #include "machine.h"
 
 /* ---- minimal SDL2 ABI ---- */
@@ -111,11 +128,11 @@ static struct {
 
 static int sdl_load(void)
 {
-    void *dl = dlopen("libSDL2-2.0.so.0", RTLD_NOW | RTLD_GLOBAL);
-    if (!dl) dl = dlopen("libSDL2.so", RTLD_NOW | RTLD_GLOBAL);
+    void *dl = dlopen(SDL_LIB_PRIMARY, RTLD_NOW | RTLD_GLOBAL);
+    if (!dl) dl = dlopen(SDL_LIB_FALLBACK, RTLD_NOW | RTLD_GLOBAL);
     if (!dl) {
-        fprintf(stderr, "error: SDL2 runtime not found (libSDL2-2.0.so.0): "
-                "%s\n", dlerror());
+        fprintf(stderr, "error: SDL2 runtime not found (%s): %s\n",
+                SDL_LIB_PRIMARY, dlerror());
         return -1;
     }
 #define REQ(name) do { \
