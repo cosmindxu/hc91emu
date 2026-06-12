@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include "z80.h"
+#include "fdc.h"
 
 #define HC91_FRAME_TSTATES 69888   /* 3.5 MHz / 50 Hz */
 #define HC91_INT_WINDOW    32      /* ULA INT pulse length (T-states) */
@@ -103,7 +104,10 @@ typedef struct Machine {
     uint8_t mem_cpm[0x4000]; /* low 16K RAM, paged over ROM by port 0x7E
                                 (HC-91 CP/M mode); filled with HALT so a
                                 bare boot into it parks deterministically */
-    int ram_paged;           /* 1 = mem_cpm mapped at 0x0000-0x3FFF */
+    int ram_paged;           /* port 0x7E bits: 1 = mem_cpm mapped at
+                                0x0000-0x3FFF (HC-91 CP/M bank); 2 = the
+                                IF1 interface's 16K RAM (HC-2000 ext16k,
+                                only with have_if1) */
 
     /* model 128 (HC-128): mem[0..0x3FFF] = ROM 0, rom1 = ROM 1, eight
      * 16K banks; 0x4000 = bank 5, 0x8000 = bank 2, 0xC000 = bank 0-7
@@ -115,6 +119,36 @@ typedef struct Machine {
     uint8_t port_7ffd;
     uint8_t *screen;         /* active display bank (also set for 48K) */
     Ay ay;
+
+    /* HC-2000 "IF1" disk interface: an 8K shadow ROM (0x0000-0x1FFF)
+     * paged in when PC hits 0x0008/0x1708 and out after the instruction
+     * at 0x0700 (only while no RAM is paged over the ROM); the
+     * interface carries 16K RAM ("ext16k") — its 0x2000-0x3FFF half is
+     * visible as the shadow ROM's workspace window, and the whole chip
+     * pages over 0x0000-0x3FFF via port 0x7E bit 1 (probed exactly that
+     * way by HC disk software); and an i8272 FDC at ports 0x85/0x87
+     * with a control latch at 0x05/0x07. */
+    uint8_t rom_if1[0x4000];
+    uint8_t if1_ram16[0x4000];
+    int have_if1;
+    int if1_paged;
+    Fdc fdc;
+
+    /* HC-2000 system configuration (semantics confirmed against Alex
+     * Badea's FUSE hc2000 machine): port 0x7E (decode (port&0x81)==0,
+     * readable) is a latch — D0 selects the ROM (0 = BASIC = mem[],
+     * 1 = CP/M = rom_boot), D1 moves the ROM window from 0x0000 to
+     * 0xE000-0xFFFF (upper ROM half) with RAM bank 0 (mem_cpm) mapped
+     * low, D2 locks the latch, D3 relocates the video generator to
+     * 0xC000. A separate "CPM" flip-flop (set by writing port 0xC7,
+     * cleared by 0xC5 or reset) pulls A13 high for CPU accesses to
+     * 0xC000-0xDFFF, exposing the 0xE000 RAM there while the ROM
+     * occupies 0xE000. */
+    uint8_t rom_boot[0x4000];
+    int have_boot;
+    uint8_t cfg_7e;
+    int cfg_locked;
+    int cpm_page;
     uint8_t border;          /* last OUT to ULA, bits 0-2 */
     uint8_t beeper;          /* last beeper bit (OUT bit 4) */
     uint32_t frame_counter;
@@ -159,6 +193,8 @@ int  beep_save(Machine *m, const char *path, uint64_t now_ts);
 /* machine.c */
 int  machine_init(Machine *m, const char *rom_path);   /* 0 ok, -1 error */
 int  machine_set_128(Machine *m, const char *rom1_path); /* NULL = dup */
+int  machine_set_if1(Machine *m, const char *rom_path); /* 8K or 16K */
+int  machine_set_boot(Machine *m, const char *rom_path); /* CP/M boot */
 int  machine_load_file(Machine *m, const char *path);  /* by extension */
 void machine_run_frame(Machine *m);
 uint8_t machine_peek(const Machine *m, uint16_t addr); /* no side effects */

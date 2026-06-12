@@ -8,9 +8,10 @@ save+load and RZX record/replay; Kempston/Sinclair/cursor joysticks;
 HC-91 CP/M paging; scriptable debugger; SDL2 frontend (dlopen, zero
 build deps); HC-85/HC-90/HC-128 (128K banking + AY); CI with an ASan
 job. Suite green incl. gated slow suites. Beyond the roadmap, also
-done: a 32-title classified game library (tools/get_library.sh) and
-ULA snow. Remaining stretch: TZX 0x18/0x19 blocks (in progress),
-HC-88/HC-2000 disk+CP/M hardware.
+done: a 32-title classified game library (tools/get_library.sh), ULA
+snow, TZX 0x18/0x19 blocks, and the HC-2000 disk interface (i8272)
+with CP/M 2.2 booting to the A> prompt. Last remaining stretch: the
+HC-88's undocumented disk hardware (2K boot ROM only).
 
 ---
 
@@ -293,10 +294,24 @@ AY block) save/load the 128K state; 48K snapshots load into USR0-style
 banks; the 48K machine refuses 128K files with a hint. Suite: 9 tests
 (banner boots; bank round-trip via BASIC OUT/POKE/PEEK; AY tone A
 measured at 1007.5 Hz vs the ideal 1007.6; snapshot round-trips with
-the tone resuming). Out of scope, documented: HC-88 (a CP/M machine —
-its dump is a 2K boot ROM needing disk hardware) and the HC-2000's
-floppy/CP/M side (its ROM 0 is a 48K BASIC variant that would boot
-today; the disk interface is its own project).
+the tone resuming).
+
+**HC-2000 disk + CP/M, shipped 2026-06-12** (`--machine hc2000`): the
+"IF1" disk interface is fully emulated — i8272 FDC (ports 0x85/0x87,
+control latch 0x05/0x07 with TC/reset/drive-select, polled transfers),
+an 8K interface shadow ROM with 16K interface RAM, and raw .img/.dsk
+images in the four period geometries. The HC-2000 system latch at port
+0x7E (ROM A14 select / CP/M address decode / lockout / video-at-0xC000)
+and the 0xC5/0xC7 CPM A13 flip-flop are implemented to the semantics of
+Alex Badea's FUSE hc2000 machine, cross-checked against the genuine ROM
+disassembly. Demonstrated end to end: IF1 BASIC `CAT 1` catalogs a
+disk; Golden Axe multi-loads from a 640K image to its title; and **CP/M
+2.2 cold-boots from the system tracks to the A> prompt** ("56k CP/M ver
+2.2/2D") — via `--boot-cpm` or authentically from BASIC with
+`RANDOMIZE USR 14446` — with `DIR` listing WordStar, Turbo Pascal,
+dBASE and MBASIC off the disk. Suite: 5 gated tests incl. a golden boot
+screen both entry paths must converge to. Still open: HC-88 (2K boot
+ROM, related but undocumented disk hardware).
 
 ---
 

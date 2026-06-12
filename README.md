@@ -21,12 +21,17 @@ ZX Spectrum 48K software-compatible — which this emulator exploits and which
 the test suite demonstrates with period software.
 
 Other members of the I.C.E. Felix HC family are emulated too
-(`--machine`): the **HC-85** and **HC-90** (banner-variant 48K ROMs) and
+(`--machine`): the **HC-85** and **HC-90** (banner-variant 48K ROMs),
 the **HC-128**, whose genuine ROM turns out to be HC-91-derived with
 added support for **128K RAM banking via port `0x7FFD`** and an
 **AY-3-8912** at `0xFFFD`/`0xBFFD` — both implemented here (8×16K banks,
 shadow screen, ROM select, odd-bank contention, full PSG mixed into the
-audio path). The plain Sinclair 48K is available as `--machine 48k`.
+audio path) — and the **HC-2000** with its floppy-disk interface: an
+i8272 FDC, IF1-style shadow ROM + 16K interface RAM, the system
+configuration latch, and **CP/M 2.2 booting from disk images to the
+A> prompt** (`--machine hc2000 --boot-cpm --disk system.img`, or
+authentically from BASIC with `RANDOMIZE USR 14446`). The plain
+Sinclair 48K is available as `--machine 48k`.
 
 ## Building
 
@@ -196,6 +201,17 @@ overrides it.
   snapshots round-trip; 48K snapshots load into a locked USR0-style
   bank set. ULA timing is kept at the 48K clone values (the HC-128 ROM
   is HC-91-derived; no evidence of 228 T lines).
+- **HC-2000 disk + CP/M**: the "IF1" interface = i8272 FDC at
+  0x85/0x87 with a control latch at 0x05/0x07 (TC, drive select,
+  reset), an 8K shadow ROM (paged at 0x0008/0x1708, out after 0x0700)
+  with 16K interface RAM, and raw `.img`/`.dsk` images (640K/720K
+  80-track, 320K/360K 40-track). The system latch at 0x7E selects
+  BASIC/CP/M ROM, moves the ROM window to 0xE000 with RAM low, locks
+  itself, and relocates the video generator to 0xC000; ports 0xC7/0xC5
+  toggle the CPM A13 flip-flop (0xE000 RAM appears at 0xC000) — all per
+  the genuine ROM disassembly and Alex Badea's FUSE hc2000 semantics.
+  IF1 BASIC `CAT 1`, disk-loaded games (Golden Axe to its title) and a
+  full CP/M 2.2 cold boot to `A>` with working `DIR` are suite-tested.
 - **CI**: GitHub Actions workflow builds, fetches/caches the
   SingleStepTests vectors, runs the suite, and repeats the unit/machine
   tests under AddressSanitizer + UBSan.
@@ -237,3 +253,8 @@ overrides it.
 | HC-128 banking | distinct banks at 0xC000 via `OUT 32765`, PEEK round-trip |
 | HC-128 AY tone (reg writes via OUT) | 1007.5 Hz vs ideal 1007.6 Hz |
 | HC-128 .z80/.szx round-trip | screen + bank latch + AY state resume (tone continues) |
+| HC-2000 `CAT 1` | HC BASIC disk catalog via the i8272 |
+| HC-2000 Golden Axe (640K .img) | multi-loads from disk to the title screen |
+| HC-2000 CP/M 2.2 | boots to `A>` (golden screen; both entry paths converge); `DIR` lists the disk |
+| ULA snow | I=0x40 corrupts fetches deterministically |
+| TZX 0x18/0x19 | CSW (RLE+Z-RLE) and generalized-data re-encodings ROM-load |

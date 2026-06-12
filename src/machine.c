@@ -29,8 +29,31 @@ uint8_t machine_peek(const Machine *m, uint16_t addr)
         default: return m->ram128[m->port_7ffd & 7][addr & 0x3FFF];
         }
     }
-    if (addr < 0x4000 && m->ram_paged)
-        return m->mem_cpm[addr];
+    if (m->have_boot) {                      /* HC-2000 config map */
+        if (addr < 0x4000) {
+            if (m->cfg_7e & 0x02)            /* D1: RAM bank 0 low */
+                return m->mem_cpm[addr];
+            if (m->if1_paged)
+                return addr < 0x2000 ? m->rom_if1[addr]
+                                     : m->if1_ram16[addr];
+            return ((m->cfg_7e & 0x01) ? m->rom_boot : m->mem)[addr];
+        }
+        if (addr >= 0xC000 && addr < 0xE000 && m->cpm_page)
+            return m->mem[addr | 0x2000];    /* CPM: A13 pulled high */
+        if (addr >= 0xE000 && (m->cfg_7e & 0x02))
+            return ((m->cfg_7e & 0x01) ? m->rom_boot : m->mem)
+                   [0x2000 + (addr & 0x1FFF)];
+        return m->mem[addr];
+    }
+    if (addr < 0x4000) {
+        if (m->ram_paged & 2)
+            return m->if1_ram16[addr];
+        if (m->ram_paged & 1)
+            return m->mem_cpm[addr];
+        if (m->if1_paged)
+            return addr < 0x2000 ? m->rom_if1[addr]
+                                 : m->if1_ram16[addr];
+    }
     return m->mem[addr];
 }
 
@@ -62,9 +85,33 @@ static void bus_mem_write(void *ctx, uint16_t addr, uint8_t val)
         p[off] = val;
         return;
     }
-    if (addr < 0x4000) {         /* ROM (ignore) or paged CP/M RAM */
-        if (m->ram_paged)
+    if (m->have_boot) {                      /* HC-2000 config map */
+        if (addr < 0x4000) {
+            if (m->cfg_7e & 0x02)
+                m->mem_cpm[addr] = val;      /* RAM bank 0 */
+            else if (m->if1_paged && addr >= 0x2000)
+                m->if1_ram16[addr] = val;
+            return;                          /* else ROM */
+        }
+        if (addr >= 0xC000 && addr < 0xE000 && m->cpm_page)
+            addr |= 0x2000;                  /* CPM: A13 pulled high */
+        else if (addr >= 0xE000 && (m->cfg_7e & 0x02))
+            return;                          /* ROM at 0xE000 */
+        {
+            uint32_t scr = (uint32_t)(addr - (m->screen - m->mem));
+            if (m->fb_live && scr < 0x1B00 && m->mem[addr] != val)
+                video_beam_catchup(m);
+        }
+        m->mem[addr] = val;
+        return;
+    }
+    if (addr < 0x4000) {         /* ROM (ignore), CP/M RAM or IF1 RAM */
+        if (m->ram_paged & 2)
+            m->if1_ram16[addr] = val;
+        else if (m->ram_paged & 1)
             m->mem_cpm[addr] = val;
+        else if (m->if1_paged && addr >= 0x2000)
+            m->if1_ram16[addr] = val;
         return;
     }
     if (m->fb_live && addr < 0x5B00 && m->mem[addr] != val)
@@ -139,6 +186,10 @@ static int bus_io_contend_late(void *ctx, uint16_t port)
 
 static uint8_t bus_io_read_raw(Machine *m, uint16_t port)
 {
+    /* HC-2000: the config latch reads back ((port & 0x81) == 0); the
+     * ULA keyboard read stays on even ports with A7 = 1 (0xFE). */
+    if (m->have_boot && (port & 0x81) == 0)
+        return m->cfg_7e;
     if ((port & 1) == 0) {
         /* ULA: bits 0-4 keyboard (active low), bit 6 EAR. While the tape
          * player runs, EAR carries the tape signal; otherwise it follows
@@ -161,6 +212,16 @@ static uint8_t bus_io_read_raw(Machine *m, uint16_t port)
     /* AY register read at 0xFFFD (model 128). */
     if (m->model == HC91_MODEL_128 && (port & 0xC002) == 0xC000)
         return ay_read(&m->ay);
+    /* HC disk interface (IF1): i8272 + control latch. */
+    if (m->have_if1) {
+        uint8_t lo = (uint8_t)(port & 0xFF);
+        if (lo == 0x85)
+            return fdc_status(&m->fdc);
+        if (lo == 0x87)
+            return fdc_data_read(&m->fdc);
+        if ((lo & 0xFD) == 0x05)
+            return fdc_sel_read(&m->fdc);
+    }
     /* Unattached port: floating bus. While the ULA fetches display data
      * it leaves the byte on the bus; idle/border periods read 0xFF.
      * Frame layout: 224 T per line, lines 64-255 visible; within a line
@@ -223,11 +284,36 @@ static void bus_io_write(void *ctx, uint16_t port, uint8_t val)
             ay_write(&m->ay, val);
         }
     }
-    /* HC-91 CP/M paging: the ROM bootstrap at 0x386E does OUT (0x7E),1
-     * and jumps to 0 expecting RAM there (64K machine). Full low-byte
-     * decode; bit 0 = RAM over ROM. The ULA also sees this even port. */
-    if (m->model == HC91_MODEL_48 && (port & 0xFF) == 0x7E)
-        m->ram_paged = val & 1;
+    /* HC disk interface (IF1). */
+    if (m->have_if1) {
+        uint8_t lo = (uint8_t)(port & 0xFF);
+        if (lo == 0x87)
+            fdc_data_write(&m->fdc, val);
+        else if ((lo & 0xFD) == 0x05)
+            fdc_sel_write(&m->fdc, val);
+    }
+    if (m->have_boot) {
+        /* HC-2000 config latch ((port & 0x81) == 0, canonically 0x7E)
+         * and the CPM flip-flop (write to 0xC7 sets, 0xC5 clears). */
+        if ((port & 0x81) == 0) {
+            if (!m->cfg_locked) {
+                uint8_t *scr = m->mem + ((val & 0x08) ? 0xC000 : 0x4000);
+                if (m->fb_live && scr != m->screen)
+                    video_beam_catchup(m);
+                m->cfg_7e = val;
+                m->cfg_locked = val & 0x04;
+                m->screen = scr;
+            }
+        } else if ((port & 0xFF) == 0xC5 || (port & 0xFF) == 0xC7) {
+            m->cpm_page = ((port & 0xFF) == 0xC7);
+        }
+    } else if (m->model == HC91_MODEL_48 && (port & 0xFF) == 0x7E) {
+        /* HC-91 RAM paging at port 0x7E: bit 0 = the motherboard CP/M
+         * bank (the ROM bootstrap at 0x386E does OUT (0x7E),1 and jumps
+         * to 0); bit 1 = the disk interface's ext16k RAM (probed by HC
+         * disk software with OUT (0x7E),2). Full low-byte decode. */
+        m->ram_paged = val & (m->have_if1 ? 3 : 1);
+    }
     if ((port & 1) == 0) {
         if (m->fb_live && ((val ^ m->border) & 7))
             video_beam_catchup(m);
@@ -303,6 +389,53 @@ int machine_set_128(Machine *m, const char *rom1_path)
     return 0;
 }
 
+/* Load the HC-2000 CP/M ROM (the second half of the machine's 32K ROM
+ * space, selected by config bit D0). */
+int machine_set_boot(Machine *m, const char *rom_path)
+{
+    FILE *f = fopen(rom_path, "rb");
+    size_t n;
+
+    if (!f) {
+        fprintf(stderr, "error: cannot open CP/M ROM '%s'\n", rom_path);
+        return -1;
+    }
+    n = fread(m->rom_boot, 1, 0x4000, f);
+    fclose(f);
+    if (n != 0x4000) {
+        fprintf(stderr, "error: CP/M ROM '%s' must be 16K\n", rom_path);
+        return -1;
+    }
+    m->have_boot = 1;
+    return 0;
+}
+
+/* Attach the HC "IF1" disk interface: a 16K shadow ROM (an 8K image is
+ * mirrored into both halves) + the i8272 at ports 0x85/0x87/0x05-0x07. */
+int machine_set_if1(Machine *m, const char *rom_path)
+{
+    FILE *f = fopen(rom_path, "rb");
+    size_t n;
+
+    if (!f) {
+        fprintf(stderr, "error: cannot open IF1 ROM '%s'\n", rom_path);
+        return -1;
+    }
+    n = fread(m->rom_if1, 1, 0x4000, f);
+    fclose(f);
+    if (n == 0x2000)
+        memcpy(m->rom_if1 + 0x2000, m->rom_if1, 0x2000);
+    else if (n != 0x4000) {
+        fprintf(stderr, "error: IF1 ROM '%s' must be 8K or 16K\n",
+                rom_path);
+        return -1;
+    }
+    m->have_if1 = 1;
+    m->if1_paged = 0;
+    fdc_reset(&m->fdc);
+    return 0;
+}
+
 /* ---- File dispatch by extension ---- */
 
 int machine_load_file(Machine *m, const char *path)
@@ -347,16 +480,31 @@ void machine_run_frame(Machine *m)
         rzx_frame_begin(m);
     if (m->play_at_frame >= 0 && (int)m->frame_counter == m->play_at_frame)
         tape_play_start(m);
+    /* (HC-2000 CP/M note: the ROM BIOS runs IM 2 with I=0xFE — the
+     * vector table lives in the E000-FFFF boot-ROM overlay, all 0xFF
+     * with the ISR address at its end, so the standard 0xFF bus byte
+     * vectors into the ROM BIOS interrupt handler.) */
     int_taken = z80_int(&m->cpu, 0xFF);
 
     while (m->cpu.tstates < end) {
+        uint16_t pc0 = m->cpu.pc.w;
         if (m->dbg)
             debug_step_hook(m);
         if (m->tape.attached && !m->real_tape && m->cpu.pc.w == 0x0556)
             tape_trap(m);
         if (m->save_tape && m->cpu.pc.w == 0x04C2)
             tape_save_trap(m);
+        /* IF1 shadow ROM pages in on the hook addresses (only while a
+         * ROM is mapped low — not in any RAM-low mode)... */
+        if (m->have_if1 && !m->if1_paged
+            && !(m->have_boot ? (m->cfg_7e & 0x02) : m->ram_paged)
+            && (pc0 == 0x0008 || pc0 == 0x1708))
+            m->if1_paged = 1;
         z80_step(&m->cpu);
+        /* ...and out after executing the instruction at 0x0700 (which
+         * is fetched from the IF1 ROM, like the real /ROMCS timing). */
+        if (m->if1_paged && pc0 == 0x0700)
+            m->if1_paged = 0;
         if (!int_taken && m->cpu.tstates - m->frame_start_ts < HC91_INT_WINDOW)
             int_taken = z80_int(&m->cpu, 0xFF);
     }
