@@ -33,6 +33,16 @@ A> prompt** (`--machine hc2000 --boot-cpm --disk system.img`, or
 authentically from BASIC with `RANDOMIZE USR 14446`). The plain
 Sinclair 48K is available as `--machine 48k`.
 
+## Documentation
+
+- **`docs/manual.pdf`** — the full user manual (machines, SDL controls,
+  tape/disk handling, CP/M, scripting, the debugger, complete option
+  reference, troubleshooting).
+- **`man ./docs/hc91emu.1`** — the man page, an exhaustive option and
+  command reference with examples.
+- `make manual` rebuilds both (needs `pdflatex` and `groff`; the PDF is
+  committed so end users need neither).
+
 ## Building
 
 ```sh

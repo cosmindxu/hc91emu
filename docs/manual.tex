@@ -1,0 +1,638 @@
+% HC-91 Emulator -- User Manual.  Build: make manual  (pdflatex x2)
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.6cm]{geometry}
+\usepackage{parskip}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{fancyvrb}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+
+\definecolor{shade}{gray}{0.95}
+\fvset{frame=single,framerule=0.2pt,fontsize=\small,rulecolor=\color{black!30}}
+\newcommand{\opt}[1]{\texttt{#1}}
+\newcommand{\key}[1]{\textsf{\textbf{#1}}}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small HC-91 Emulator}
+\fancyhead[R]{\small User Manual}
+\fancyfoot[C]{\small\thepage}
+
+\title{\Huge HC-91 Emulator\\[0.6ex]\LARGE User Manual}
+\author{An emulator for the I.C.E.~Felix HC family\\
+        (HC-85 / HC-90 / HC-91 / HC-128 / HC-2000)}
+\date{June 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+CPU & Z80A (MMN80CPU) @ 3.5\,MHz, cycle-exact \\
+Video & 256$\times$192, 15 colours, beam-accurate, floating bus \\
+Sound & 1-bit beeper; AY-3-8912 on the HC-128 \\
+Storage & cassette (.tap/.tzx, pulse-exact), floppy + CP/M on the HC-2000 \\
+Build & plain C99, zero dependencies (\texttt{make}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{1em}
+\tableofcontents
+\clearpage
+
+%=====================================================================
+\section{Introduction}
+
+\texttt{hc91emu} emulates the Romanian I.C.E.~Felix \emph{HC} home
+computers --- ZX~Spectrum-compatible machines produced in Bucharest
+from 1985 onward. The primary model is the \textbf{HC-91}, whose
+genuine ROM differs from the Sinclair 48K ROM in only 50 bytes, making
+it fully compatible with the Spectrum software catalogue. The
+\textbf{HC-85} and \textbf{HC-90} are banner variants; the
+\textbf{HC-128} adds 128K of banked RAM and an AY-3-8912 sound chip;
+the \textbf{HC-2000} adds a floppy-disk interface and boots CP/M~2.2.
+
+The emulator has two personalities:
+
+\begin{itemize}
+\item A \textbf{headless, scriptable} mode (the default): you state how
+many 50\,Hz frames to run, schedule keypresses at given frames, and
+collect results as PNG screenshots, OCR'd screen text, raw
+framebuffers, WAV audio recordings, snapshots or input recordings.
+Everything is deterministic, which makes it ideal for automated
+testing --- the emulator's own test suite is built on it.
+\item An \textbf{interactive SDL2} mode (\opt{--sdl}): a real window at
+50\,Hz with live audio, host keyboard mapping, game-controller
+support, turbo, pause, and cassette controls. The SDL library is
+loaded at \emph{run time} with \texttt{dlopen}, so building the
+emulator requires nothing beyond a C compiler.
+\end{itemize}
+
+Accuracy highlights: per-M-cycle memory/IO contention, beam-accurate
+rendering (mid-frame border effects and per-scanline multicolour are
+correct), the undocumented Z80 behaviours (MEMPTR, the Q register,
+interrupted block instructions), exact tape pulse timing, and a
+drift-free 69\,888-T-state frame. The core passes zexdoc, zexall,
+Patrik Rak's \texttt{z80full}/\texttt{z80ccf}/\texttt{z80memptr}
+(160/160 each) and all 162{,}000 SingleStepTests bus-level vectors.
+
+%=====================================================================
+\section{Quick start}
+
+\begin{Verbatim}
+make                 # build (no dependencies)
+make test            # run the test suite
+
+# boot to BASIC and look at the screen
+./build/hc91emu --frames 250 --text
+
+# play a game, interactively, with sound
+./build/hc91emu --sdl game.tap --autoload
+\end{Verbatim}
+
+A single optional positional argument names the file to load,
+dispatched by extension: \texttt{.tap}, \texttt{.tzx} (tape),
+\texttt{.sna}, \texttt{.z80}, \texttt{.szx} (snapshots),
+\texttt{.scr} (raw screen), \texttt{.rzx} (input recording).
+
+%=====================================================================
+\section{The emulated machines}
+
+Select with \opt{--machine}; each machine has a sensible default ROM
+from \texttt{roms/} (override with \opt{--rom}).
+
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Machine} & \textbf{Description} \\
+\midrule
+\opt{hc91} & Default. 48K Spectrum-compatible. Port \texttt{0x7E}
+bit~0 pages a separate low 16K RAM bank over the ROM --- the CP/M mode
+of the real machine, entered with \texttt{RANDOMIZE USR 14446}. \\
+\opt{hc85}, \opt{hc90} & The earlier 48K models (banner-variant
+genuine ROMs). \\
+\opt{48k} & A standard Sinclair ZX Spectrum 48K. \\
+\opt{hc128} & HC-91-derived 128K machine: RAM banks 0--7 at
+\texttt{0xC000} via port \texttt{0x7FFD} (shadow screen in bank~7, ROM
+select honoured with \opt{--rom1}, lock bit; odd banks contended) and
+an AY-3-8912 at \texttt{0xFFFD}/\texttt{0xBFFD} mixed into the audio
+output. \\
+\opt{hc2000} & 48K-class machine plus the HC disk interface: i8272
+floppy controller, IF1-style shadow ROM with 16K interface RAM, and a
+system latch that can map the CP/M ROM and boot CP/M~2.2 from disk
+(section~\ref{sec:disk}). \\
+\bottomrule
+\end{tabularx}
+
+%=====================================================================
+\section{Interactive use: the SDL frontend}
+
+\begin{Verbatim}
+./build/hc91emu --sdl game.tap --autoload
+\end{Verbatim}
+
+opens a resizable 640$\times$480 window running at 50\,Hz with live
+beeper (and AY) audio; pacing is audio-clocked. The frontend needs
+only the SDL2 \emph{runtime} library (\texttt{libSDL2-2.0.so.0}).
+
+\subsection{Keyboard}
+
+Letters, digits, \key{Enter} and \key{Space} map directly to the
+Spectrum matrix.
+
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Host key} & \textbf{Spectrum meaning} \\
+\midrule
+\key{Shift} & CAPS SHIFT \\
+\key{Ctrl} or \key{left Alt} & SYMBOL SHIFT \\
+\key{Backspace} & DELETE (CAPS+0) \\
+\key{Esc} & BREAK (CAPS+SPACE) \\
+\key{arrows} & BASIC cursors (CAPS+5/6/7/8); plain 5/6/7/8 with
+\opt{--joy-type cursor}; Kempston when the interface is attached \\
+\key{, . ; ' - = /} & the corresponding SYMBOL SHIFT symbols \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Emulator controls}
+
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Key} & \textbf{Action} \\
+\midrule
+\key{Tab} & turbo while held (no pacing) \\
+\key{F5} & pause / resume the emulation \\
+\key{F6} & tape: manual play/stop \\
+\key{F7} & tape: rewind (paused at the start) \\
+\key{F8} & tape: swap cassette side (with \opt{--tape-b}; toggles) \\
+\key{F10} / close & quit \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Game controllers}
+
+The first SDL game controller drives the Kempston interface (d-pad,
+left stick, and the A button as fire); plugging one in attaches the
+interface automatically. On the keyboard, with \opt{--kempston},
+arrows + \key{right Alt} drive Kempston instead of the cursor keys.
+
+%=====================================================================
+\section{Loading software from tape}
+
+\subsection{The two loading paths}
+
+\begin{description}
+\item[Instant (default).] LOAD requests are satisfied by a ROM trap at
+LD-BYTES: blocks appear immediately. Works for normal \texttt{.tap}
+files and the standard/turbo data blocks of \texttt{.tzx} files.
+\item[Pulse-level (\opt{--real-tape}).] The whole tape is compiled to
+an EAR pulse stream with exact T-state timing and `played'. Required
+for custom and turbo loaders, loading stripes, and anything
+timing-sensitive. \opt{--play-at}~\textit{N} chooses when PLAY is
+pressed (default: frame 320 with \opt{--autoload}).
+\end{description}
+
+\opt{--autoload} types \texttt{LOAD ""} + ENTER at frame 250 so tapes
+start by themselves.
+
+\subsection{Multi-load games and the cassette deck}
+\label{sec:multiload}
+
+Games that load levels on demand (``stop the tape'', ``turn the tape
+over'') work in \opt{--real-tape} mode:
+
+\begin{itemize}
+\item The player \textbf{auto-pauses} at a block boundary whenever no
+loader is actually polling the tape port. (Reads made by the ROM
+keyboard scanner are recognised and ignored, so a ``press any key''
+prompt does not keep the tape rolling past data.)
+\item It \textbf{auto-resumes} as soon as loading restarts.
+\item TZX \textbf{stop-the-tape} markers pause unconditionally.
+\item At the \textbf{end of the tape}, if a loader is still searching,
+the tape rewinds itself (``rewind tape'' prompts).
+\item \textbf{Two-sided originals}: attach the other side with
+\opt{--tape-b}~\textit{FILE} and press \key{F8} when the game asks you
+to turn the tape over (headless: \opt{--swap-at}~\textit{N}). Each
+swap toggles the sides, rewound and paused.
+\end{itemize}
+
+\begin{Verbatim}
+./build/hc91emu --sdl shooter/p47_side_a.tzx --autoload --real-tape \
+    --tape-b shooter/p47_side_b.tzx
+# F8 at "PLEASE TURN TAPE OVER", any key to continue;
+# hold Tab to fast-forward the long level searches
+\end{Verbatim}
+
+The tape state is reported on stderr (\texttt{tape: paused at block
+5/23 ...}, \texttt{tape: resumed}, \texttt{tape: end of tape -
+rewound}).
+
+\subsection{Saving to tape}
+
+\opt{--save-tape}~\textit{FILE} captures BASIC \texttt{SAVE} output
+(via the SA-BYTES trap) as a byte-exact \texttt{.tap}.
+
+\subsection{TZX block support}
+
+Standard/turbo data (0x10/0x11), pure tone / pulse sequences / pure
+data (0x12--0x14), \textbf{CSW recordings} (0x18; RLE and zlib Z-RLE),
+\textbf{generalized data} (0x19; symbol alphabets, PRLE pilot runs,
+polarity flags), pause/stop (0x20), groups (0x21/0x22), loops
+(0x24/0x25), stop-if-48K (0x2A), and the information blocks
+(0x30--0x35, 0x5A).
+
+%=====================================================================
+\section{The HC-128: banked RAM and AY sound}
+
+The HC-128 keeps the 48K BASIC (its ROM is HC-91-derived) and adds the
+Spectrum-128 hardware interfaces, so banking and sound are driven with
+\texttt{OUT}s:
+
+\begin{Verbatim}
+# select RAM bank N at 0xC000 (keep bit 4 set): OUT 32765, 16+N
+# move the stack down first or the switch pulls it from under BASIC!
+CLEAR 32767: OUT 32765,17: POKE 49152,42: OUT 32765,16
+\end{Verbatim}
+
+The AY-3-8912 sits at the standard ports: \texttt{OUT 65533,reg}
+selects, \texttt{OUT 49149,val} writes (reading \texttt{IN 65533}
+returns the selected register). All three tone channels, noise and
+envelopes are emulated with the measured volume curve and mixed
+sample-accurately with the beeper into \opt{--wav} and the SDL audio.
+
+128K \texttt{.z80} (hardware mode 3) and \texttt{.szx} (machine id 2)
+snapshots save and load the full bank set, the \texttt{0x7FFD} latch
+and the AY registers. 48K snapshots load into a locked, USR0-style
+bank layout, so ordinary games run on the HC-128 too.
+
+%=====================================================================
+\section{The HC-2000: floppy disks and CP/M}
+\label{sec:disk}
+
+\subsection{Disk images}
+
+\opt{--disk}~\textit{FILE} inserts drive A, \opt{--disk-b} drive B.
+Raw images are recognised by size:
+
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{Size} & \textbf{Geometry} & \textbf{Filesystem} \\
+\midrule
+655\,360 & 80$\times$2$\times$16$\times$256 & HC BASIC 3.5'' (640K) \\
+737\,280 & 80$\times$2$\times$9$\times$512 & CP/M 2.2 3.5'' (720K, 4 boot tracks) \\
+327\,680 & 40$\times$2$\times$16$\times$256 & HC BASIC 5.25'' \\
+368\,640 & 40$\times$2$\times$9$\times$512 & CP/M 2.2 5.25'' \\
+\bottomrule
+\end{tabularx}
+
+Writes are buffered in memory and written back to the image file when
+the emulator exits.
+
+\subsection{HC BASIC disks}
+
+The interface presents Sinclair Interface~1 syntax to BASIC:
+
+\begin{Verbatim}
+CAT 1                          list the disk in drive 1
+LOAD *"d";1;"run"              load a program from disk
+\end{Verbatim}
+
+(\texttt{CAT} is an extended-mode keyword: press CAPS+SYM, then
+SYM+9.)
+
+\subsection{Booting CP/M 2.2}
+
+\begin{Verbatim}
+./build/hc91emu --machine hc2000 --boot-cpm --disk cpm22-hc.img \
+    --sdl
+\end{Verbatim}
+
+boots from the system tracks to \texttt{56k CP/M ver 2.2/2D} and the
+\texttt{A>} prompt; \texttt{DIR}, applications (WordStar, Turbo
+Pascal, MBASIC\dots) and the rest of CP/M work. The authentic route
+from BASIC is \texttt{RANDOMIZE USR 14446}, which selects the CP/M
+ROM and reboots into it. The CP/M console renders with its own font at
+a relocated screen --- use screenshots rather than \opt{--text} there.
+
+Set \texttt{HC91\_FDC\_DEBUG=1} to log every i8272 command/result on
+stderr.
+
+%=====================================================================
+\section{Snapshots, screens and input recordings}
+
+\subsection{Snapshots}
+
+Load by passing the file; save with \opt{--save-sna},
+\opt{--save-z80}, \opt{--save-szx} after the run.
+
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\opt{.sna} & 48K, load + save. Save needs SP outside ROM (the PC is
+pushed); on hc128 only the current 48K view can be represented. \\
+\opt{.z80} & v1/v2/v3 load, incl.\ RLE compression and 128K files;
+saves as v2 with uncompressed pages (48K or full 128K with
+latch+AY). \\
+\opt{.szx} & zx-state v1.4 load + save (48K and 128K). Compressed RAM
+pages in files from other emulators are inflated by a built-in
+DEFLATE decoder --- still zero external dependencies. \\
+\opt{.scr} & raw 6912-byte screens; loading parks the CPU so the
+picture stays. \\
+\bottomrule
+\end{tabularx}
+
+A HALT state survives snapshots (PC is re-pointed at the HALT, or the
+SZX HALTED flag is used).
+
+\subsection{RZX input recordings}
+
+\begin{Verbatim}
+# record a session (embeds a .z80 of the starting state)
+./build/hc91emu --frames 450 --type 'p2+3*4\n@260' --rzx-record calc.rzx
+# replay: inputs come from the file, no key events needed
+./build/hc91emu calc.rzx --frames 460 --text     # prints 14 again
+\end{Verbatim}
+
+Replay is bit-exact: each frame runs for the recorded number of R/M1
+fetches and every port read returns the recorded byte. When the
+recording ends, the machine continues running live. Compressed RZX
+files from other emulators replay; ``protected'' (encrypted) ones are
+rejected.
+
+%=====================================================================
+\section{Scripting and automation}
+
+Typical recipe: schedule input, run N frames, collect output, assert.
+
+\begin{Verbatim}
+./build/hc91emu --frames 450 --type 'p2+3*4\n@260' --text \
+    --screenshot out.png --wav out.wav --save-z80 out.z80
+\end{Verbatim}
+
+\subsection{Typing: \opt{--type} and \opt{--keys}}
+
+\opt{--type "STRING@FRAME"} types a string with BASIC key mapping:
+lowercase letters press the bare key (producing K-mode keywords at the
+start of a statement), digits and common symbols work as expected,
+\verb|\n| is ENTER. Keys are held for 6 frames with 6-frame gaps
+($\approx$ 8 characters/second), so leave room between scheduled
+items. \opt{--keys "FRAME:NAMES"} presses one raw chord, e.g.\
+\texttt{"272:CAPS+SYM"}; names are A--Z, 0--9, ENTER, SPACE, CAPS,
+SYM. Both repeat up to 32 times.
+
+\textbf{Keyword cheat sheet} (48K BASIC keyword entry):
+
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+K-mode (statement start) & \texttt{p}=PRINT \quad \texttt{j}=LOAD
+\quad \texttt{o}=POKE \quad \texttt{s}=SAVE \quad \texttt{t}=RANDOMIZE
+\quad \texttt{x}=CLEAR \quad \texttt{f}=FOR \quad \texttt{i}=INPUT \\
+EXTEND mode & press CAPS+SYM first (one \opt{--keys} entry), then:
+plain \texttt{o}=PEEK, plain \texttt{i}=CODE, plain \texttt{l}=USR;
+with SYM: \texttt{SYM+O}=OUT, \texttt{SYM+I}=IN, \texttt{SYM+Z}=BEEP,
+\texttt{SYM+9}=CAT \\
+\bottomrule
+\end{tabularx}
+
+Example --- OUT from BASIC (used by the HC-128 tests):
+
+\begin{Verbatim}
+--keys '260:CAPS+SYM' --keys '272:SYM+O' --type '65533,0\n@284'
+\end{Verbatim}
+
+\subsection{Output channels}
+
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\opt{--text} & 24$\times$32 screen OCR against the ROM font (inverse
+video recognised; unmatched cells print \texttt{?}) \\
+\opt{--screenshot} & 320$\times$240 PNG of the final frame
+(beam-painted) \\
+\opt{--fb-dump} & the same frame as raw RGBA bytes \\
+\opt{--wav} & 44.1\,kHz mono WAV of the whole run \\
+\opt{--trace-frames} & frame/PC progress on stderr \\
+\bottomrule
+\end{tabularx}
+
+Exit status is 0 on success, 1 on argument/file errors --- suitable
+for shell test scripts (see \texttt{tests/run\_tests.sh} for several
+hundred lines of worked examples).
+
+%=====================================================================
+\section{The debugger}
+
+A scriptable monitor with a full Z80 disassembler (documented and
+undocumented opcodes). Addresses/ports are hex (\texttt{\$} or
+\texttt{0x} prefixes accepted); counts are decimal.
+
+\subsection{Command-line flags}
+
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\opt{--monitor} & stop in the monitor before the first instruction \\
+\opt{--break ADDR} & PC breakpoint (repeatable) \\
+\opt{--watch ADDR} & memory \emph{write} watchpoint \\
+\opt{--rwatch ADDR} & memory \emph{read} watchpoint (fires on opcode
+fetches too) \\
+\opt{--pwatch PORT} & I/O watchpoint; values $\le$ FF match the low
+byte, larger values match the full 16-bit port \\
+\opt{--debug "c;c;q"} & scripted monitor commands, consumed one per
+stop; falls back to stdin, then auto-continues \\
+\opt{--trace FILE} & per-instruction trace (pre-execution state) \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Monitor commands}
+
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\opt{r}, \opt{regs} & registers, decoded flags, frame-relative T-state,
+frame number, total T \\
+\opt{d}, \opt{dis} \textit{[ADDR [N]]} & disassemble (default PC, 8
+instructions; \texttt{pc}/\texttt{sp}/\texttt{hl} accepted as ADDR) \\
+\opt{m}, \opt{mem} \textit{ADDR [N]} & hex + ASCII dump (default 64
+bytes) \\
+\opt{s}, \opt{step} \textit{[N]} & execute N instructions, stop again \\
+\opt{c}, \opt{cont} & continue \\
+\opt{b} / \opt{w} / \opt{wr} / \opt{wp} \textit{[ADDR]} & toggle
+breakpoint / write / read / port watch; bare = list \\
+\opt{t}, \opt{trace} \textit{FILE\,$|$\,off} & tracing on/off \\
+\opt{q}, \opt{quit} & exit immediately (skips end-of-run saves) \\
+\opt{h}, \opt{help} & summary \\
+\bottomrule
+\end{tabularx}
+
+An empty input line repeats the last command. Example session:
+
+\begin{Verbatim}
+$ ./build/hc91emu --frames 3 --break 11CB \
+      --debug "regs;dis pc 3;mem 0000 16;step 3;regs;cont"
+*** breakpoint at $11CB
+11CB: 47           LD B,A
+dbg> regs
+PC=11CB AF=0044 BC=0000 DE=FFFF HL=0000 ... T=28/69888 frame=0
+...
+\end{Verbatim}
+
+%=====================================================================
+\section{The game library}
+
+\texttt{tools/get\_library.sh} downloads 36 period classics from the
+World of Spectrum archive into \texttt{software/library/}, classified
+by genre (platform, arcade, isometric, shooter, puzzle, adventure,
+sports), including 128K AY versions of Cybernoid and Tetris for the
+HC-128 and the authentic two-sided P-47 cassettes.
+\texttt{tools/verify\_library.sh} smoke-loads every title and stores
+screenshots under \texttt{tests/out/library/}. The library README
+carries the full index (title, year, publisher, file). The files are
+copyrighted period software: the scripts make the library
+reproducible, nothing under \texttt{software/} is committed.
+
+%=====================================================================
+\section{Accuracy, testing and the suite}
+
+\texttt{make test} runs the suite: timing and contention unit tests,
+the disassembler tests, zexdoc, boot/BASIC checks, the beam-renderer
+and floating-bus acceptance tests, snapshot round-trips, the tape and
+TZX matrix (including multi-load pause/resume), joysticks, CP/M
+paging, the debugger, SingleStepTests vectors (162{,}000 bus-level
+cases, fetched once by \texttt{tests/get\_vectors.sh}), the SDL
+frontend under dummy drivers, the HC-128 and HC-2000 machines (CP/M
+boots against a golden screen) and a library smoke test.
+\texttt{make test-full} adds zexall; \texttt{RUN\_Z80TEST=1} re-runs
+Rak's in-machine suites.
+
+Environment variables: \texttt{HC91\_FDC\_DEBUG=1} (i8272 command
+log), \texttt{HC91\_TAPE\_DEBUG=1} (tape block progression),
+\texttt{SDL\_VIDEODRIVER=dummy SDL\_AUDIODRIVER=dummy} (headless SDL).
+
+%=====================================================================
+\section{Complete option reference}
+
+\newcommand{\optrow}[2]{\opt{#1} & #2 \\}
+\subsection*{General}
+\begin{tabularx}{\textwidth}{p{4.6cm}X}
+\toprule
+\optrow{--machine M}{hc91 (default), hc85, hc90, 48k, hc128, hc2000}
+\optrow{--rom FILE}{main ROM override (default per machine)}
+\optrow{--rom1 FILE}{hc128 second ROM (default: copy of ROM 0)}
+\optrow{--rom-if1 FILE}{hc2000 interface ROM (default roms/hc2ki1.rom)}
+\optrow{--frames N}{frames to run headless (default 300; 50 = 1\,s)}
+\optrow{--turbo}{accepted, no-op (headless never paces)}
+\optrow{--no-floating-bus}{unattached ports read 0xFF}
+\bottomrule
+\end{tabularx}
+
+\subsection*{Output}
+\begin{tabularx}{\textwidth}{p{4.6cm}X}
+\toprule
+\optrow{--screenshot FILE}{PNG of the final frame (320$\times$240)}
+\optrow{--text}{print the final screen as ROM-font OCR text}
+\optrow{--fb-dump FILE}{final frame as raw RGBA}
+\optrow{--wav FILE}{44.1\,kHz mono WAV of the run}
+\optrow{--save-sna FILE}{save .sna after the run}
+\optrow{--save-z80 FILE}{save .z80 v2 after the run}
+\optrow{--save-szx FILE}{save .szx after the run}
+\optrow{--save-scr FILE}{save the raw 6912-byte screen}
+\bottomrule
+\end{tabularx}
+
+\subsection*{Input scripting}
+\begin{tabularx}{\textwidth}{p{4.6cm}X}
+\toprule
+\optrow{--type "S@F"}{type string S from frame F (BASIC mapping, \texttt{\textbackslash n} = ENTER; repeatable)}
+\optrow{--keys "F:NAMES"}{raw chord at frame F, e.g.\ 100:CAPS+1 (repeatable)}
+\optrow{--autoload}{type \texttt{LOAD ""} at frame 250}
+\optrow{--joy "F-G:DIRS"}{hold U/D/L/R/F over frames F..G (repeatable)}
+\optrow{--joy-type T}{kempston (default) / sinclair / cursor}
+\optrow{--kempston}{attach the Kempston interface (port 0x1F)}
+\bottomrule
+\end{tabularx}
+
+\subsection*{Tape}
+\begin{tabularx}{\textwidth}{p{4.6cm}X}
+\toprule
+\optrow{--real-tape}{pulse-level playback (multi-load auto pause/resume/rewind)}
+\optrow{--play-at N}{press PLAY at frame N (default 320 with autoload)}
+\optrow{--tape-b FILE}{the other cassette side (\opt{F8} / \opt{--swap-at} toggles)}
+\optrow{--swap-at N}{insert \opt{--tape-b} at frame N (headless)}
+\optrow{--save-tape FILE}{capture SAVE output as byte-exact .tap}
+\bottomrule
+\end{tabularx}
+
+\subsection*{Disks and CP/M (hc2000)}
+\begin{tabularx}{\textwidth}{p{4.6cm}X}
+\toprule
+\optrow{--disk FILE}{drive A image (raw .img/.dsk; written back on exit)}
+\optrow{--disk-b FILE}{drive B image}
+\optrow{--boot-cpm}{reset into the CP/M boot ROM}
+\bottomrule
+\end{tabularx}
+
+\subsection*{Recordings}
+\begin{tabularx}{\textwidth}{p{4.6cm}X}
+\toprule
+\optrow{--rzx-record FILE}{record the session as a replayable .rzx}
+\bottomrule
+\end{tabularx}
+
+\subsection*{SDL frontend}
+\begin{tabularx}{\textwidth}{p{4.6cm}X}
+\toprule
+\optrow{--sdl}{interactive window, 50\,Hz, live audio}
+\optrow{--sdl-frames N}{auto-quit after N frames}
+\optrow{--trace-frames}{frame/PC progress on stderr}
+\bottomrule
+\end{tabularx}
+
+\subsection*{Debugger}
+\begin{tabularx}{\textwidth}{p{4.6cm}X}
+\toprule
+\optrow{--monitor}{stop before the first instruction}
+\optrow{--break ADDR}{PC breakpoint (hex; repeatable)}
+\optrow{--watch ADDR}{memory write watchpoint}
+\optrow{--rwatch ADDR}{memory read watchpoint (incl.\ fetches)}
+\optrow{--pwatch PORT}{I/O watchpoint ($\le$FF = low byte)}
+\optrow{--debug "C;C;.."}{scripted monitor commands}
+\optrow{--trace FILE}{per-instruction trace to FILE}
+\bottomrule
+\end{tabularx}
+
+%=====================================================================
+\section{Troubleshooting}
+
+\begin{description}
+\item[A game freezes at its loading screen.] Try
+\opt{--real-tape}: it probably uses a custom/turbo loader the instant
+trap cannot serve.
+\item[A multi-load game asked me to flip the tape and stopped.]
+Use the two-sided release with \opt{--tape-b} and press \key{F8} at
+the prompt; for single-file tapes the player pauses and resumes
+automatically --- watch the \texttt{tape:} messages on stderr, and use
+\key{F6}/\key{F7} for manual control. Hold \key{Tab} through long
+level searches.
+\item[\opt{--text} prints only \texttt{?} characters.] The program
+draws with a custom font (e.g.\ the CP/M console); use
+\opt{--screenshot} instead.
+\item[A game ignores the joystick.] Check \opt{--joy-type}; for
+Kempston games also pass \opt{--kempston} (the port is detached by
+default so that floating-bus games work).
+\item[CP/M shows a black screen in the first seconds.] Normal: the
+boot ROM relocates the video memory and clears it before the banner
+appears ($\sim$2500 frames to the \texttt{A>} prompt).
+\item[Arkanoid freezes at round start.] You passed
+\opt{--no-floating-bus}; the game needs the floating bus (default).
+\end{description}
+
+\vspace{2em}
+\begin{center}
+\small
+See also: \texttt{man docs/hc91emu.1}, \texttt{README.md},
+\texttt{ROADMAP.md} (development history),
+\texttt{software/library/README.md} (game index).
+\end{center}
+
+\end{document}
