@@ -234,7 +234,8 @@ static const char *quick_path(void)
 static void drop_file(Machine *m, void *win, char *path)
 {
     const char *dot = strrchr(path, '.');
-    int is_tape = ext_is(dot, ".tap") || ext_is(dot, ".tzx");
+    int is_tape = ext_is(dot, ".tap") || ext_is(dot, ".tzx")
+                  || ext_is(dot, ".wav");
 
     if (is_tape) {
         machine_reset(m);

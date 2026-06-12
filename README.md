@@ -12,7 +12,7 @@ home computer produced from 1991 in Bucharest
 | ROM       | 16 KB — Sinclair-derived BASIC, boot banner "HC - 91  I.C.E. FELIX" |
 | RAM       | 48 KB usable (64 KB address space incl. ROM) |
 | Video     | 256×192, 15 colours, ULA-compatible (rendered here with border, 320×240) |
-| Storage   | Cassette tape (`.tap`/`.tzx`, ROM-trap or pulse-level loading) |
+| Storage   | Cassette tape (`.tap`/`.tzx`/`.wav`, ROM-trap or pulse-level loading) |
 | Extras    | CP/M mode: port `0x7E` pages RAM over ROM (emulated; the machine has 64K RAM) |
 
 The HC-91 ROM differs from the original Sinclair 48K ROM in only 50 bytes
@@ -56,8 +56,9 @@ tests/get_vectors.sh   # one-time: fetch the SingleStepTests/z80 vector subset
                        # (~130 MB); 'make test' then cross-checks all 162,000
 ```
 
-Releases: `tools/release_deb.sh` builds a Debian/Ubuntu package (binary,
-ROMs, man page, manual, desktop launcher + icon + MIME types);
+Releases: `tools/release_deb.sh [amd64|arm64]` builds a Debian/Ubuntu
+package (binary, ROMs, man page, manual, desktop launcher + icon + MIME
+types; arm64 cross-builds with `aarch64-linux-gnu-gcc`);
 `tools/release_windows.sh` cross-builds a Windows x86-64 zip (needs a
 mingw-w64 toolchain).
 
@@ -73,7 +74,7 @@ by a built-in encoder; screen contents can also be read back as text
 #  arrows=cursors, gamepad=Kempston, Tab=turbo, F5=pause, F10=quit)
 ./build/hc91emu --sdl software/jet_set_willy.tap --autoload
 
-./build/hc91emu [options] [program.tap/.tzx/.sna/.z80/.szx/.scr/.rzx]
+./build/hc91emu [options] [program.tap/.tzx/.wav/.sna/.z80/.szx/.scr/.rzx]
 
   --rom FILE        ROM image (default roms/hc91.rom)
   --frames N        frames to emulate, 50 frames = 1 emulated second (default 300)
@@ -192,6 +193,9 @@ overrides it.
   (0x19**, symbol alphabets + PRLE pilot + bit stream, incl. the
   polarity flags**)**. `SAVE` output is captured to `.tap` via the
   SA-BYTES trap (`--save-tape FILE`).
+- **Sampled tapes**: a `.wav` recording of a real cassette loads
+  through the pulse player (DC removal + Schmitt trigger; PCM 8/16-bit,
+  mono/stereo, 4–192 kHz; long silences become multi-load boundaries).
 - **Multi-load tape control**: the player pauses at block boundaries
   while no loader is polling the EAR port (reads from the ROM keyboard
   scanner don't count, so "press any key" waits don't keep the tape
