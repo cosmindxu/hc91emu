@@ -14,6 +14,8 @@ void tape_free(Machine *m)
     free(m->tape.blocks);
     memset(&m->tape, 0, sizeof(m->tape));
     free(m->player.pulses);
+    free(m->player.bounds);
+    free(m->player.bstop);
     memset(&m->player, 0, sizeof(m->player));
 }
 
@@ -49,6 +51,8 @@ static int pulse_push(Machine *m, uint32_t dur)
 /* Emit one data block: pilot tone, two sync pulses, MSB-first data bits
  * (two equal pulses per bit), trailing pause. Any element can be zero to
  * skip it. */
+static void bound_push(Machine *m, int stop);
+
 static int emit_data(Machine *m, uint32_t pilot, uint32_t pilot_cnt,
                      uint32_t s1, uint32_t s2, uint32_t b0, uint32_t b1,
                      int last_bits, uint32_t pause_ms,
@@ -56,6 +60,7 @@ static int emit_data(Machine *m, uint32_t pilot, uint32_t pilot_cnt,
 {
     uint32_t i;
     int b;
+    bound_push(m, 0);
     for (i = 0; i < pilot_cnt; i++)
         if (pulse_push(m, pilot)) return -1;
     if (s1 && pulse_push(m, s1)) return -1;
@@ -102,6 +107,35 @@ static uint32_t rd24(const uint8_t *p)
 static uint32_t rd32(const uint8_t *p)
 {
     return rd24(p) | ((uint32_t)p[3] << 24);
+}
+
+/* Record a block boundary at the current stream position; stop = 1 for
+ * unconditional TZX stop-the-tape markers. */
+static void bound_push(Machine *m, int stop)
+{
+    TapePlayer *p = &m->player;
+    static size_t cap;
+    if (p->nbounds == 0)
+        cap = 0;
+    if (p->nbounds && p->bounds[p->nbounds - 1] == p->npulses) {
+        p->bstop[p->nbounds - 1] |= (uint8_t)stop;
+        return;                       /* merge empty blocks */
+    }
+    if (p->nbounds == cap) {
+        size_t nc = cap ? cap * 2 : 64;
+        size_t *nb = realloc(p->bounds, nc * sizeof(size_t));
+        uint8_t *ns = realloc(p->bstop, nc);
+        if (!nb || !ns) {
+            free(nb);
+            return;
+        }
+        p->bounds = nb;
+        p->bstop = ns;
+        cap = nc;
+    }
+    p->bounds[p->nbounds] = p->npulses;
+    p->bstop[p->nbounds] = (uint8_t)stop;
+    p->nbounds++;
 }
 
 /* Lengthen the previous pulse (suppresses the edge a new pulse would
@@ -250,6 +284,7 @@ static int tzx_parse(Machine *m, const uint8_t *buf, long size,
             comp = buf[off + 5];
             want = rd32(buf + off + 6);
             if (!rate) rate = 44100;
+            bound_push(m, 0);
             if (comp == 2) {               /* Z-RLE: zlib stream */
                 un = zlib_inflate_alloc(buf + off + 10, blen - 10, &sn);
                 if (!un) {
@@ -308,6 +343,7 @@ static int tzx_parse(Machine *m, const uint8_t *buf, long size,
             totd = rd32(buf + base + 8);
             npd = buf[base + 12];
             nasd = buf[base + 13] ? buf[base + 13] : 256;
+            bound_push(m, 0);
             sp = base + 14;                          /* pilot symbols */
             pr = sp + (totp ? (long)nasp * (1 + 2 * npp) : 0);
             sd = pr + (totp ? (long)totp * 3 : 0);   /* data symbols */
@@ -348,8 +384,9 @@ static int tzx_parse(Machine *m, const uint8_t *buf, long size,
             ms = (uint32_t)(buf[off] | (buf[off+1] << 8));
             off += 2;
             if (ms == 0)                   /* "stop the tape" */
-                return 0;
-            pulse_push(m, ms * T_PER_MS);
+                bound_push(m, 1);
+            else
+                pulse_push(m, ms * T_PER_MS);
             break;
         }
         case 0x21:                         /* group start (name skipped) */
@@ -372,8 +409,11 @@ static int tzx_parse(Machine *m, const uint8_t *buf, long size,
                 off = loop_off;
             }
             break;
-        case 0x2A:                         /* stop if 48K: we are 48K */
-            return 0;
+        case 0x2A:                         /* stop if 48K: we are one */
+            if (off + 4 > size) return 0;
+            off += 4 + (long)rd32(buf + off);
+            bound_push(m, 1);
+            break;
         case 0x30:                         /* text description */
             if (off + 1 > size) return 0;
             off += 1 + buf[off];
@@ -416,6 +456,7 @@ int tape_load(Machine *m, const char *path)
     long off;
     int cap = 0;
 
+    m->tape_cur = path;
     f = fopen(path, "rb");
     if (!f) {
         fprintf(stderr, "error: cannot open tape file '%s'\n", path);
@@ -480,6 +521,27 @@ int tape_load(Machine *m, const char *path)
     return 0;
 }
 
+/* Swap cassettes: replace the attached tape with another file (the
+ * other side of a multi-load game; repeated calls toggle the sides).
+ * The new tape starts rewound and paused at block 0; the next hot
+ * loader poll sets it rolling. */
+int tape_swap(Machine *m, const char *path)
+{
+    const char *old = m->tape_cur;
+
+    tape_free(m);
+    if (tape_load(m, path) != 0)
+        return -1;
+    m->tape_next = old;
+    tape_play_start(m);
+    if (m->player.playing) {
+        m->player.paused = 1;
+        fprintf(stderr, "tape: inserted '%s' (paused at the start)\n",
+                path);
+    }
+    return 0;
+}
+
 /* ---- Pulse player ---- */
 
 void tape_play_start(Machine *m)
@@ -491,20 +553,82 @@ void tape_play_start(Machine *m)
     p->ear = 0;
     p->edge_ts = m->cpu.tstates + p->pulses[0];
     p->playing = 1;
+    p->paused = 0;
+    p->nextb = 0;
+    while (p->nextb < p->nbounds && p->bounds[p->nextb] == 0)
+        p->nextb++;                       /* never pause before block 0 */
+    p->win_start = m->cpu.tstates;
+    p->win_reads = 0;
+    p->hot = 0;
 }
+
+/* The EAR-poll rate decides pause/resume at block boundaries: a loader
+ * reads the port every ~50-200 T (hundreds per window). Reads issued
+ * from the ROM keyboard scanner (KEY-SCAN, 0x028E-0x02BE) don't count —
+ * a "press any key" wait calls it in a tight loop and would otherwise
+ * look exactly like a loader; real loaders read from LD-EDGE (0x05E7)
+ * or from RAM. */
+#define TAPE_HOT_WINDOW 10000             /* T-states */
+#define TAPE_HOT_READS  32
 
 int tape_player_ear(Machine *m)
 {
     TapePlayer *p = &m->player;
-    while (p->playing && m->cpu.tstates >= p->edge_ts) {
+    uint64_t now = m->cpu.tstates;
+    uint16_t pc = m->cpu.pc.w;
+
+    if (now - p->win_start > TAPE_HOT_WINDOW) {
+        p->hot = (p->win_reads >= TAPE_HOT_READS);
+        p->win_start = now;
+        p->win_reads = 0;
+    }
+    if (!(pc >= 0x028E && pc <= 0x02BE))  /* not the ROM key scanner */
+        p->win_reads++;
+
+    if (p->paused) {
+        if (p->hot) {                     /* loader is back: roll on */
+            p->paused = 0;
+            p->edge_ts = now + p->pulses[p->idx];
+            fprintf(stderr, "tape: resumed (block %zu/%zu)\n",
+                    p->nextb, p->nbounds);
+        }
+        return p->ear;
+    }
+
+    while (p->playing && now >= p->edge_ts) {
         p->ear ^= 1;
         p->idx++;
-        if (p->idx < p->npulses) {
-            p->edge_ts += p->pulses[p->idx];
-        } else {
-            p->playing = 0;
-            p->ear = 0;
+        if (p->idx >= p->npulses) {
+            if (p->hot) {
+                /* a loader is still searching (e.g. "rewind tape" for
+                 * an earlier level): wind back to the start and pause
+                 * at block 0 — the next hot read resumes from there */
+                p->idx = 0;
+                p->ear = 0;
+                p->nextb = 1;
+                p->paused = 1;
+                fprintf(stderr, "tape: end of tape - rewound\n");
+            } else {
+                p->playing = 0;
+                p->ear = 0;
+            }
+            break;
         }
+        if (p->nextb < p->nbounds && p->idx == p->bounds[p->nextb]) {
+            int stop = p->bstop[p->nextb];
+            p->nextb++;
+            if (stop || !p->hot) {        /* nobody is listening */
+                p->paused = 1;
+                fprintf(stderr, "tape: paused at block %zu/%zu "
+                        "(waiting for the loader%s)\n", p->nextb,
+                        p->nbounds, stop ? "; stop-the-tape marker" : "");
+                break;
+            }
+            if (getenv("HC91_TAPE_DEBUG"))
+                fprintf(stderr, "tape: block %zu/%zu\n",
+                        p->nextb, p->nbounds);
+        }
+        p->edge_ts += p->pulses[p->idx];
     }
     return p->ear;
 }

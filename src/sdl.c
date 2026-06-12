@@ -76,6 +76,9 @@ typedef union {
 #define K_DOWN   0x40000051
 #define K_UP     0x40000052
 #define K_F5     0x4000003E
+#define K_F6     0x4000003F
+#define K_F7     0x40000040
+#define K_F8     0x40000041
 #define K_F10    0x40000043
 
 static struct {
@@ -333,6 +336,27 @@ int sdl_run(Machine *m, int max_frames)
                     paused = !paused;
                     S.SetWindowTitle(win, paused ? "HC-91 (paused)"
                                                  : "HC-91");
+                } else if (sym == K_F6) {        /* manual tape toggle */
+                    if (m->player.playing) {
+                        m->player.paused = !m->player.paused;
+                        if (!m->player.paused)
+                            m->player.edge_ts = m->cpu.tstates
+                                + m->player.pulses[m->player.idx];
+                        fprintf(stderr, "tape: %s (F6)\n",
+                                m->player.paused ? "paused" : "playing");
+                    }
+                } else if (sym == K_F7) {        /* manual tape rewind */
+                    if (m->player.npulses) {
+                        m->player.idx = 0;
+                        m->player.ear = 0;
+                        m->player.nextb = 1;
+                        m->player.playing = 1;
+                        m->player.paused = 1;
+                        fprintf(stderr, "tape: rewound (F7)\n");
+                    }
+                } else if (sym == K_F8) {        /* swap cassette side */
+                    if (m->tape_next)
+                        tape_swap(m, m->tape_next);
                 } else if (sym == 9) turbo = 1;  /* Tab */
                 else key_down(sym);
             } else if (ev.type == MYSDL_KEYUP) {

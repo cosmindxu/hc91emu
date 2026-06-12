@@ -178,6 +178,22 @@ $EMU --rom roms/hc91.rom "$OUT/multi_csw.tzx" --autoload --real-tape --turbo \
      --frames 1500 --fb-dump "$OUT/csw.fb" > /dev/null 2>&1
 build/fbcheck "$OUT/csw.fb" --band 88 33 3 > /dev/null
 check $? "real-tape: TZX 0x18 CSW blocks load (RLE + Z-RLE)"
+# (c4) multi-load auto stop/start: the program PAUSEs between two
+# LOADs; the player must pause at the block boundary while nobody
+# polls the EAR and resume for the second loader, or the "side 2"
+# data streams past unheard (the flip-the-tape scheme).
+build/fliptap "$OUT/flip.tap"
+$EMU --rom roms/hc91.rom "$OUT/flip.tap" --autoload --real-tape --turbo \
+     --frames 5200 --save-scr "$OUT/flip.scr" 2> "$OUT/flip.log" >/dev/null
+grep -q "tape: paused" "$OUT/flip.log" && grep -q "tape: resumed" "$OUT/flip.log"
+check $? "real-tape: player pauses at the boundary and resumes"
+python3 - "$OUT/flip.scr" <<'PYEOF'
+import sys
+d = open(sys.argv[1],'rb').read()
+sys.exit(0 if all(b == 0xF0 for b in d[:4096])
+         and all(b == 0x32 for b in d[6144:6144+640]) else 1)
+PYEOF
+check $? "real-tape: the second load arrives byte-exact after the pause"
 # (d) SAVE "x" CODE 16384,10 -> SA-BYTES trap -> byte-exact .tap
 $EMU --rom roms/hc91.rom --frames 700 --save-tape "$OUT/saved.tap" \
      --type 's"x"@260' --keys '320:CAPS+SYM' --type 'i16384,10\n@334' \

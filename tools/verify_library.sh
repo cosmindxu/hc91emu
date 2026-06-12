@@ -15,6 +15,7 @@ pass=0; fail=0
 for f in software/library/*/*; do
   base=$(basename "$f"); base=${base%.*}
   genre=$(basename "$(dirname "$f")")
+  case "$base" in *_side_*) continue;; esac   # halves of two-sided tapes
   mch=""
   case "$base" in *_128) mch="--machine hc128";; esac
 

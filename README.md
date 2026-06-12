@@ -175,6 +175,16 @@ overrides it.
   (0x19**, symbol alphabets + PRLE pilot + bit stream, incl. the
   polarity flags**)**. `SAVE` output is captured to `.tap` via the
   SA-BYTES trap (`--save-tape FILE`).
+- **Multi-load tape control**: the player pauses at block boundaries
+  while no loader is polling the EAR port (reads from the ROM keyboard
+  scanner don't count, so "press any key" waits don't keep the tape
+  rolling) and resumes when loading restarts; TZX stop-the-tape markers
+  pause unconditionally; the tape auto-rewinds at the end while a
+  loader is still searching (P-47-style "rewind tape" prompts). Second
+  cassette sides attach with `--tape-b` (swap with F8 in SDL or
+  `--swap-at N` headless; F6 = manual play/stop, F7 = rewind). A
+  generated two-stage tape locks the pause/resume behavior in the
+  suite.
 - 50 Hz frame interrupt (drift-free 69888 T frames).
 - **HC-91 CP/M mode**: port `0x7E` bit 0 pages a separate low 16K RAM
   bank over the ROM (the machine has 64K RAM). The genuine ROM's

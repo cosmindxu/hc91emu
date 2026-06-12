@@ -36,15 +36,20 @@ static void usage(const char *prog)
         "  --save-szx FILE   save .szx (zx-state) snapshot after the run\n"
         "  --save-scr FILE   save raw 6912-byte screen after the run\n"
         "  --rzx-record FILE record inputs to .rzx (replays with FILE.rzx)\n"
-        "  --real-tape       load via the pulse player (no ROM trap)\n"
+        "  --real-tape       load via the pulse player (no ROM trap;\n"
+        "                    auto-pauses between blocks for multi-loads)\n"
         "  --play-at N       press PLAY at frame N (default 320 w/ autoload)\n"
+        "  --tape-b FILE     the other cassette side (swap: F8 in SDL,\n"
+        "                    --swap-at N headless; repeat toggles sides)\n"
+        "  --swap-at N       insert --tape-b at frame N\n"
         "  --save-tape FILE  capture SAVE (SA-BYTES) output as .tap\n"
         "  --kempston        attach Kempston interface (port 0x1F)\n"
         "  --joy \"F-G:DIRS\"  hold joystick DIRS (U/D/L/R/F) frames F..G\n"
         "  --joy-type T      kempston (default) | sinclair | cursor\n"
         "  --trace-frames    print frame/PC every 50 frames to stderr\n"
         "  --sdl             interactive SDL2 window (50 Hz, live audio;\n"
-        "                    Shift=CAPS Ctrl=SYM Tab=turbo F5=pause F10=quit)\n"
+        "                    Shift=CAPS Ctrl=SYM Tab=turbo F5=pause F6=tape\n"
+        "                    play/stop F7=rewind F8=swap side F10=quit)\n"
         "  --sdl-frames N    auto-quit the SDL session after N frames\n"
         "debugger (addresses/ports in hex):\n"
         "  --monitor         stop in the monitor before the first instr\n"
@@ -108,6 +113,8 @@ int main(int argc, char **argv)
     const char *joy_type = "kempston";
     int njoy = 0, kempston = 0;
     int real_tape = 0, play_at = -1;
+    const char *tape_b = NULL;
+    int swap_at = -1;
     static Debugger dbg;
     const char *dbg_script = NULL, *trace_path = NULL;
     uint16_t dbg_bp[DBG_MAX_BP], dbg_ww[DBG_MAX_BP],
@@ -206,6 +213,12 @@ int main(int argc, char **argv)
         } else if (!strcmp(a, "--save-tape")) {
             if (++i >= argc) { usage(argv[0]); return 1; }
             save_tape = argv[i];
+        } else if (!strcmp(a, "--tape-b")) {
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            tape_b = argv[i];
+        } else if (!strcmp(a, "--swap-at")) {
+            if (++i >= argc) { usage(argv[0]); return 1; }
+            swap_at = atoi(argv[i]);
         } else if (!strcmp(a, "--kempston")) {
             kempston = 1;
         } else if (!strcmp(a, "--joy")) {
@@ -337,6 +350,7 @@ int main(int argc, char **argv)
         }
     }
 
+    m->tape_next = tape_b;
     if (real_tape || play_at >= 0)
         m->play_at_frame = (play_at >= 0) ? play_at : (autoload ? 320 : 1);
     if (save_tape) {
@@ -410,6 +424,8 @@ int main(int argc, char **argv)
             return 1;
     } else {
         for (f = 0; f < frames; f++) {
+            if (swap_at >= 0 && f == swap_at && m->tape_next)
+                tape_swap(m, m->tape_next);
             keys_apply(m, (int)m->frame_counter);
             /* beam-paint only the frame a screenshot/dump can observe */
             m->fb_live = (f == frames - 1);

@@ -14,7 +14,7 @@ LDLIBS  := -ldl
 
 all: $(BUILD)/hc91emu $(BUILD)/zexrun $(BUILD)/ttest $(BUILD)/ctest \
      $(BUILD)/bordertap $(BUILD)/multitap $(BUILD)/fbcheck \
-     $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/snowtap $(BUILD)/dtest $(BUILD)/sst
+     $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/snowtap $(BUILD)/fliptap $(BUILD)/dtest $(BUILD)/sst
 
 $(BUILD)/hc91emu: $(MACHINE_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
@@ -39,6 +39,9 @@ $(BUILD)/fbcheck: tests/fbcheck.c
 
 $(BUILD)/tap2tzx: tests/tap2tzx.c
 	$(CC) $(CFLAGS) -o $@ tests/tap2tzx.c
+
+$(BUILD)/fliptap: tests/fliptap.c
+	$(CC) $(CFLAGS) -o $@ tests/fliptap.c
 
 $(BUILD)/snowtap: tests/snowtap.c
 	$(CC) $(CFLAGS) -o $@ tests/snowtap.c
@@ -65,6 +68,6 @@ test-full: all
 clean:
 	rm -f $(BUILD)/*.o $(BUILD)/hc91emu $(BUILD)/zexrun $(BUILD)/ttest \
 	      $(BUILD)/ctest $(BUILD)/bordertap $(BUILD)/multitap \
-	      $(BUILD)/fbcheck $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/snowtap $(BUILD)/dtest $(BUILD)/sst
+	      $(BUILD)/fbcheck $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/snowtap $(BUILD)/fliptap $(BUILD)/dtest $(BUILD)/sst
 
 .PHONY: all test test-full clean
