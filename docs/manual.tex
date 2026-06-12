@@ -100,6 +100,17 @@ dispatched by extension: \texttt{.tap}, \texttt{.tzx} (tape),
 \texttt{.sna}, \texttt{.z80}, \texttt{.szx} (snapshots),
 \texttt{.scr} (raw screen), \texttt{.rzx} (input recording).
 
+On Debian and Ubuntu the packaged release (built by
+\texttt{tools/release\_deb.sh}) installs a system-wide
+\texttt{hc91emu} with the ROMs in \texttt{/usr/share/hc91emu}; the
+emulator uses that location automatically whenever a default ROM is
+not found relative to the current directory:
+
+\begin{Verbatim}
+sudo apt install ./hc91emu_1.0.0_amd64.deb
+hc91emu --frames 250 --text          # boots; no source tree needed
+\end{Verbatim}
+
 %=====================================================================
 \section{The emulated machines}
 
