@@ -1,0 +1,498 @@
+.TH HC91EMU 1 "June 2026" "hc91emu" "HC-91 Emulator Manual"
+.SH NAME
+hc91emu \- emulator for the I.C.E. Felix HC family of ZX Spectrum\-compatible computers
+.SH SYNOPSIS
+.B hc91emu
+.RI [ options ]
+.RI [ file .tap|.tzx|.sna|.z80|.szx|.scr|.rzx]
+.SH DESCRIPTION
+.B hc91emu
+emulates the Romanian I.C.E. Felix HC home computers \(em primarily the
+.B HC\-91
+(a ZX Spectrum 48K\-compatible machine), plus the HC\-85, HC\-90, the
+128K\-class
+.B HC\-128
+(banked RAM and AY\-3\-8912 sound) and the
+.B HC\-2000
+(floppy disk interface with CP/M 2.2).
+.PP
+The emulator is cycle\-exact: per\-M\-cycle memory and I/O contention,
+beam\-accurate video (mid\-frame border effects and multicolour render
+correctly), floating bus, the undocumented Z80 behaviors (MEMPTR, the
+Q register, interrupted block instructions), exact tape pulse timing
+and a 50 Hz drift\-free frame interrupt.
+.PP
+It runs in two modes: a scriptable
+.B headless
+mode (the default) intended for automation and testing \(em screenshots,
+screen OCR, typed input at given frame numbers, WAV recording \(em and an
+interactive
+.B SDL2
+mode
+.RB ( \-\-sdl )
+with live video, beeper/AY audio, host keyboard and game controller
+support. The SDL frontend loads the SDL2 runtime with
+.BR dlopen (3),
+so building the emulator needs no external dependencies at all.
+.PP
+A single optional positional argument names a file to attach or load,
+dispatched by extension: tape images
+.RB ( .tap ,
+.BR .tzx ),
+snapshots
+.RB ( .sna ,
+.BR .z80 ,
+.BR .szx ),
+a raw screen
+.RB ( .scr )
+or an RZX input recording
+.RB ( .rzx ).
+.SH MACHINES
+Selected with
+.BR \-\-machine :
+.TP
+.B hc91
+The default. 48K Spectrum\-compatible; the genuine ROM differs from the
+Sinclair 48K ROM in 50 bytes (banner and a CP/M bootstrap). Port 0x7E
+bit 0 pages a separate low 16K RAM bank over the ROM (the CP/M mode
+entered by \fBRANDOMIZE USR 14446\fP).
+.TP
+.B hc85, hc90
+Banner variants of the same 48K machine (genuine ROM dumps).
+.TP
+.B 48k
+The standard Sinclair ZX Spectrum 48K ROM.
+.TP
+.B hc128
+HC\-91\-derived machine with 128K RAM banked through port 0x7FFD (banks
+0\-7 at 0xC000, shadow screen in bank 7, ROM select, lock bit; odd banks
+contended) and an AY\-3\-8912 PSG at ports 0xFFFD (select/read) and
+0xBFFD (write), mixed into the audio output. 128K .z80 and .szx
+snapshots are read and written; 48K snapshots load into a locked
+USR0\-style bank set.
+.TP
+.B hc2000
+48K\-class machine with the HC disk interface: an i8272 floppy
+controller (ports 0x85 status, 0x87 data, 0x05/0x07 control latch), an
+8K interface shadow ROM with 16K interface RAM, and the system
+configuration latch at port 0x7E that can map the CP/M ROM, move the
+ROM window to 0xE000, relocate the video generator to 0xC000 and lock
+itself. Boots CP/M 2.2 from a system disk image; HC BASIC disks are
+served to the IF1\-style BASIC (CAT, LOAD *"d";1;"name").
+.SH OPTIONS
+.SS General
+.TP
+.BI \-\-machine " M"
+Machine model:
+.BR hc91 " (default), " hc85 ", " hc90 ", " 48k ", " hc128 ", " hc2000 .
+.TP
+.BI \-\-rom " FILE"
+Override the main ROM image (default chosen per \-\-machine from
+.IR roms/ ).
+.TP
+.BI \-\-rom1 " FILE"
+hc128: the second 16K ROM (default: a copy of ROM 0; only one genuine
+HC\-128 ROM image is dumped).
+.TP
+.BI \-\-rom\-if1 " FILE"
+hc2000: the disk interface ROM (default
+.IR roms/hc2ki1.rom ;
+8K images are mirrored into the 16K window).
+.TP
+.BI \-\-frames " N"
+Number of 50 Hz frames to run in headless mode (default 300; 50 frames
+= 1 emulated second). Ignored in SDL mode unless \-\-sdl\-frames is used.
+.TP
+.B \-\-turbo
+Accepted for compatibility; the headless mode never paces, so this is
+a no\-op.
+.TP
+.B \-\-no\-floating\-bus
+Unattached port reads return 0xFF instead of the byte the ULA is
+fetching. (Some software, e.g. Arkanoid, requires the floating bus and
+freezes with this option \(em it exists for experiments.)
+.SS Display, audio and state output
+.TP
+.BI \-\-screenshot " FILE"
+Write a PNG of the final frame (320\(mu240: 256\(mu192 paper plus
+border).
+.TP
+.B \-\-text
+Print the final screen as 24 lines of 32 characters, OCR'd against the
+ROM font. Inverse video is recognized; unknown glyphs print as
+.BR ? .
+(The HC\-2000 CP/M console uses its own font and is not OCR\-readable;
+use screenshots there.)
+.TP
+.BI \-\-fb\-dump " FILE"
+Write the final frame as raw 320\(mu240 RGBA bytes.
+.TP
+.BI \-\-wav " FILE"
+Record the beeper (and on hc128 the AY mix) to a 44.1 kHz mono 16\-bit
+WAV covering the whole run.
+.TP
+.BI \-\-save\-sna " FILE"
+Save a 48K .sna snapshot after the run. (Refused if SP points into
+ROM; on hc128 only the current 48K view is stored \(em prefer .z80
+or \&.szx there.)
+.TP
+.BI \-\-save\-z80 " FILE"
+Save a .z80 v2 snapshot (uncompressed pages; on hc128 hardware mode 3
+with all eight banks, the 0x7FFD latch and the AY registers).
+.TP
+.BI \-\-save\-szx " FILE"
+Save a .szx (zx\-state v1.4) snapshot (on hc128: machine id 2, eight
+RAM pages and an AY block).
+.TP
+.BI \-\-save\-scr " FILE"
+Save the raw 6912\-byte screen (pixels + attributes).
+.SS Input scripting (headless)
+.TP
+.BI \-\-type " \(dqSTRING@FRAME\(dq"
+Type STRING starting at the given frame using BASIC key mapping
+(letters, digits, symbols via SYMBOL SHIFT, \en for ENTER; literal
+\(dq\en\(dq in the argument is converted). Keys are held 6 frames with
+6\-frame gaps. Repeatable (up to 32). See
+.B BASIC KEY TOKENS
+below for typing keywords.
+.TP
+.BI \-\-keys " \(dqFRAME:NAMES\(dq"
+Press a raw key chord at the given frame, e.g.
+.BR \(dq100:CAPS+1\(dq .
+Names: A\-Z, 0\-9, ENTER, SPACE, CAPS (CS, SHIFT), SYM (SS, SYMSHIFT).
+Repeatable (up to 32).
+.TP
+.B \-\-autoload
+Schedule typing
+.B LOAD \(dq\(dq
++ ENTER at frame 250 \(em the usual way to start .tap/.tzx files.
+.TP
+.BI \-\-joy " \(dqF\-G:DIRS\(dq"
+Hold joystick directions over frames F..G (exclusive). DIRS is a
+combination of U, D, L, R, F (fire), e.g.
+.BR \(dq300\-480:R+F\(dq .
+Routed per \-\-joy\-type. Repeatable.
+.TP
+.BI \-\-joy\-type " T"
+Where \-\-joy events go:
+.B kempston
+(default; auto\-attaches the interface),
+.B sinclair
+(Interface 2 stick 1, keys 6\-0) or
+.B cursor
+(keys 5/6/7/8/0).
+.TP
+.B \-\-kempston
+Attach the Kempston interface at port 0x1F. When absent the port
+floats authentically (some games probe for this).
+.SS Tape
+.TP
+.B \-\-real\-tape
+Disable the instant LD\-BYTES ROM trap and play the tape at pulse level
+with exact T\-state timing (required for custom/turbo loaders). The
+player auto\-pauses at block boundaries while no loader polls the EAR
+port and resumes when loading restarts, auto\-rewinds at the end of the
+tape while a loader is still searching, and honors TZX stop\-the\-tape
+markers \(em multi\-load and flip\-the\-tape schemes work.
+.TP
+.BI \-\-play\-at " N"
+Press PLAY at frame N (default 320 with \-\-autoload, else 1).
+.TP
+.BI \-\-tape\-b " FILE"
+Attach the other cassette side. Swap sides with F8 in SDL or
+\-\-swap\-at headless; each swap toggles between the two files, rewound
+and paused at the start.
+.TP
+.BI \-\-swap\-at " N"
+Insert the \-\-tape\-b cassette at frame N (headless).
+.TP
+.BI \-\-save\-tape " FILE"
+Capture BASIC SAVE output (the SA\-BYTES ROM trap) as a byte\-exact
+\&.tap file. The file is truncated first and blocks are appended.
+.SS Disks (hc2000)
+.TP
+.BI \-\-disk " FILE"
+Insert a disk image in drive A (attaches the IF1 interface if needed).
+Raw images in the four period geometries are accepted:
+655360 (HC BASIC 3.5\(dq 80\(mu2\(mu16\(mu256),
+737280 (CP/M 2.2 3.5\(dq 80\(mu2\(mu9\(mu512),
+327680 and 368640 (the 40\-track 5.25\(dq variants).
+Writes are buffered and written back to the file on exit.
+.TP
+.BI \-\-disk\-b " FILE"
+Drive B image.
+.TP
+.B \-\-boot\-cpm
+hc2000: reset straight into the CP/M boot ROM, which loads CP/M 2.2
+from the system tracks of the disk in drive A to the
+.B A>
+prompt. (The authentic route from BASIC is
+.BR "RANDOMIZE USR 14446" .)
+.SS Recordings (RZX)
+.TP
+.BI \-\-rzx\-record " FILE"
+Record the session as an RZX input recording: a .z80 of the starting
+state plus, per frame, the fetch count and every port\-read byte.
+Replaying the file (pass it as the input file) reproduces the run
+exactly \(em useful as a whole\-run regression test. Compressed and
+foreign RZX files replay too; "protected" ones are rejected.
+.SS SDL frontend
+.TP
+.B \-\-sdl
+Open an interactive window (640\(mu480, resizable) at 50 Hz with live
+audio. Needs only the SDL2 runtime library at run time. See
+.B SDL CONTROLS
+below.
+.TP
+.BI \-\-sdl\-frames " N"
+Auto\-quit the SDL session after N frames (used by the test suite).
+.TP
+.B \-\-trace\-frames
+Print the frame number and PC to stderr every 50 frames (cheap
+progress indicator).
+.SS Debugger
+All addresses and ports are hexadecimal, with optional \fB$\fP or
+\fB0x\fP prefix.
+.TP
+.B \-\-monitor
+Stop in the monitor before the first instruction.
+.TP
+.BI \-\-break " ADDR"
+Set a PC breakpoint (repeatable, up to 32).
+.TP
+.BI \-\-watch " ADDR"
+Memory write watchpoint (repeatable).
+.TP
+.BI \-\-rwatch " ADDR"
+Memory read watchpoint \(em note it also fires on opcode fetches.
+.TP
+.BI \-\-pwatch " PORT"
+I/O watchpoint. Values \(<= 0xFF match the low port byte; larger values
+match the full 16\-bit port.
+.TP
+.BI \-\-debug " \(dqCMD;CMD;...\(dq"
+Scripted monitor input: one command is consumed per prompt, then input
+falls back to stdin (prompting only on a tty); when both run out the
+monitor auto\-continues so headless runs never hang.
+.TP
+.BI \-\-trace " FILE"
+Write a per\-instruction trace: address, disassembly and registers
+before execution, plus the running T\-state count. HALT idle cycles are
+logged once.
+.SH MONITOR COMMANDS
+Inside the monitor (entered via breakpoints, watchpoints or
+\-\-monitor), addresses are hex and counts decimal; an empty line
+repeats the last command.
+.TP
+.B r, regs
+Registers, flags (letters for set bits), frame\-relative T\-state,
+frame number and total T\-states.
+.TP
+.B d, dis [ADDR [N]]
+Disassemble N instructions (default 8) from ADDR (default PC; the
+names pc, sp, hl are accepted). Full coverage including undocumented
+opcodes, DDCB result\-copy forms and relative\-jump targets.
+.TP
+.B m, mem ADDR [N]
+Hex + ASCII dump of N bytes (default 64).
+.TP
+.B s, step [N]
+Execute N instructions (default 1), then stop again.
+.TP
+.B c, cont
+Continue execution.
+.TP
+.B b, break [ADDR]
+Toggle a PC breakpoint; without argument, list breakpoints.
+.TP
+.B w, watch [ADDR] / wr, rwatch [ADDR] / wp, pwatch [PORT]
+Toggle write/read/port watchpoints; without argument, list.
+.TP
+.B t, trace FILE|off
+Start or stop per\-instruction tracing.
+.TP
+.B q, quit
+Exit the emulator immediately (skips end\-of\-run saves).
+.TP
+.B h, help
+Command summary.
+.SH SDL CONTROLS
+.TP
+.B Spectrum keys
+Letters, digits, ENTER and SPACE map directly. Shift = CAPS SHIFT,
+Ctrl or left Alt = SYMBOL SHIFT. Composed conveniences: Backspace =
+DELETE (CAPS+0), Escape = BREAK (CAPS+SPACE), arrows = BASIC cursors
+(plain 5/6/7/8 with \-\-joy\-type cursor), and , . ; ' \- = / type the
+corresponding SYMBOL SHIFT symbols.
+.TP
+.B Joysticks
+With \-\-kempston (or automatically when a game controller is present),
+arrows + right Alt drive the Kempston interface. The first game
+controller's d\-pad, left stick and A button map to Kempston too.
+.TP
+.B Emulator keys
+Tab = turbo while held (no pacing); F5 = pause; F6 = tape play/stop;
+F7 = rewind tape; F8 = swap cassette side (with \-\-tape\-b); F10 or
+closing the window = quit.
+.SH BASIC KEY TOKENS
+The 48K BASIC keyword entry needed with
+.BR \-\-type / \-\-keys :
+keywords come from single keys in K mode (start of a statement), e.g.
+.B p
+= PRINT,
+.B j
+= LOAD,
+.B o
+= POKE,
+.B t
+= RANDOMIZE,
+.B x
+= CLEAR,
+.B s
+= SAVE,
+.B i
+= INPUT.
+Extended\-mode words need the EXTEND chord first \(em press
+.B CAPS+SYM
+(one \-\-keys entry), then the key:
+plain
+.B o
+= PEEK, plain
+.B i
+= CODE, plain
+.B l
+= USR; with SYMBOL SHIFT:
+.B SYM+O
+= OUT,
+.B SYM+I
+= IN,
+.B SYM+Z
+= BEEP.
+Example \(em poke a value and read it back:
+.EX
+hc91emu \-\-frames 500 \e
+  \-\-type 'o16384,42\en@260' \e
+  \-\-type 'p@330' \-\-keys '342:CAPS+SYM' \-\-type 'o16384\en@354' \-\-text
+.EE
+.SH FILE FORMATS
+.TP
+.B .tap
+Standard tape image. Loaded instantly through the LD\-BYTES trap, or at
+pulse level with \-\-real\-tape. Written by \-\-save\-tape.
+.TP
+.B .tzx
+Extended tape image. Supported blocks: 0x10/0x11 (standard/turbo data,
+also fed to the instant trap), 0x12/0x13/0x14 (tone, pulse list, pure
+data), 0x18 (CSW recording, RLE and zlib Z\-RLE), 0x19 (generalized
+data with symbol alphabets and polarity flags), 0x20/0x21/0x22
+(pause/stop, groups), 0x24/0x25 (loops), 0x2A (stop if 48K),
+0x30\-0x35 and 0x5A (information, skipped).
+.TP
+.B .sna
+48K snapshot, load and save.
+.TP
+.B .z80
+Snapshot, v1/v2/v3 load (including RLE compression and 128K files on
+hc128); saved as v2 uncompressed (48K, or 128K with banks/latch/AY).
+.TP
+.B .szx
+zx\-state v1.4, load and save (48K and hc128). Zlib\-compressed RAM
+pages in foreign files are decompressed by a built\-in inflater.
+.TP
+.B .scr
+Raw 6912\-byte screen; loading parks the CPU so the picture persists.
+.TP
+.B .rzx
+Input recording; records with \-\-rzx\-record, replays when given as the
+input file, then continues as live emulation when the recording ends.
+.TP
+.B .img, .dsk
+Raw floppy images for the hc2000 (sizes listed under \-\-disk).
+.SH ENVIRONMENT
+.TP
+.B HC91_FDC_DEBUG
+When set, log every i8272 command and result to stderr.
+.TP
+.B HC91_TAPE_DEBUG
+When set, log tape block progression to stderr (pause/resume/rewind
+messages are always printed).
+.TP
+.B SDL_VIDEODRIVER, SDL_AUDIODRIVER
+Standard SDL variables; set both to
+.B dummy
+to run the SDL frontend headlessly (used by the test suite).
+.SH EXIT STATUS
+0 on success; 1 on bad arguments, missing/invalid files or failed
+saves. The monitor's
+.B quit
+command exits 0 immediately.
+.SH EXAMPLES
+Boot to BASIC and read the screen:
+.EX
+hc91emu \-\-frames 250 \-\-text
+.EE
+.PP
+Play a game interactively with sound:
+.EX
+hc91emu \-\-sdl software/library/platform/jet_set_willy.tap \-\-autoload
+.EE
+.PP
+Load through the real tape loader and screenshot the result:
+.EX
+hc91emu game.tzx \-\-autoload \-\-real\-tape \-\-frames 9000 \e
+        \-\-screenshot game.png
+.EE
+.PP
+A two\-sided multi\-load original (P\-47):
+.EX
+hc91emu \-\-sdl shooter/p47_side_a.tzx \-\-autoload \-\-real\-tape \e
+        \-\-tape\-b shooter/p47_side_b.tzx
+# press F8 when the game asks to turn the tape over
+.EE
+.PP
+HC\-128: program an AY tone from BASIC (OUT = EXTEND then SYM+O):
+.EX
+hc91emu \-\-machine hc128 \-\-frames 1200 \-\-wav ay.wav \e
+  \-\-keys '260:CAPS+SYM' \-\-keys '272:SYM+O' \-\-type '65533,0:@284' ...
+.EE
+.PP
+Boot CP/M on the HC\-2000 and list the disk:
+.EX
+hc91emu \-\-machine hc2000 \-\-boot\-cpm \-\-disk cpm22\-hc.img \e
+        \-\-frames 3400 \-\-type 'dir\en@2600' \-\-screenshot cpm.png
+.EE
+.PP
+Record a session and replay it:
+.EX
+hc91emu \-\-frames 450 \-\-type 'p2+3*4\en@260' \-\-rzx\-record calc.rzx
+hc91emu calc.rzx \-\-frames 460 \-\-text        # prints 14 again
+.EE
+.PP
+Debug: break at the ROM init, inspect, single\-step:
+.EX
+hc91emu \-\-frames 3 \-\-break 11CB \e
+        \-\-debug "regs;dis pc 8;mem 5C00 32;step 3;regs;cont"
+.EE
+.SH FILES
+.TP
+.I roms/
+Genuine HC\-85/90/91/128/2000 ROM dumps and the Sinclair 48K ROM.
+.TP
+.I software/library/
+The local classic\-game library built by
+.IR tools/get_library.sh ,
+classified by genre (see its README for the index).
+.TP
+.I tests/run_tests.sh
+The test suite
+.RB ( "make test" ).
+.SH SEE ALSO
+.IR README.md ,
+.IR ROADMAP.md ,
+.I docs/manual.pdf
+(the full user manual),
+.BR groff_man (7).
+.SH HISTORY
+Written in June 2026 as a dependency\-free C99 emulator; the Z80 core
+passes zexdoc/zexall, Patrik Rak's z80full/z80ccf/z80memptr and
+162,000 SingleStepTests bus\-level vectors.

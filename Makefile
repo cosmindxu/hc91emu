@@ -65,9 +65,19 @@ test: all
 test-full: all
 	RUN_ZEXALL=1 ./tests/run_tests.sh
 
+# Rebuild the documentation: the PDF user manual (needs pdflatex) and a
+# render check of the man page (needs groff). docs/manual.pdf is
+# committed, so end users need neither tool.
+manual:
+	cd docs && pdflatex -interaction=nonstopmode -halt-on-error manual.tex >/dev/null \
+	        && pdflatex -interaction=nonstopmode -halt-on-error manual.tex >/dev/null \
+	        && rm -f manual.aux manual.log manual.out manual.toc
+	groff -man -Tutf8 -ww docs/hc91emu.1 > /dev/null
+	@echo "docs/manual.pdf rebuilt; man page OK (view: man ./docs/hc91emu.1)"
+
 clean:
 	rm -f $(BUILD)/*.o $(BUILD)/hc91emu $(BUILD)/zexrun $(BUILD)/ttest \
 	      $(BUILD)/ctest $(BUILD)/bordertap $(BUILD)/multitap \
 	      $(BUILD)/fbcheck $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/snowtap $(BUILD)/fliptap $(BUILD)/dtest $(BUILD)/sst
 
-.PHONY: all test test-full clean
+.PHONY: all test test-full manual clean
