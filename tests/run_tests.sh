@@ -372,7 +372,7 @@ cmp -s "$OUT/snow40.fb" "$OUT/snow40b.fb"
 check $? "snow is deterministic (purely R-driven)"
 
 if [ -d software/library ]; then
-  echo "== 18. Game library (tools/get_library.sh; 32 titles) =="
+  echo "== 18. Game library (tools/get_library.sh; 36 titles) =="
   # representative smoke: one big isometric 48K title and one 128K AY
   # title whose menu music must come out of the PSG.
   $EMU software/library/isometric/head_over_heels.tap --autoload --turbo \
