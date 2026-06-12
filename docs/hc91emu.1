@@ -4,7 +4,7 @@ hc91emu \- emulator for the I.C.E. Felix HC family of ZX Spectrum\-compatible co
 .SH SYNOPSIS
 .B hc91emu
 .RI [ options ]
-.RI [ file .tap|.tzx|.sna|.z80|.szx|.scr|.rzx]
+.RI [ file .tap|.tzx|.wav|.sna|.z80|.szx|.scr|.rzx]
 .SH DESCRIPTION
 .B hc91emu
 emulates the Romanian I.C.E. Felix HC home computers \(em primarily the
@@ -38,7 +38,10 @@ so building the emulator needs no external dependencies at all.
 A single optional positional argument names a file to attach or load,
 dispatched by extension: tape images
 .RB ( .tap ,
-.BR .tzx ),
+.BR .tzx ,
+or a sampled
+.B .wav
+recording of a real cassette),
 snapshots
 .RB ( .sna ,
 .BR .z80 ,
@@ -194,6 +197,13 @@ player auto\-pauses at block boundaries while no loader polls the EAR
 port and resumes when loading restarts, auto\-rewinds at the end of the
 tape while a loader is still searching, and honors TZX stop\-the\-tape
 markers \(em multi\-load and flip\-the\-tape schemes work.
+.IP
+A
+.B .wav
+file (a digitized recording of a real cassette) always loads this
+way: the samples are DC\-corrected and Schmitt\-triggered into edges,
+so \-\-real\-tape is implied. PCM 8\- or 16\-bit, mono or stereo,
+4\-192 kHz; silences longer than a second become block boundaries.
 .TP
 .BI \-\-play\-at " N"
 Press PLAY at frame N (default 320 with \-\-autoload, else 1).

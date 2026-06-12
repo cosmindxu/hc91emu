@@ -13,8 +13,8 @@ MACHINE_OBJS := $(BUILD)/z80.o $(BUILD)/machine.o $(BUILD)/video.o \
 LDLIBS  := -ldl
 
 all: $(BUILD)/hc91emu $(BUILD)/zexrun $(BUILD)/ttest $(BUILD)/ctest \
-     $(BUILD)/bordertap $(BUILD)/multitap $(BUILD)/fbcheck \
-     $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/snowtap $(BUILD)/fliptap $(BUILD)/dtest $(BUILD)/sst
+     $(BUILD)/bordertap $(BUILD)/multitap $(BUILD)/demotap $(BUILD)/fbcheck \
+     $(BUILD)/tap2tzx $(BUILD)/tap2wav $(BUILD)/cpmtap $(BUILD)/snowtap $(BUILD)/fliptap $(BUILD)/dtest $(BUILD)/sst
 
 $(BUILD)/hc91emu: $(MACHINE_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
@@ -34,11 +34,17 @@ $(BUILD)/bordertap: tests/bordertap.c
 $(BUILD)/multitap: tests/multitap.c
 	$(CC) $(CFLAGS) -o $@ tests/multitap.c
 
+$(BUILD)/demotap: tests/demotap.c
+	$(CC) $(CFLAGS) -o $@ tests/demotap.c
+
 $(BUILD)/fbcheck: tests/fbcheck.c
 	$(CC) $(CFLAGS) -o $@ tests/fbcheck.c
 
 $(BUILD)/tap2tzx: tests/tap2tzx.c
 	$(CC) $(CFLAGS) -o $@ tests/tap2tzx.c
+
+$(BUILD)/tap2wav: tests/tap2wav.c
+	$(CC) $(CFLAGS) -o $@ tests/tap2wav.c
 
 $(BUILD)/fliptap: tests/fliptap.c
 	$(CC) $(CFLAGS) -o $@ tests/fliptap.c
@@ -101,7 +107,7 @@ manual:
 clean:
 	rm -f $(BUILD)/*.o $(BUILD)/hc91emu $(BUILD)/zexrun $(BUILD)/ttest \
 	      $(BUILD)/ctest $(BUILD)/bordertap $(BUILD)/multitap \
-	      $(BUILD)/fbcheck $(BUILD)/tap2tzx $(BUILD)/cpmtap $(BUILD)/snowtap $(BUILD)/fliptap $(BUILD)/dtest $(BUILD)/sst \
-	      $(BUILD)/mkicon
+	      $(BUILD)/fbcheck $(BUILD)/tap2tzx $(BUILD)/tap2wav $(BUILD)/cpmtap $(BUILD)/snowtap $(BUILD)/fliptap $(BUILD)/dtest $(BUILD)/sst \
+	      $(BUILD)/mkicon $(BUILD)/demotap
 
 .PHONY: all test test-full manual windows clean

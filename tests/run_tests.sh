@@ -128,6 +128,19 @@ $EMU --rom roms/hc91.rom "$OUT/multi.tap" --autoload --turbo --frames 400 \
 build/fbcheck "$OUT/multi.fb" --band 88 33 3 | sed 's/^/  /'
 [ "${PIPESTATUS[0]}" = 0 ]; check $? "multicolour: one attr cell shows >=3 colors"
 
+echo "== 7d. Beam renderer: full multicolour demo (golden frame) =="
+# A self-contained, input-free demo (paper gradient + per-scanline
+# border bars). Deterministic, so the whole rendered frame is golden-
+# frozen; the border must also show many stacked colours (beam-accurate)
+# rather than collapsing to one (frame-at-once).
+build/demotap "$OUT/demo.tap"
+$EMU --rom roms/hc91.rom "$OUT/demo.tap" --autoload --turbo --frames 600 \
+     --fb-dump "$OUT/demo.fb" --screenshot "$OUT/demo.png" > /dev/null 2>&1
+build/fbcheck "$OUT/demo.fb" | sed 's/^/  /'
+[ "${PIPESTATUS[0]}" = 0 ]; check $? "demo: border shows stacked multicolour bars"
+[ "$(md5sum < "$OUT/demo.png")" = "$(md5sum < tests/demo_golden.png)" ]
+check $? "demo: rendered frame matches the golden"
+
 echo "== 9. Snapshot saving: .sna/.z80 round-trip + .scr =="
 # Save the running multicolour engine, resume from each snapshot format:
 # the engine only paints bands if PC/SP/registers/IFF/IM survive intact.
@@ -476,6 +489,35 @@ fi
 echo "== 21. ROM dumps (tools/get_roms.sh) =="
 bash tools/get_roms.sh --verify > "$OUT/roms_verify.txt" 2>&1
 check $? "all 12 ROM dumps present with the pinned sha256"
+
+echo "== 22. WAV cassette input (sampled tape recordings) =="
+# The fliptap two-stage program rendered as a sampled recording: the
+# Schmitt-triggered pulses must load both stages, with the inter-block
+# silences acting as boundaries for the multi-load auto-pause.
+build/tap2wav "$OUT/flip.tap" "$OUT/flip8.wav" 44100 8 1 > /dev/null
+$EMU --rom roms/hc91.rom "$OUT/flip8.wav" --autoload --turbo \
+     --frames 5600 --save-scr "$OUT/flipw.scr" 2> "$OUT/flipw.log" >/dev/null
+grep -q "WAV 44100 Hz 8-bit mono" "$OUT/flipw.log" \
+  && grep -q "tape: paused" "$OUT/flipw.log" \
+  && grep -q "tape: resumed" "$OUT/flipw.log"
+check $? "WAV loads via Schmitt trigger; silences pause, polling resumes"
+python3 - "$OUT/flipw.scr" <<'PYEOF'
+import sys
+d = open(sys.argv[1],'rb').read()
+sys.exit(0 if all(b == 0xF0 for b in d[:4096])
+         and all(b == 0x32 for b in d[6144:6144+640]) else 1)
+PYEOF
+check $? "WAV: two-stage load is byte-exact (8-bit mono 44.1 kHz)"
+build/tap2wav "$OUT/flip.tap" "$OUT/flip16.wav" 22050 16 2 > /dev/null
+$EMU --rom roms/hc91.rom "$OUT/flip16.wav" --autoload --turbo \
+     --frames 5600 --save-scr "$OUT/flipw2.scr" > /dev/null 2>&1
+python3 - "$OUT/flipw2.scr" <<'PYEOF'
+import sys
+d = open(sys.argv[1],'rb').read()
+sys.exit(0 if all(b == 0xF0 for b in d[:4096])
+         and all(b == 0x32 for b in d[6144:6144+640]) else 1)
+PYEOF
+check $? "WAV: 16-bit stereo 22.05 kHz loads byte-exact too"
 
 if [ "${RUN_Z80TEST:-0}" = 1 ]; then
   echo "== 8. Rak's z80test in-emulator (slow: ~2 min each) =="

@@ -97,7 +97,8 @@ make test            # run the test suite
 \end{Verbatim}
 
 A single optional positional argument names the file to load,
-dispatched by extension: \texttt{.tap}, \texttt{.tzx} (tape),
+dispatched by extension: \texttt{.tap}, \texttt{.tzx}, \texttt{.wav}
+(tape),
 \texttt{.sna}, \texttt{.z80}, \texttt{.szx} (snapshots),
 \texttt{.scr} (raw screen), \texttt{.rzx} (input recording).
 
@@ -227,6 +228,20 @@ pressed (default: frame 320 with \opt{--autoload}).
 
 \opt{--autoload} types \texttt{LOAD ""} + ENTER at frame 250 so tapes
 start by themselves.
+
+\subsection{Sampled recordings (\texttt{.wav})}
+
+A \texttt{.wav} file --- a digitized recording of a genuine cassette,
+e.g. captured from a real HC-91 or a preserved audio archive --- loads
+through the pulse player directly. The samples get a DC-removal pass
+(an exponential moving average) and a Schmitt trigger at one eighth of
+the peak deviation; the resulting edge-to-edge times become tape
+pulses, so a recording loads exactly like the cassette it came from.
+\opt{--real-tape} is implied. Plain PCM is accepted (8- or 16-bit,
+mono or stereo, 4--192\,kHz); silences longer than a second are
+treated as block boundaries, so multi-load auto-pause works on sampled
+tapes too. The bundled \texttt{tests/tap2wav} renders a \texttt{.tap}
+into such a recording if you want to experiment.
 
 \subsection{Multi-load games and the cassette deck}
 \label{sec:multiload}

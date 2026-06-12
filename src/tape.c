@@ -60,6 +60,8 @@ static int emit_data(Machine *m, uint32_t pilot, uint32_t pilot_cnt,
 {
     uint32_t i;
     int b;
+    if (last_bits < 1 || last_bits > 8)   /* used-bits-in-last-byte: */
+        last_bits = 8;                    /* 1..8 on hardware (file may lie) */
     bound_push(m, 0);
     for (i = 0; i < pilot_cnt; i++)
         if (pulse_push(m, pilot)) return -1;
@@ -448,6 +450,123 @@ static int tzx_parse(Machine *m, const uint8_t *buf, long size,
     return 0;
 }
 
+/* ---- WAV input (digitized cassette recordings) ----
+ * RIFF/WAVE, PCM 8/16-bit, mono or stereo, any sane rate. The samples
+ * get DC removal (exponential moving average) and a Schmitt trigger at
+ * 1/8 of the peak deviation, and the edge-to-edge times become player
+ * pulses — a recording of a real cassette loads through the pulse
+ * player exactly like a tape. Silences longer than a second become
+ * block boundaries, so the multi-load auto-pause works on them too. */
+
+static int16_t wav_sample(const uint8_t *d, uint32_t i, int ch, int bits)
+{
+    int32_t acc = 0;
+    int c;
+    for (c = 0; c < ch; c++) {
+        if (bits == 16)
+            acc += (int16_t)(d[(i * (uint32_t)ch + (uint32_t)c) * 2]
+                   | (d[(i * (uint32_t)ch + (uint32_t)c) * 2 + 1] << 8));
+        else
+            acc += (int16_t)((d[i * (uint32_t)ch + (uint32_t)c] - 128) * 256);
+    }
+    return (int16_t)(acc / ch);
+}
+
+#define WAV_GAP_T 3500000.0          /* >1 s of no edges = a tape gap */
+
+static int wav_parse(Machine *m, const uint8_t *buf, long size,
+                     const char *path)
+{
+    const uint8_t *data = NULL;
+    uint32_t dlen = 0, rate = 0, nsamp, i, edges = 0;
+    int fmt = 0, ch = 0, bits = 0, state = 0;
+    long off = 12;
+    double ema, peak = 0.0, thr, tps, last_t = 0.0;
+
+    while (off + 8 <= size) {
+        uint32_t clen = rd32(buf + off + 4);
+        const uint8_t *c = buf + off + 8;
+        if (clen > (uint32_t)(size - off - 8))
+            clen = (uint32_t)(size - off - 8);   /* tolerate truncation */
+        if (!memcmp(buf + off, "fmt ", 4) && clen >= 16) {
+            fmt  = c[0] | (c[1] << 8);
+            ch   = c[2] | (c[3] << 8);
+            rate = rd32(c + 4);
+            bits = c[14] | (c[15] << 8);
+        } else if (!memcmp(buf + off, "data", 4) && !data) {
+            data = c;
+            dlen = clen;
+        }
+        off += 8 + clen + (clen & 1);
+    }
+    if (fmt != 1 || (bits != 8 && bits != 16) || ch < 1 || ch > 2
+        || rate < 4000 || rate > 192000 || !data) {
+        fprintf(stderr, "error: WAV '%s': need plain PCM 8/16-bit "
+                "mono/stereo (got fmt %d, %d ch, %d bit, %u Hz)\n",
+                path, fmt, ch, bits, rate);
+        return -1;
+    }
+    nsamp = dlen / ((uint32_t)ch * (uint32_t)(bits / 8));
+    if (nsamp < 2) {
+        fprintf(stderr, "error: WAV '%s': no samples\n", path);
+        return -1;
+    }
+
+    /* pass 1: DC baseline (EMA) and peak deviation */
+    ema = wav_sample(data, 0, ch, bits);
+    for (i = 0; i < nsamp; i++) {
+        double x = wav_sample(data, i, ch, bits) - ema;
+        ema += x / 256.0;
+        if (x < 0) x = -x;
+        if (x > peak) peak = x;
+    }
+    if (peak < 64.0) {
+        fprintf(stderr, "error: WAV '%s': no signal found\n", path);
+        return -1;
+    }
+    thr = peak / 8.0;
+
+    /* pass 2: Schmitt trigger; edge-to-edge times become pulses */
+    bound_push(m, 0);
+    tps = 3500000.0 / rate;
+    ema = wav_sample(data, 0, ch, bits);
+    for (i = 0; i < nsamp; i++) {
+        double x = wav_sample(data, i, ch, bits) - ema;
+        int edge = 0;
+        ema += x / 256.0;
+        if (state == 0 && x > thr) { state = 1; edge = 1; }
+        else if (state == 1 && x < -thr) { state = 0; edge = 1; }
+        if (edge) {
+            double t = i * tps, dur = t - last_t;
+            last_t = t;
+            if (edges == 0)
+                dur = 1000.0;            /* trim the leading silence */
+            if (dur > WAV_GAP_T) {       /* a gap: cap it, mark a block */
+                if (pulse_push(m, (uint32_t)WAV_GAP_T))
+                    return -1;
+                bound_push(m, 0);
+            } else if (pulse_push(m, (uint32_t)(dur + 0.5))) {
+                return -1;
+            }
+            edges++;
+        }
+    }
+    if (edges < 2) {
+        fprintf(stderr, "error: WAV '%s': no usable signal\n", path);
+        return -1;
+    }
+
+    if (!m->real_tape) {                 /* no blocks to trap-load from */
+        m->real_tape = 1;
+        fprintf(stderr, "tape: '%s': sampled input -> pulse player "
+                "(--real-tape implied)\n", path);
+    }
+    fprintf(stderr, "tape: '%s': WAV %u Hz %d-bit %s, %.1f s, "
+            "%u edges\n", path, rate, bits, ch == 2 ? "stereo" : "mono",
+            nsamp / (double)rate, edges);
+    return 0;
+}
+
 int tape_load(Machine *m, const char *path)
 {
     FILE *f;
@@ -487,6 +606,13 @@ int tape_load(Machine *m, const char *path)
 
     if (size > 10 && memcmp(buf, "ZXTape!\x1A", 8) == 0) {
         tzx_parse(m, buf, size, path, &cap);
+    } else if (size > 44 && memcmp(buf, "RIFF", 4) == 0
+               && memcmp(buf + 8, "WAVE", 4) == 0) {
+        if (wav_parse(m, buf, size, path) != 0) {
+            free(buf);
+            tape_free(m);
+            return -1;
+        }
     } else {
         off = 0;
         while (off + 2 <= size) {

@@ -442,7 +442,8 @@ int machine_load_file(Machine *m, const char *path)
 {
     const char *dot = strrchr(path, '.');
     if (dot) {
-        if (ext_eq(dot, ".tap") || ext_eq(dot, ".tzx"))
+        if (ext_eq(dot, ".tap") || ext_eq(dot, ".tzx")
+            || ext_eq(dot, ".wav"))
             return tape_load(m, path);
         if (ext_eq(dot, ".sna"))
             return snapshot_load_sna(m, path);
@@ -456,7 +457,7 @@ int machine_load_file(Machine *m, const char *path)
             return rzx_load(m, path);
     }
     fprintf(stderr, "error: '%s': unknown file type "
-            "(expected .tap/.tzx/.sna/.z80/.szx/.scr/.rzx)\n", path);
+            "(expected .tap/.tzx/.wav/.sna/.z80/.szx/.scr/.rzx)\n", path);
     return -1;
 }
 

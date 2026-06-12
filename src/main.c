@@ -12,7 +12,7 @@
 static void usage(const char *prog)
 {
     fprintf(stderr,
-        "usage: %s [options] [file.tap/.tzx/.sna/.z80/.szx/.scr/.rzx]\n"
+        "usage: %s [options] [file.tap/.tzx/.wav/.sna/.z80/.szx/.scr/.rzx]\n"
         "  --machine M       hc91 (default) | hc85 | hc90 | 48k | hc128\n"
         "                    | hc2000 (disk interface: i8272 + IF1 ROM)\n"
         "  --rom FILE        ROM image (default: per --machine)\n"
@@ -384,7 +384,8 @@ int main(int argc, char **argv)
     }
 
     m->tape_next = tape_b;
-    if (real_tape || play_at >= 0)
+    /* m->real_tape, not the flag: loading a .wav implies the player */
+    if (m->real_tape || play_at >= 0)
         m->play_at_frame = (play_at >= 0) ? play_at : (autoload ? 320 : 1);
     if (save_tape) {
         FILE *tf = fopen(save_tape, "wb");   /* truncate; trap appends */
