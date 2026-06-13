@@ -42,6 +42,9 @@ Sinclair 48K is available as `--machine 48k`.
   command reference with examples.
 - `make manual` rebuilds both (needs `pdflatex` and `groff`; the PDF is
   committed so end users need neither).
+- **`ROADMAP.md`** — the (completed) ten-phase build plan;
+  **`docs/FUTURE.md`** — forward-looking ideas (an iOS/iPhone port,
+  Android, and other nice-to-haves) with feasibility analysis.
 
 ## Building
 
