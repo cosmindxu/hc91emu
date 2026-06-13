@@ -13,6 +13,9 @@ snow, TZX 0x18/0x19 blocks, and the HC-2000 disk interface (i8272)
 with CP/M 2.2 booting to the A> prompt. Last remaining stretch: the
 HC-88's undocumented disk hardware (2K boot ROM only).
 
+> **Forward-looking ideas** — an iOS/iPhone port (and Android), plus
+> other nice-to-haves — are written up in [docs/FUTURE.md](docs/FUTURE.md).
+
 ---
 
 ## Phase 1 — Cycle accuracy: memory & I/O contention — ✅ DONE (2026-06-11)
