@@ -1,12 +1,13 @@
-# CI for the HC-91 emulator. Runs the firmware-free correctness suite —
-# the Z80 instruction exercisers, the unit tests, and the SingleStepTests
-# vectors — none of which need a system ROM, so CI never fetches anything
-# copyrighted. (The SingleStepTests vectors come from GitHub and are
-# cached.) The ROM-dependent integration tests — boot, games, CP/M, disk,
-# tape, SDL frontend — run locally via `make test`, where the ROMs live
-# (fetched once with tools/get_roms.sh); GitHub's runners can't reach the
-# ROM preservation host, and fetching firmware in a public pipeline is
-# undesirable regardless.
+# CI for the HC-91 emulator. Runs the DOWNLOAD-FREE correctness suite:
+# everything here is built from the repo and needs no network fetch, so
+# CI never pulls anything copyrighted and never depends on a third-party
+# host (or gets rate-limited by one). zexdoc (tests/zexdoc.com, committed)
+# is the classic Z80 instruction validation; ttest/ctest/dtest cover
+# instruction timing, memory contention and the disassembler. Both run
+# under ASan/UBSan too. The heavier fetch-based tests — the SingleStepTests
+# vectors (tests/get_vectors.sh) and the ROM-dependent integration tests
+# (boot, games, CP/M, disk, tape, SDL) — run locally via `make test`,
+# where the data already lives.
 name: CI
 
 on:
@@ -22,16 +23,7 @@ jobs:
       - name: Build (whole tree)
         run: make
 
-      - name: Cache SingleStepTests vectors
-        uses: actions/cache@v4
-        with:
-          path: tests/vectors
-          key: sst-vectors-${{ hashFiles('tests/get_vectors.sh') }}
-
-      - name: Fetch SingleStepTests vectors
-        run: ./tests/get_vectors.sh
-
-      - name: Z80 core — zexdoc + unit tests + SingleStepTests (no firmware)
+      - name: Z80 core — zexdoc + unit tests (no downloads, no firmware)
         run: |
           ./build/ttest
           ./build/ctest
@@ -39,7 +31,6 @@ jobs:
           ./build/zexrun tests/zexdoc.com | tee zexdoc.log
           test "$(grep -c ERROR zexdoc.log)" = 0
           test "$(grep -c OK zexdoc.log)" -ge 60
-          ./build/sst tests/vectors/*.json
 
   asan:
     runs-on: ubuntu-latest
@@ -51,18 +42,11 @@ jobs:
           make CFLAGS="-std=c99 -O1 -g -fsanitize=address,undefined
           -fno-sanitize-recover=all -Wall -Wextra"
 
-      - name: Cache SingleStepTests vectors
-        uses: actions/cache@v4
-        with:
-          path: tests/vectors
-          key: sst-vectors-${{ hashFiles('tests/get_vectors.sh') }}
-
-      - name: Fetch SingleStepTests vectors
-        run: ./tests/get_vectors.sh
-
-      - name: Unit tests + SingleStepTests under sanitizers
+      - name: zexdoc + unit tests under sanitizers
         run: |
           ./build/ttest
           ./build/ctest
           ./build/dtest
-          ./build/sst tests/vectors/*.json
+          ./build/zexrun tests/zexdoc.com | tee zexdoc.log
+          test "$(grep -c ERROR zexdoc.log)" = 0
+          test "$(grep -c OK zexdoc.log)" -ge 60
