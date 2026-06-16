@@ -4,6 +4,14 @@ An emulator for the **I.C.E. Felix HC-91**, a Romanian ZX Spectrum-compatible
 home computer produced from 1991 in Bucharest
 (see [Muzeul de Calculatoare](https://muzeuldecalculatoare.ro/2018/09/23/i-c-e-felix-hc-91/)).
 
+> *Why this exists* — I first met a computer as a kid at the
+> [Clubul Copiilor](https://clubulcopiilorhumor.ro/despre-noi/) (the local
+> children's club): a Sinclair ZX80 that quietly opened up a whole new
+> universe for me. This project is that childhood wonder turned into a bit
+> of fun — an excuse to put **Fable** to work on a real, cycle-accurate
+> emulator, and to play the games I grew up with again on Romania's own
+> Spectrum, the HC-91.
+
 ## The machine
 
 | Component | Spec |
