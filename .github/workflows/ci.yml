@@ -14,6 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Fetch ROMs (HC family + 48K — fetched on demand, not stored in the repo)
+        run: ./tools/get_roms.sh
+
       - name: Install SDL2 runtime (frontend smoke test uses dummy drivers)
         run: sudo apt-get update && sudo apt-get install -y libsdl2-2.0-0
 
@@ -36,6 +39,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Fetch ROMs (HC family + 48K — fetched on demand, not stored in the repo)
+        run: ./tools/get_roms.sh
 
       - name: Build with ASan + UBSan
         run: >
