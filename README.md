@@ -136,11 +136,13 @@ README carries the full index.
 
 ## ROMs
 
-`roms/` carries the genuine I.C.E. Felix dumps from
-[speccy4ever](https://speccy4ever.speccy.org/_IC.htm) — HC-85, HC-90,
-HC-91, HC-128 (plus the HC-2000 ROM set for future disk work) — and the
-standard Sinclair 48K ROM. `--machine` picks the right one; `--rom`
-overrides it.
+The genuine I.C.E. Felix dumps — HC-85, HC-90, HC-91, HC-128 (plus the
+HC-2000 ROM set for future disk work) — and the standard Sinclair 48K ROM
+are **not redistributed in this repository**. Run `tools/get_roms.sh` to
+fetch them on demand into `roms/` (sha256-pinned, from
+[speccy4ever](https://speccy4ever.speccy.org/_IC.htm) and the FUSE
+project). `--machine` then picks the right one; `--rom` overrides it. See
+**License** below for ROM/IP status.
 
 ## Emulation notes / limitations
 
@@ -292,3 +294,17 @@ overrides it.
 | HC-2000 CP/M 2.2 | boots to `A>` (golden screen; both entry paths converge); `DIR` lists the disk |
 | ULA snow | I=0x40 corrupts fetches deterministically |
 | TZX 0x18/0x19 | CSW (RLE+Z-RLE) and generalized-data re-encodings ROM-load |
+
+## License
+
+The emulator **source code** is released under the MIT License — see
+[`LICENSE`](LICENSE). © 2026 HC91 Dev.
+
+The MIT grant covers the emulator only. It does **not** cover:
+
+- **ROM images.** The I.C.E. Felix HC firmware and the Sinclair 48K ROM
+  remain the property of their respective rights holders. They are not
+  shipped in this repository; `tools/get_roms.sh` fetches them on demand.
+- **Games / software.** Period software (`software/`, the game library)
+  is copyrighted by its owners and is never committed or distributed with
+  this project — bring your own.

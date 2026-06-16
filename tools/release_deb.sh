@@ -117,7 +117,8 @@ cat > "$PKG/usr/share/doc/hc91emu/copyright" <<EOF
 hc91emu - emulator for the I.C.E. Felix HC family
 
 Emulator code: Copyright (c) 2026 $MAINT.
-All rights reserved (no public license has been chosen yet).
+Licensed under the MIT License (see the project LICENSE file). The MIT
+grant covers the emulator code only, not the ROM images described below.
 
 The ROM images in /usr/share/hc91emu/roms are preservation dumps of
 the genuine I.C.E. Felix HC-85/90/91/128/2000 firmware (via

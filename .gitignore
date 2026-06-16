@@ -1,6 +1,7 @@
 build/
 tests/out/
 software/
+roms/
 *.o
 core
 tests/vectors/
