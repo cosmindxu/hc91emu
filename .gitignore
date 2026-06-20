@@ -6,3 +6,9 @@ roms/
 core
 tests/vectors/
 dist/
+
+# LaTeX build auxiliaries (docs/ARCHITECTURE.pdf is committed)
+docs/ARCHITECTURE.aux
+docs/ARCHITECTURE.log
+docs/ARCHITECTURE.out
+docs/ARCHITECTURE.toc
