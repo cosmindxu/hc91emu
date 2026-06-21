@@ -1545,6 +1545,10 @@ ig_setlives:
         ld (next_life), hl
         ld hl, 480
         ld (world_timer), hl
+IF BTEST
+        ld hl, 40               ; BTEST build: boss spawns almost immediately
+        ld (world_timer), hl
+ENDIF
         ret
 
 zero_objects:
@@ -1683,6 +1687,7 @@ pf_nobonus:
         call low_health         ; last-life alert
         ; screen-shake / border-flash decay
         call do_shake
+        call do_bflash          ; boss-defeat celebratory flash
         ; zone timer: only counts down when no boss is active
         ld a, (boss_active)
         or a
@@ -1787,6 +1792,28 @@ do_shake:
         out (254), a
         ret
 ds_normal:
+        ld a, (cur_border)
+        out (254), a
+        ret
+
+; do_bflash: a brief colour-cycling border flash to celebrate a boss kill,
+; longer/livelier than a hit-shake; photosensitivity-gated like do_shake.
+do_bflash:
+        ld a, (bflash)
+        or a
+        ret z
+        dec a
+        ld (bflash), a
+        jr z, dbf_restore       ; finished -> restore the zone border
+        ld b, a
+        ld a, (opt_shake)
+        or a
+        jr z, dbf_restore
+        ld a, b
+        and 7                   ; cycle the border through the 8 colours
+        out (254), a
+        ret
+dbf_restore:
         ld a, (cur_border)
         out (254), a
         ret
@@ -3811,6 +3838,8 @@ kill_boss:
         call add_score
         ld a, 12
         ld (shake), a
+        ld a, 24
+        ld (bflash), a          ; celebratory screen flash on the kill
         call sfx_explode
         call sfx_bossdn         ; triumphant motif over the blast
         ; big explosion at boss position
@@ -5614,11 +5643,18 @@ dod_put:
         ret
 
 draw_zonename:
-        ld hl, (bonus_timer)    ; signature: 0xFF in bonus, else world
-        ld a, h
+        ld hl, (bonus_timer)    ; signature: 0xFF in bonus, 0x80|world during
+        ld a, h                 ; a boss fight, else just world
         or l
-        jr z, dz_sigw
+        jr z, dz_nobonus
         ld a, 0xFF
+        jr dz_sigc
+dz_nobonus:
+        ld a, (boss_active)
+        or a
+        jr z, dz_sigw
+        ld a, (world)
+        or 0x80
         jr dz_sigc
 dz_sigw:
         ld a, (world)
@@ -5638,11 +5674,33 @@ dz_blank:
         ld a, c
         cp 17
         jr nz, dz_blank
-        ld hl, (bonus_timer)    ; bonus stage label?
+        ld hl, (bonus_timer)    ; pick the label: bonus / boss name / zone name
         ld a, h
         or l
-        jr z, dz_zone
+        jr z, dz_notbonus
         ld hl, str_bonus
+        ld b, 1
+        ld c, 0
+        call print_str_at
+        ret
+dz_notbonus:
+        ld a, (boss_active)     ; during a boss fight, name the war-machine
+        or a
+        jr z, dz_zone
+        ld a, (world)
+        cp 6
+        jr c, dz_bok
+        ld a, 5
+dz_bok:
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, boss_names
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
         ld b, 1
         ld c, 0
         call print_str_at
@@ -6741,6 +6799,7 @@ boss_spr:     defw 0
 boss_flash:   defb 0
 midboss_flag: defb 0
 shake:        defb 0
+bflash:       defb 0          ; boss-defeat celebratory border flash counter
 anim_ctr:     defb 0
 terr_div:     defb 0
 terr_tile:    defb 0
@@ -6888,6 +6947,14 @@ bt2:          db "LEVIATHAN STIRS",0
 bt3:          db "WIDOW: YOU ARE PREY NOW",0
 bt4:          db "HYDRA: CUT ONE, FACE TWO",0
 bt5:          db "NEXUS: I AM EVERYWHERE",0
+; short machine names for the persistent boss-fight HUD label (row 1)
+boss_names:   dw bn0, bn1, bn2, bn3, bn4, bn5
+bn0:          db "SENTINEL",0
+bn1:          db "REAVER",0
+bn2:          db "LEVIATHAN",0
+bn3:          db "WIDOW",0
+bn4:          db "HYDRA",0
+bn5:          db "NEXUS",0
 str_boss:     db "BOSS!!",0
 str_pause:    db "PAUSED",0
 str_pm1:      db "H = RESUME   R = RESTART",0
