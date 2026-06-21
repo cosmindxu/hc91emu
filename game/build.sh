@@ -4,6 +4,8 @@ set -e
 cd "$(dirname "$0")"
 EMU=../build/hc91emu
 
+mkdir -p build                  # output dir is gitignored; absent on a fresh checkout
+
 python3 tools/mksprites.py
 pasmo --equ VTEST=0 --equ BTEST=0 src/game.asm build/game.bin
 
