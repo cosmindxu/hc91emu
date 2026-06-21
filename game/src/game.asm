@@ -14,7 +14,7 @@ ATTR    equ 0x5800          ; attribute memory
 MAXOBJ  equ 8               ; rocks / enemies / crystals / power-ups / boss
 OBJSZ   equ 8               ; bytes per object
 MAXBUL  equ 6               ; player bullets in flight
-MAXEB   equ 4               ; enemy bullets in flight
+MAXEB   equ 6               ; enemy bullets in flight (room for boss bursts)
 MAXEXPL equ 3               ; simultaneous explosions
 DEB     equ 6               ; debris sparks
 NSTAR   equ 18              ; parallax stars (3 depth layers)
@@ -33,6 +33,8 @@ T_MINE  equ 7               ; slow drifting spiked hazard
 T_DRONE equ 8               ; homes on the ship and fires
 T_TURRET equ 9              ; clings to ceiling/floor, fires aimed
 T_MIDBOSS equ 10            ; multi-hit mini-boss (hp in +7)
+T_ARMOR equ 11              ; armoured enemy (multi-hit, hp in +7)
+T_FORMV equ 12              ; wave marker: spawn a V-formation of enemies
 NZONES  equ 6               ; number of named zones in the cycle
 
 ; pre-shifted 16x16 sprite indices (into sprtab / psbuf)
@@ -2176,6 +2178,8 @@ db_objloop:
         jr z, db_hit_boss
         cp T_MIDBOSS
         jp z, db_hit_mb
+        cp T_ARMOR
+        jp z, db_hit_mb
         ; normal target destroyed
         ld a, (iy+3)
         ld (spr_x), a
@@ -2230,13 +2234,15 @@ dhb_keep:
         call kill_boss
         jp db_next
 db_hit_mb:
-        dec (iy+7)              ; mini-boss hp in +7
+        dec (iy+7)              ; multi-hit hp in +7 (mini-boss / armoured)
         jr z, db_mb_dead
         ld bc, 1
         call add_score
         call sfx_hit
         ld a, 2
         ld (shake), a
+        ld a, 3
+        ld (armor_flash), a     ; flash on hit
         ld a, (ix+0)            ; charged pierces; normal consumed
         cp 2
         jp z, db_objnext
@@ -2252,11 +2258,22 @@ db_mb_dead:
         call uncolor_obj
         call spawn_explosion
         call spawn_debris
+        ld a, (iy+0)            ; score/pop-up by type
+        cp T_ARMOR
+        jr z, dmd_armor
         xor a
         ld (iy+0), a
         ld bc, 50
         call add_kill_score
         ld hl, str_p50
+        jr dmd_fin
+dmd_armor:
+        xor a
+        ld (iy+0), a
+        ld bc, 10
+        call add_kill_score
+        ld hl, str_p10
+dmd_fin:
         call set_popup
         call sfx_explode
         ld a, (ix+0)
@@ -2349,6 +2366,8 @@ obj_alive:
         jp z, mv_drone
         cp T_TURRET
         jp z, mv_turret
+        cp T_ARMOR
+        jp z, mv_armor
         jp obj_movey_done       ; rocks / mines / crystals / pods: drift only
 mv_enemy:
         ld a, (ix+6)
@@ -2431,6 +2450,16 @@ mv_turret:
         jp nc, obj_movey_done
         call enemy_fire
         jp obj_movey_done
+mv_armor:
+        ld a, (ix+6)            ; drifts left (generic move), fires occasionally
+        and 0x3F
+        cp 30
+        jp nz, obj_movey_done
+        ld a, (ix+1)
+        cp 200
+        jp nc, obj_movey_done
+        call enemy_fire
+        jp obj_movey_done
 obj_movey_done:
         ; --- ship collision (unless invulnerable) ---
         ld a, (invuln)
@@ -2484,9 +2513,9 @@ obj_power:
 obj_draw:
         ld a, (ix+0)
         cp T_CRYS
-        jr z, obj_spr_c
+        jp z, obj_spr_c
         cp T_POWER
-        jr z, obj_spr_p
+        jp z, obj_spr_p
         cp T_ENEMY
         jr z, obj_spr_e
         cp T_DIVER
@@ -2499,6 +2528,8 @@ obj_draw:
         jr z, obj_spr_tr
         cp T_MIDBOSS
         jr z, obj_spr_mb
+        cp T_ARMOR
+        jr z, obj_spr_ar
         ; rock: spin between two frames
         ld a, (ix+6)
         and 4
@@ -2540,6 +2571,15 @@ obj_spr_mb:
         ld a, SI_ENEMY
         ld (spr_idx), a
         ld a, 3                 ; mini-boss: magenta
+        jr obj_spr_set
+obj_spr_ar:
+        ld a, SI_ENEMY
+        ld (spr_idx), a
+        ld a, (armor_flash)     ; armoured: cyan, flashes white when hit
+        or a
+        ld a, 5
+        jr z, obj_spr_set
+        ld a, 7
         jr obj_spr_set
 obj_spr_c:
         ; crystal: pulse between two frames
@@ -2616,6 +2656,21 @@ boss_hold:
         add a, (hl)
         add a, (hl)             ; doubled amplitude
         ld (ix+2), a
+        ; radial burst every 64 frames, telegraphed 8 frames earlier
+        ld a, (ix+6)
+        and 0x3F
+        cp 0x18
+        jr nz, bb_notele
+        ld a, 6
+        ld (boss_flash), a      ; charge-up flash
+bb_notele:
+        ld a, (ix+6)
+        and 0x3F
+        cp 0x20
+        jr nz, bb_noburst
+        call boss_burst
+        jr boss_nofire
+bb_noburst:
         ; boss fire — phase 2 (below half HP) fires twice as often
         ld a, (boss_hp_max)
         srl a
@@ -2823,6 +2878,25 @@ boss_fire:
         call boss_one
         ld a, 3
         call boss_one
+        pop ix
+        ret
+
+; boss_burst: a wide fan of bullets (the telegraphed "radial" pattern)
+boss_burst:
+        push ix
+        ld a, -5
+        call boss_one
+        ld a, -3
+        call boss_one
+        ld a, -1
+        call boss_one
+        ld a, 1
+        call boss_one
+        ld a, 3
+        call boss_one
+        ld a, 5
+        call boss_one
+        call sfx_efire
         pop ix
         ret
 ; boss_one: A = vy ; spawn one boss bullet from current boss obj (IX)
@@ -3908,6 +3982,9 @@ dw_ok:
         ld a, 8
 dw_setd:
         ld (wave_delay), a
+        ld a, (sp_type)
+        cp T_FORMV              ; formation marker -> spawn a squadron
+        jp z, spawn_formation
         call sp_find_slot
         ret c
         ld a, (sp_type)
@@ -3933,14 +4010,71 @@ dw_spds:
         ld (ix+3), a
         xor a
         ld (ix+6), a
-        ld a, (sp_type)         ; mini-boss: slow, hp in +7
-        cp T_MIDBOSS
-        ret nz
+        ld a, (sp_type)
+        cp T_MIDBOSS            ; mini-boss: slow, hp 8 in +7
+        jr z, dw_mboss
+        cp T_ARMOR             ; armoured enemy: slow, hp 3 in +7
+        jr z, dw_armor
+        ret
+dw_mboss:
         ld a, 1
         ld (ix+5), a
         ld a, 8
         ld (ix+7), a
         ret
+dw_armor:
+        ld a, 1
+        ld (ix+5), a
+        ld a, 3
+        ld (ix+7), a
+        ret
+
+; spawn_formation: a V of 5 enemies entering together (form_tab = xoff,yoff)
+spawn_formation:
+        ld b, 5
+        ld hl, form_tab
+sf_loop:
+        push bc
+        push hl
+        call sp_find_slot       ; clobbers B/IX, preserves HL
+        jr c, sf_skip
+        ld a, T_ENEMY
+        ld (ix+0), a
+        ld a, 232               ; x = 232 - xoff
+        sub (hl)
+        ld (ix+1), a
+        ld (ix+3), a
+        inc hl
+        ld a, (sp_yv)           ; y = yv + yoff (signed), clamped to 30..140
+        add a, (hl)
+        cp 30
+        jr nc, sf_ylo
+        ld a, 30
+sf_ylo:
+        cp 141
+        jr c, sf_yok
+        ld a, 140
+sf_yok:
+        ld (ix+2), a
+        ld (ix+4), a
+        ld (ix+7), a            ; ybase for the weave
+        ld a, 2
+        ld (ix+5), a
+        xor a
+        ld (ix+6), a
+sf_skip:
+        pop hl
+        ld de, 2
+        add hl, de
+        pop bc
+        djnz sf_loop
+        ret
+form_tab:
+        db 0, 0
+        db 8, 0xF0              ; +8 x back, -16 y
+        db 8, 16
+        db 16, 0xE0            ; +16 x back, -32 y
+        db 16, 32
 
 ; sp_find_slot: free object slot -> IX; carry set if none free
 sp_find_slot:
@@ -4020,22 +4154,22 @@ wave2:
 ; Zone 4 - a mini-boss + mixed swarm
 wave3:
         db T_TURRET,28, 24
-        db T_TURRET,140,24
+        db T_ARMOR, 80, 30
         db T_DRONE, 50, 20
         db T_MIDBOSS,70, 60
-        db T_DIVER, 36, 20
+        db T_FORMV, 70, 40
         db T_MINE,  90, 20
         db T_CRYS,  56, 24
         db T_ENEMY, 80, 18
-        db T_DRONE, 44, 18
+        db T_ARMOR, 56, 30
         db T_POWER, 64, 40
         db 0xFF
 ; Zone 5 - dense divers/drones
 wave4:
-        db T_DIVER, 30, 18
+        db T_FORMV, 64, 44
         db T_DRONE, 60, 18
         db T_MINE,  96, 20
-        db T_DIVER, 40, 16
+        db T_ARMOR, 70, 30
         db T_ENEMY, 84, 16
         db T_MIDBOSS,64, 56
         db T_DRONE, 50, 16
@@ -5215,6 +5349,12 @@ reset_combo:
 
 ; tick_combo: per-frame chain decay + graze cooldown
 tick_combo:
+        ld a, (armor_flash)
+        or a
+        jr z, tc_graze
+        dec a
+        ld (armor_flash), a
+tc_graze:
         ld a, (graze_prev)
         or a
         jr z, tc_combo
@@ -6074,6 +6214,7 @@ hud_bombs:    defb 0xFF
 overdrive:    defb 0          ; overdrive charge (0..OD_MAX)
 od_active:    defb 0          ; overdrive frames remaining
 hud_od:       defb 0xFE
+armor_flash:  defb 0          ; armoured-enemy hit flash timer
 bomb_prev:    defb 0
 bomb_flash:   defb 0
 charge:       defb 0          ; fire-charge counter while held
