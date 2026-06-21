@@ -170,3 +170,14 @@ jobs:
             --joy "1750-1758:F" --joy "1810-1818:F" --joy "1830-3000:F" \
             --frames 2160 --text /tmp/pf.tap | tee /tmp/pf.txt
           grep -q "PERFECT ZONE" /tmp/pf.txt
+
+      - name: Content - splitter zones stay stable (K-skip to zone 3+)
+        run: |
+          # skip to a splitter zone (3+) and keep firing; reaching MAGENTA STORM
+          # alive proves the splitter spawn/split path doesn't crash
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1810-1818:F" \
+            --keys "1900:K" --keys "2300:K" --keys "2700:K" \
+            --joy "3000-5000:F" --frames 4000 --text game/build/game.tap \
+            | tee /tmp/split.txt
+          grep -q "MAGENTA STORM" /tmp/split.txt
