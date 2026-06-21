@@ -939,6 +939,72 @@ sbf_wait:
         jr nz, sbf_wait
         ret
 
+; show_zone_splash: a brief, clean "ZONE n / name / flavour" intro on a still
+; screen (no playfield churn, so the centred text can't flicker), then repaint
+; the zone attributes/HUD and return so play resumes.
+show_zone_splash:
+        call clear_screen
+        ld a, (seed)            ; keep the splash RNG-neutral: the starfield
+        push af                 ; would otherwise advance the PRNG and shift
+        call draw_title_stars   ; this zone's spawn pattern (boss Y, enemies)
+        pop af
+        ld (seed), a
+        ld a, (world)
+        inc a
+        add a, '0'
+        ld (str_zone_lbl+5), a
+        ld hl, str_zone_lbl
+        ld b, 7
+        call print_center
+        ld a, (world)           ; zone name
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, zone_names
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
+        ld b, 10
+        call print_center
+        ld a, (world)           ; flavour line (capped to the table)
+        cp 7
+        jr c, szs_cok
+        ld a, 6
+szs_cok:
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, zone_cards
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
+        ld b, 13
+        call print_center
+        ld b, 50                ; hold ~1 s (50 Hz interrupts)
+szs_hold:
+        halt
+        djnz szs_hold
+        call clear_screen       ; wipe the splash text so play resumes clean
+        call set_world_attr     ; restore band attributes + border
+        ; fall through to force_hud
+
+; force_hud: invalidate the change-only HUD caches so it repaints next frame
+; (used after any full-screen clear during play).
+force_hud:
+        ld hl, 0xFFFF
+        ld (hud_score), hl
+        ld a, 0xFF
+        ld (hud_lives), a
+        ld (hud_pow), a
+        ld a, 0xFE
+        ld (hud_bar), a
+        ld (hud_zone), a
+        ret
+
 ; show_victory: the ending / outro after the Void Nexus boss falls (state 4).
 ; Notes the run (all zones cleared + score), flags the mission complete, then
 ; routes into the high-score flow (or the title).
@@ -1552,11 +1618,7 @@ ig_setlives:
         call set_music_zone
         xor a
         ld (midboss_flag), a
-        ld a, 1                 ; show zone-1 intro banner
-        ld (zone_msg), a
-        ld a, 80
-        ld (zone_msg_t), a
-        call set_zone_card      ; zone-1 story flavour
+        call show_zone_splash   ; clean zone-1 intro (replaces the overlay)
         ld hl, 0
         ld (bonus_timer), hl
         ld hl, 1000
@@ -5340,7 +5402,6 @@ nw_set:
         jr c, nw_nobest
         ld (hl), a
 nw_nobest:
-        call set_world_attr
         call set_music_zone     ; switch the AY theme for this zone
         call sfx_zone
         xor a
@@ -5352,11 +5413,7 @@ nw_nobest:
         ld (bonus_timer), hl
         ld hl, 480
         ld (world_timer), hl
-        ld a, 1                 ; show a ZONE CLEAR / intro flash
-        ld (zone_msg), a
-        ld a, 80
-        ld (zone_msg_t), a
-        call set_zone_card      ; new zone's story flavour
+        call show_zone_splash   ; clean zone intro (clears, shows, repaints)
         ld a, (bossrush)        ; boss-rush: skip the bonus, next boss at once
         or a
         ret z
@@ -5401,8 +5458,7 @@ show_hud:
         call draw_powers        ; active power-ups, row1 mid
         call draw_combo         ; combo multiplier, row1 right
         call draw_bombs         ; smart-bomb count, row1 right
-        call draw_zone_banner   ; brief centered zone name on entry
-        call draw_card          ; story flavour / boss taunt line
+        call draw_card          ; boss taunt line (zone intros use a splash now)
         ld a, (demo_active)     ; show DEMO while attracting
         or a
         ret z
@@ -5410,46 +5466,6 @@ show_hud:
         ld b, 0
         ld c, 13
         call print_str_at
-        ret
-
-; draw_zone_banner: show the new zone's name centred while zone_msg_t > 0
-draw_zone_banner:
-        ld a, (zone_msg_t)
-        or a
-        jr z, zb_chk
-        dec a
-        ld (zone_msg_t), a
-        ld a, (world)
-        add a, a
-        ld e, a
-        ld d, 0
-        ld hl, zone_names
-        add hl, de
-        ld a, (hl)
-        inc hl
-        ld h, (hl)
-        ld l, a
-        ld b, 11
-        ld c, 8
-        call print_str_at
-        ret
-zb_chk:
-        ld a, (zone_msg)
-        or a
-        ret z
-        xor a
-        ld (zone_msg), a
-        ld b, 11                ; blank the banner row once
-        ld c, 0
-zb_bl:
-        ld a, 32
-        push bc
-        call print_char
-        pop bc
-        inc c
-        ld a, c
-        cp 32
-        jr nz, zb_bl
         ret
 
 ; print_center: HL=string(0-term), B=row -> prints centred on that row
@@ -5509,24 +5525,6 @@ dc_bl:
         cp 32
         jr nz, dc_bl
         ret
-
-; set_zone_card: pick the current zone's flavour line and show it
-set_zone_card:
-        ld a, (world)
-        cp 7
-        jr c, szc_ok
-        ld a, 6
-szc_ok:
-        add a, a
-        ld e, a
-        ld d, 0
-        ld hl, zone_cards
-        add hl, de
-        ld a, (hl)
-        inc hl
-        ld h, (hl)
-        ld l, a
-        jp set_card
 
 ; draw_combo: "x<n>" at row1 col22 (only when a chain is active)
 draw_combo:
@@ -6371,10 +6369,14 @@ erase_sprite:
         ld a, (spr_y)
         ld c, a                 ; C = current pixel row
         ld b, 16                ; B = rows remaining
+        jr es_calc              ; always compute the base for the first row -
+                                ; the incoming DE is not a valid screen address
+                                ; when spr_y is not on a cell boundary
 es_loop:
         ld a, c                 ; at a cell boundary? (re)compute the row base
         and 7
         jr nz, es_have
+es_calc:
         ld a, c
         ld l, a
         ld h, 0
@@ -7045,8 +7047,6 @@ boss_tab:
 wave_ptr:     defw 0
 wave_base:    defw wave0
 music_ptr:    defw music0
-zone_msg:     defb 0
-zone_msg_t:   defb 0
 card_str:     defw 0
 card_t:       defb 0
 card_shown:   defb 0
@@ -7106,6 +7106,7 @@ str_p5:       db "+5",0
 str_p50:      db "+50",0
 str_zclr:     db "ZONE CLEAR!",0
 str_perfect:  db "PERFECT ZONE +500",0
+str_zone_lbl: db "ZONE 0",0     ; the '0' is patched with the zone number
 str_demo:     db "DEMO",0
 str_graze:    db "GRZ",0
 str_meteor:   db "METEORS!",0
