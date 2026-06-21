@@ -176,6 +176,10 @@ clkBuf   equ 0xE153      ; (5) "M:SS",0 formatting buffer
 
 FRAMES   equ 0x5C78      ; ROM 50 Hz frame counter (3 bytes), low 16 used
 INITCLK  equ 15000       ; starting time per side: 5:00 at 50 Hz
+saveBuf  equ 0xE160      ; game-save buffer: 64 board + side/cas/ep + extras
+SAVELEN  equ 71          ; 64 + side + castle + ep + halfmove + moveCount(2) + depth
+SA_BYTES equ 0x04C2      ; ROM tape save  (IX=addr, DE=len, A=flag)
+LD_BYTES equ 0x0556      ; ROM tape load  (IX=addr, DE=len, A=flag, CF=load)
 
 killerArr equ 0xD100     ; 4 bytes/ply: k1from,k1to,k2from,k2to
 inChkArr  equ 0xD140     ; 1/ply: side-to-move in check at this node
@@ -1029,8 +1033,14 @@ sk_f:   ld bc,0xFDFE
 sk_s:   ld bc,0xFDFE
         in a,(c)
         bit 1,a                ; S = set-up position editor
-        jr nz,sk_op
+        jr nz,sk_g
         ld a,'S'
+        ret
+sk_g:   ld bc,0xFDFE
+        in a,(c)
+        bit 4,a                ; G = save game to tape
+        jr nz,sk_op
+        ld a,'G'
         ret
 sk_op:  ld bc,0xDFFE           ; P,O,I,U,Y
         in a,(c)
@@ -1047,8 +1057,14 @@ sk_o:   ld bc,0xDFFE
 sk_ent: ld bc,0xBFFE           ; ENTER,L,K,J,H
         in a,(c)
         bit 0,a
-        jr nz,sk_spc
+        jr nz,sk_l
         ld a,13
+        ret
+sk_l:   ld bc,0xBFFE
+        in a,(c)
+        bit 1,a                ; L = load game from tape
+        jr nz,sk_spc
+        ld a,'L'
         ret
 sk_spc: ld bc,0x7FFE           ; SPACE,SYM,M,N,B
         in a,(c)
@@ -1118,6 +1134,10 @@ hmLoop: call clkWaitKey        ; like readKeyDebounced, but ticks the clock
         jp z,hmEndgame
         cp 'S'
         jp z,hmSetup
+        cp 'G'
+        jp z,hmSave
+        cp 'L'
+        jp z,hmLoad
         cp '1'
         jp c,hmLoop
         cp '6'
@@ -1184,6 +1204,97 @@ hmEndgame:
         call loadGamePos
         ld sp,0xFFF0           ; unwind back to a clean main loop
         jp mainLoop
+
+; hmSave — write the game state to tape (ROM SA-BYTES); hmLoad reads it back.
+; The 71-byte block is laid out exactly like setupBoard's input (64 board
+; bytes a1..h8 + side + castling + ep) followed by halfmove, moveCount and
+; the difficulty, so loading reuses setupBoard and then restores the extras.
+hmSave:
+        call packState
+        di                     ; SA-BYTES is interrupt-timing critical
+        ld ix,saveBuf
+        ld de,SAVELEN
+        ld a,0xFF              ; data block
+        call SA_BYTES
+        ei
+        ld hl,msgSaved
+        call setMsg
+        call drawStatus
+        jp hmLoop
+
+hmLoad:
+        di
+        ld ix,saveBuf
+        ld de,SAVELEN
+        ld a,0xFF
+        scf                    ; CF set = load (not verify)
+        call LD_BYTES
+        ei
+        jr nc,hmLoadErr
+        ld hl,saveBuf
+        call setupBoard        ; board + side/castling/ep, finalize position
+        call resetGameState    ; fresh history / TT / clocks
+        ld a,(saveBuf+67)
+        ld (halfmove),a
+        ld hl,(saveBuf+68)
+        ld (moveCount),hl
+        ld a,(saveBuf+70)
+        ld (aiDepth),a
+        ld a,0xFF
+        ld (selSq),a
+        ld sp,0xFFF0           ; clean stack, return to the main loop
+        ld hl,msgLoaded
+        call setMsg
+        jp mainLoop
+hmLoadErr:
+        ld hl,msgLoadErr
+        call setMsg
+        call drawStatus
+        jp hmLoop
+
+; packState — gather the live game state into saveBuf in setupBoard layout.
+packState:
+        ld de,saveBuf          ; 64 board bytes, rank-major a1..h8
+        ld c,0                 ; rank
+psR:    ld a,c
+        add a,a
+        add a,a
+        add a,a
+        add a,a
+        ld l,a
+        ld h,0xE0              ; board base
+        ld b,8                 ; files
+psF:    ld a,(hl)
+        ld (de),a
+        inc hl
+        inc de
+        djnz psF
+        inc c
+        ld a,c
+        cp 8
+        jr nz,psR
+        ld a,(sideToMove)
+        ld (de),a
+        inc de
+        ld a,(castling)
+        ld (de),a
+        inc de
+        ld a,(epSquare)
+        ld (de),a
+        inc de
+        ld a,(halfmove)
+        ld (de),a
+        inc de
+        ld hl,(moveCount)
+        ld a,l
+        ld (de),a
+        inc de
+        ld a,h
+        ld (de),a
+        inc de
+        ld a,(aiDepth)
+        ld (de),a
+        ret
 
 hmSetup:
         call setupEditor       ; never returns (jp mainLoop inside)
@@ -1858,6 +1969,9 @@ msgWclk:     defb "W",0
 msgBclk:     defb "B",0
 msgWflag:    defb "Flag! Black wins (time) SPC=new",0
 msgBflag:    defb "Flag! White wins (time) SPC=new",0
+msgSaved:    defb "Game saved to tape ",0
+msgLoaded:   defb "Game loaded        ",0
+msgLoadErr:  defb "Load error         ",0
 msgLevel:    defb "Level",0
 msg2pL:      defb "2-player",0
 msgMoveL:    defb "Move",0

@@ -53,6 +53,18 @@ test: chess.tap
 		echo "chess: FAIL - perft mismatch"; \
 		sed -n '/SCREEN/,/END/p' /tmp/chess_perft.txt; exit 1; \
 	fi
+	@# tape save/load round-trip: play 1.e4 e5, save with G, then boot a
+	@# fresh tape (chess.tap + the saved block) and load it back with L.
+	@$(EMU) --machine 48k --rom $(ROM) chess.tap --autoload --turbo \
+		--keys "1000:ENTER" --keys "1025:Q" --keys "1050:Q" --keys "1075:ENTER" \
+		--keys "1500:G" --frames 1700 --save-tape /tmp/chess_saved.tap >/dev/null 2>&1
+	@cat chess.tap /tmp/chess_saved.tap > /tmp/chess_combined.tap
+	@$(EMU) --machine 48k --rom $(ROM) /tmp/chess_combined.tap --autoload --turbo \
+		--keys "1300:L" --frames 1600 --save-sna /tmp/chess_post.sna >/dev/null 2>&1
+	@$(PY) -c "import sys; r=open('/tmp/chess_post.sna','rb').read()[27:]; b=lambda s:r[0xE000+s-0x4000]; \
+		ok = b(0x34)==1 and b(0x44)==9 and b(0x64)==0 and b(0x14)==0; \
+		print('chess: tape save/load round-trip OK' if ok else 'chess: FAIL - save/load did not restore the position'); \
+		sys.exit(0 if ok else 1)"
 
 play: chess.tap
 	$(EMU) --machine 48k --rom $(ROM) chess.tap --autoload --sdl --scale 3
