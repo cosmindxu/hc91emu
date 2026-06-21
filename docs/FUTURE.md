@@ -119,6 +119,22 @@ until a Mac / macOS CI is available.
 - **HC-88 disk hardware.** The last untouched core stretch item: a 2K
   boot ROM, undocumented, with no known surviving software to test
   against — high effort, uncertain payoff. Lowest priority.
+- **HC-2000 Interface-1-style RS-232 (serial port).** The HC-2000's
+  IF1-style interface is currently emulated only on its disk side (i8272
+  FDC + shadow ROM + 16K interface RAM); a real Interface 1 also carried
+  an **RS-232 serial port**, which is not modelled. Adding it means
+  emulating the IF1 serial path (the `T`/`R` data and `D`/`C` handshake
+  lines the IF1 ROM bit-bangs through its I/O ports) and bridging it to a
+  host channel — a stdin/stdout pipe, a PTY, or a TCP socket — chosen by
+  a flag (e.g. `--serial -` for stdio, `--serial :6553` for a socket).
+  *Value:* it lets period RS-232 software run, and — concretely —
+  **unblocks a serial UCI bridge for the bundled ZX-CHESS engine** (its
+  lone "Phase B" item in [`game/chess/ROADMAP.md`](../game/chess/ROADMAP.md)):
+  with a serial channel the 8-bit engine could be driven by desktop GUIs
+  (Arena, Cute Chess) or a lichess-bot adapter and measured against other
+  engines. *Effort:* moderate — the serial framing is simple, and a
+  loopback/echo test plus a scripted UCI handshake make it headlessly
+  verifiable once the host bridge exists.
 - **AY stereo output** (ACB/ABC panning) for the HC-128.
 - **Kempston mouse** emulation.
 - **A config file** (`~/.config/hc91emu.conf`) for default machine,
