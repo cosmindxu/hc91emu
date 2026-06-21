@@ -21,12 +21,14 @@ It is a full, rules-correct game against a genuinely searching engine:
 - **0x88** board; full legal move generation incl. **castling, en
   passant, promotion**; checkmate / stalemate / fifty-move / **threefold
   repetition** / **insufficient-material** draws
-- **negamax alpha-beta** with **iterative deepening**, **quiescence**,
-  **null-move pruning**, and an 8 KB **transposition table** keyed by an
+- **negamax alpha-beta** with **iterative deepening**, **aspiration
+  windows**, **quiescence**, **null-move** and **reverse-futility**
+  pruning, and an 8 KB **transposition table** keyed by an
   incrementally-maintained **Zobrist** hash
 - move ordering by **TT move + PV + MVV-LVA + killer moves**
 - **tapered** evaluation (endgame king centralisation), **bishop pair**,
-  **doubled/isolated pawns**, material + piece-square tables
+  **doubled/isolated pawns**, **king-safety pawn shield**, material +
+  piece-square tables
 - **perft self-test** (press `T`) proving the move generator against the
   canonical counts — start position to depth 4 plus Kiwipete, an
   en-passant and a promotion position — and verifying the Zobrist key
