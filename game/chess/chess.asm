@@ -152,6 +152,7 @@ bkT      equ 0xE12E
 lmrPA    equ 0xE12F      ; (2) parent alpha captured for LMR re-search
 lmrPB    equ 0xE131      ; (2) parent beta
 lmrReduced equ 0xE133    ; 1 if the current child was searched reduced
+matBalTmp equ 0xE134     ; (2) material-balance accumulator
 
 killerArr equ 0xD100     ; 4 bytes/ply: k1from,k1to,k2from,k2to
 inChkArr  equ 0xD140     ; 1/ply: side-to-move in check at this node
@@ -774,6 +775,16 @@ drawInfo:
         ld c,20
         call printStr
 diNo2p:
+        ; material balance (pawns) - always shown
+        ld hl,msgMatl
+        ld b,9
+        ld c,20
+        call printStr
+        call materialBalance
+        call div100s
+        ld b,9
+        ld c,25
+        call printScore
         ld a,(haveLast)
         or a
         ret z
@@ -797,6 +808,88 @@ diNo2p:
         ld b,7
         ld c,25
         call printScore
+        ret
+
+; materialBalance -> HL = (white material - black material) in centipawns
+materialBalance:
+        ld hl,0
+        ld (matBalTmp),hl
+        ld c,0
+mbLoop:
+        ld a,c
+        and 0x88
+        jr nz,mbNext
+        ld h,0xE0
+        ld l,c
+        ld a,(hl)
+        or a
+        jr z,mbNext
+        ld b,a
+        and 7
+        add a,a
+        ld e,a
+        ld d,0
+        ld hl,materialTbl
+        add hl,de
+        ld e,(hl)
+        inc hl
+        ld d,(hl)                ; DE = material value
+        ld a,b
+        and 8
+        jr nz,mbBlack
+        ld hl,(matBalTmp)
+        add hl,de
+        ld (matBalTmp),hl
+        jr mbNext
+mbBlack:
+        ld hl,(matBalTmp)
+        or a
+        sbc hl,de
+        ld (matBalTmp),hl
+mbNext:
+        inc c
+        ld a,c
+        cp 0x78
+        jr nz,mbLoop
+        ld hl,(matBalTmp)
+        ret
+
+; div100s — HL = HL / 100, truncated toward zero, signed
+div100s:
+        bit 7,h
+        jr z,d100p
+        ex de,hl
+        ld hl,0
+        or a
+        sbc hl,de                ; HL = -HL (now positive)
+        call d100u
+        ex de,hl
+        ld hl,0
+        or a
+        sbc hl,de                ; restore sign
+        ret
+d100p:
+        call d100u
+        ret
+d100u:                           ; HL = HL/100 (unsigned, small values)
+        ld de,100
+        ld bc,0
+d100L:
+        ld a,h
+        cp d
+        jr c,d100D
+        jr nz,d100S
+        ld a,l
+        cp e
+        jr c,d100D
+d100S:
+        or a
+        sbc hl,de
+        inc bc
+        jr d100L
+d100D:
+        ld h,b
+        ld l,c
         ret
 
 ; printSq(A=square, B=row, C=col) — coordinate like "e4"
@@ -1277,6 +1370,7 @@ msgLevel:    defb "Level",0
 msg2pL:      defb "2-player",0
 msgMoveL:    defb "Move",0
 msgEval:     defb "Eval",0
+msgMatl:     defb "Matl",0
 msgCheck:    defb "Check!             ",0
 
         include "pieces.inc"
