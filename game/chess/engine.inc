@@ -352,6 +352,19 @@ evPnext:
         ld a,c
         cp 8
         jp nz,evPf
+        ; --- king safety (pawn shield), middlegame only ---
+        ld a,(gamePhase)
+        cp 10
+        jr c,evKsDone
+        ld a,(wking)
+        ld c,WP
+        call shieldMissing       ; A = missing shield pawns (0..3)
+        call ksPenaltyW          ; evalAcc -= A*KSHIELD
+        ld a,(bking)
+        ld c,BP
+        call shieldMissing
+        call ksPenaltyB          ; evalAcc += A*KSHIELD (penalise black)
+evKsDone:
         ; --- side relative ---
         ld a,(sideToMove)
         or a
@@ -363,6 +376,66 @@ evPnext:
         ret
 evWhiteRet:
         ld hl,(evalAcc)
+        ret
+
+; shieldMissing(A=kingSq, C=friendly pawn code) -> A = missing pawns in
+; the three squares directly in front of the king (white: +; black: -).
+shieldMissing:
+        ld (tmpSq),a
+        ld a,c
+        and 8                    ; colour -> direction
+        jr z,smWhite
+        ld d,-16                 ; black shield is below
+        jr smGo
+smWhite:
+        ld d,16
+smGo:
+        ld b,0                   ; missing count
+        ld e,-1                  ; offset within {-1,0,+1} added to dir
+smLoop:
+        ld a,(tmpSq)
+        add a,d                  ; king + rank dir
+        add a,e                  ; + file offset
+        ld h,a
+        and 0x88
+        jr nz,smMiss             ; off board counts as missing
+        ld a,h
+        ld l,a
+        ld h,0xE0
+        ld a,(hl)
+        cp c
+        jr z,smNext
+smMiss:
+        inc b
+smNext:
+        inc e
+        ld a,e
+        cp 2
+        jr nz,smLoop
+        ld a,b
+        ret
+
+KSHIELD equ 10
+ksPenaltyW:                      ; evalAcc -= A*KSHIELD
+        or a
+        ret z
+        ld b,a
+        ld de,KSHIELD
+        ld hl,(evalAcc)
+kspW1:  or a
+        sbc hl,de
+        djnz kspW1
+        ld (evalAcc),hl
+        ret
+ksPenaltyB:                      ; evalAcc += A*KSHIELD
+        or a
+        ret z
+        ld b,a
+        ld de,KSHIELD
+        ld hl,(evalAcc)
+kspB1:  add hl,de
+        djnz kspB1
+        ld (evalAcc),hl
         ret
 
 ; hasNeighborW(A=file) -> A=1 if a white pawn exists on file-1 or file+1
