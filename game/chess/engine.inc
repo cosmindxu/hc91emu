@@ -1185,6 +1185,7 @@ aidLoop:
         ld (hl),b
         ld a,(aidIter)
         call negamax
+        ld (lastScore),hl        ; engine score at this depth
         ; remember this iteration's best as the PV hint for the next one
         ld a,(bestFrom)
         ld (pvFrom),a
@@ -1208,6 +1209,12 @@ aidDone:
         ld (mvTo),a
         ld a,(bestFlag)
         ld (mvFlag),a
+        ld a,(bestFrom)
+        ld (lastFrom),a
+        ld a,(bestTo)
+        ld (lastTo),a
+        ld a,1
+        ld (haveLast),a
         xor a
         ld (searchPly),a
         call makeMove
