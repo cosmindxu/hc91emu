@@ -35,6 +35,7 @@ start:
         call build_addrtab
         ld a, r
         ld (seed), a
+        call init_hiscores
         xor a
         ld (state), a           ; 0 = title
         call show_title
@@ -45,20 +46,57 @@ main_loop:
         ld a, (state)
         or a
         jr nz, ml_not_title
+        call title_anim
         call title_poll
         jr main_loop
 ml_not_title:
         cp 1
-        jr nz, ml_gameover
+        jr nz, ml_chk2
+        call check_pause
+        ld a, (paused)
+        or a
+        jr nz, main_loop        ; frozen while paused
         call play_frame
         ld a, (state)
         cp 2
         jr nz, main_loop
         call show_gameover
         jr main_loop
-ml_gameover:
+ml_chk2:
+        cp 2
+        jr nz, ml_chk3
         call gameover_poll
         jr main_loop
+ml_chk3:
+        call initials_frame     ; state 3: entering initials
+        jr main_loop
+
+; check_pause: 'H' toggles pause (edge-detected); show PAUSED in the HUD
+check_pause:
+        ld bc, 0xBFFE           ; H,J,K,L,Enter row
+        in a, (c)
+        bit 4, a                ; H
+        jr nz, cp_up
+        ld a, (pause_prev)
+        or a
+        jr nz, cp_done          ; still held
+        ld a, 1
+        ld (pause_prev), a
+        ld a, (paused)
+        xor 1
+        ld (paused), a
+        or a
+        jr z, cp_done
+        ld hl, str_pause        ; just paused -> show it
+        ld b, 1
+        ld c, 22
+        call print_str_at
+        ret
+cp_up:
+        xor a
+        ld (pause_prev), a
+cp_done:
+        ret
 
 ; ============================================================================
 ;  STATE: TITLE / GAME OVER
@@ -69,16 +107,193 @@ show_title:
         ld (cur_border), a
         out (254), a
         ld hl, str_title
-        ld b, 8
+        ld b, 2
         ld c, 9
         call print_str_at
+        ld hl, str_hiscores
+        ld b, 6
+        ld c, 9
+        call print_str_at
+        call draw_hstable
+        call draw_scheme
         ld hl, str_fire
-        ld b, 12
+        ld b, 20
         ld c, 11
+        call print_str_at
+        ld hl, str_ctrl
+        ld b, 22
+        ld c, 4
         call print_str_at
         ret
 
+; title_anim: blink PRESS FIRE and scroll the credits line (attract mode)
+title_anim:
+        ld a, (tctr)
+        inc a
+        ld (tctr), a
+        and 16
+        jr z, ta_blinkoff
+        ld hl, str_fire
+        ld b, 20
+        ld c, 11
+        call print_str_at
+        jr ta_credits
+ta_blinkoff:
+        ld b, 20                ; blank "PRESS FIRE"
+        ld c, 11
+ta_bl:
+        ld a, 32
+        push bc
+        call print_char
+        pop bc
+        inc c
+        ld a, c
+        cp 21
+        jr nz, ta_bl
+ta_credits:
+        ld a, (tctr)
+        and 1
+        ret nz                  ; scroll every other frame
+        ld a, (credit_idx)
+        ld e, a
+        ld d, 0
+        ld hl, credits_msg
+        add hl, de
+        ld a, (hl)
+        or a
+        jr nz, tc_ok
+        xor a
+        ld (credit_idx), a
+        ld a, (credits_msg)
+tc_ok:
+        ld l, a                 ; font bytes = char*8 + FONT
+        ld h, 0
+        add hl, hl
+        add hl, hl
+        add hl, hl
+        ld de, FONT
+        add hl, de
+        ld (ss_tile), hl
+        ld a, 184               ; credit strip at pixel row 184 (char row 23)
+        ld (ss_base), a
+        call scroll_strip
+        ld a, (credit_idx)
+        inc a
+        ld (credit_idx), a
+        ret
+
+draw_scheme:
+        ld hl, str_schopts
+        ld b, 16
+        ld c, 8
+        call print_str_at
+        ld hl, str_qaop
+        ld a, (ctrl_scheme)
+        or a
+        jr z, dsc_show
+        ld hl, str_cursor
+dsc_show:
+        ld b, 17
+        ld c, 10
+        call print_str_at
+        ret
+
+; draw the 5-entry high-score table starting at row 8
+draw_hstable:
+        ld ix, hs_names
+        ld iy, hs_scores
+        ld a, 8
+        ld (hst_row), a
+        ld b, 5
+dhs_loop:
+        push bc
+        ; initials at col 10
+        ld a, (hst_row)
+        ld b, a
+        ld c, 10
+        ld a, (ix+0)
+        push bc
+        call print_char
+        pop bc
+        inc c
+        ld a, (ix+1)
+        push bc
+        call print_char
+        pop bc
+        inc c
+        ld a, (ix+2)
+        call print_char
+        ; score at col 15 (5 digits)
+        ld l, (iy+0)
+        ld h, (iy+1)
+        push ix
+        ld ix, decbuf
+        ld de, 10000
+        call sc_digit
+        ld de, 1000
+        call sc_digit
+        ld de, 100
+        call sc_digit
+        ld de, 10
+        call sc_digit
+        ld a, l
+        add a, '0'
+        ld (ix+0), a
+        pop ix
+        ld hl, decbuf
+        ld a, (hst_row)
+        ld b, a
+        ld c, 15
+        call print_str_n5
+        ; next row
+        ld a, (hst_row)
+        inc a
+        ld (hst_row), a
+        ld de, 3
+        add ix, de
+        ld de, 2
+        add iy, de
+        pop bc
+        djnz dhs_loop
+        ret
+
+; print exactly 5 chars from HL at B=row C=col
+print_str_n5:
+        push bc
+        ld d, 5
+ps5_loop:
+        ld a, (hl)
+        push hl
+        push de
+        push bc
+        call print_char
+        pop bc
+        pop de
+        pop hl
+        inc hl
+        inc c
+        dec d
+        jr nz, ps5_loop
+        pop bc
+        ret
+
 title_poll:
+        ld bc, 0xF7FE           ; control-scheme select: 1 / 2
+        in a, (c)
+        bit 0, a
+        jr nz, tp_n1
+        xor a
+        ld (ctrl_scheme), a
+        call draw_scheme
+        ret
+tp_n1:
+        bit 1, a
+        jr nz, tp_n2
+        ld a, 1
+        ld (ctrl_scheme), a
+        call draw_scheme
+        ret
+tp_n2:
         call fire_down
         jr z, tp_press
         xor a
@@ -111,11 +326,297 @@ gp_press:
         ld a, (menu_lock)
         or a
         ret nz
+        ld a, 1
+        ld (menu_lock), a
+        call hs_qualify         ; carry set => made the table
+        jr nc, gp_totitle
+        call ie_setup
+        ld a, 3
+        ld (state), a
+        ret
+gp_totitle:
         xor a
         ld (state), a
         call show_title
+        ret
+
+; hs_qualify: carry set if (score) beats the lowest table entry
+hs_qualify:
+        ld hl, (score)
+        ld de, (hs_scores+8)    ; entry 4 (lowest)
+        or a
+        sbc hl, de
+        jr c, hq_no
+        jr z, hq_no
+        scf
+        ret
+hq_no:
+        or a
+        ret
+
+; ============================================================================
+;  HIGH-SCORE TABLE + INITIALS ENTRY  (state 3)
+; ============================================================================
+init_hiscores:
+        ld hl, hs_def_names
+        ld de, hs_names
+        ld bc, 15
+        ldir
+        ld hl, hs_def_scores
+        ld de, hs_scores
+        ld bc, 10
+        ldir
+        ret
+
+ie_setup:
+        call clear_screen
+        xor a
+        ld (cur_border), a
+        out (254), a
+        ld hl, str_newhi
+        ld b, 8
+        ld c, 8
+        call print_str_at
+        ld hl, str_entini
+        ld b, 10
+        ld c, 8
+        call print_str_at
+        xor a
+        ld (ie_pos), a
+        ld (ie_letter), a
+        ld (ie_prevud), a
+        ld a, 1                 ; require the trigger fire to be released first
+        ld (ie_prevfire), a
+        ld a, 'A'
+        ld (ie_buf+0), a
+        ld (ie_buf+1), a
+        ld (ie_buf+2), a
+        ret
+
+initials_frame:
+        ; ----- up/down to change the current letter -----
+        ld d, 0
+        ld bc, 0xFBFE
+        in a, (c)
+        bit 0, a
+        jr nz, if_ckdn
+        ld d, 1
+if_ckdn:
+        ld bc, 0xFDFE
+        in a, (c)
+        bit 0, a
+        jr nz, if_ckjoy
+        ld d, 2
+if_ckjoy:
+        call read_joy
+        bit 3, a
+        jr z, if_jdn
+        ld d, 1
+if_jdn:
+        bit 2, a
+        jr z, if_ud
+        ld d, 2
+if_ud:
+        ld a, d
+        or a
+        jr nz, if_haveud
+        xor a
+        ld (ie_prevud), a
+        jr if_fire
+if_haveud:
+        ld a, (ie_prevud)
+        or a
+        jr nz, if_fire
         ld a, 1
-        ld (menu_lock), a
+        ld (ie_prevud), a
+        ld a, d
+        cp 1
+        jr nz, if_isdn
+        ld a, (ie_letter)
+        inc a
+        cp 27
+        jr c, if_setl
+        xor a
+        jr if_setl
+if_isdn:
+        ld a, (ie_letter)
+        or a
+        jr nz, if_dec
+        ld a, 27
+if_dec:
+        dec a
+if_setl:
+        ld (ie_letter), a
+        cp 26
+        jr nc, if_space
+        add a, 'A'
+        jr if_putc
+if_space:
+        ld a, 32
+if_putc:
+        ld c, a
+        ld hl, ie_buf
+        ld a, (ie_pos)
+        ld e, a
+        ld d, 0
+        add hl, de
+        ld (hl), c
+if_fire:
+        ; ----- fire to confirm the current letter -----
+        call fire_down
+        jr z, if_firep
+        xor a
+        ld (ie_prevfire), a
+        jr if_draw
+if_firep:
+        ld a, (ie_prevfire)
+        or a
+        jr nz, if_draw
+        ld a, 1
+        ld (ie_prevfire), a
+        ld a, (ie_pos)
+        inc a
+        ld (ie_pos), a
+        xor a
+        ld (ie_letter), a
+        ld a, (ie_pos)
+        cp 3
+        jr c, if_setdef
+        call hs_insert
+        xor a
+        ld (state), a
+        call show_title
+        ret
+if_setdef:
+        ld hl, ie_buf
+        ld a, (ie_pos)
+        ld e, a
+        ld d, 0
+        add hl, de
+        ld (hl), 'A'
+if_draw:
+        ld hl, ie_buf           ; show the three initials
+        ld b, 14
+        ld c, 14
+        ld a, (hl)
+        push bc
+        call print_char
+        pop bc
+        inc c
+        ld a, (ie_buf+1)
+        push bc
+        call print_char
+        pop bc
+        inc c
+        ld a, (ie_buf+2)
+        call print_char
+        ; clear the cursor row, then mark the active position
+        ld b, 15
+        ld c, 14
+        ld a, 32
+        push bc
+        call print_char
+        pop bc
+        inc c
+        ld a, 32
+        push bc
+        call print_char
+        pop bc
+        inc c
+        ld a, 32
+        call print_char
+        ld a, (ie_pos)
+        cp 3
+        ret nc
+        add a, 14
+        ld c, a
+        ld b, 15
+        ld a, '^'
+        call print_char
+        ret
+
+; hs_insert: place ie_buf + (score) into the sorted table, dropping lowest
+hs_insert:
+        ld hl, (score)
+        ld ix, hs_scores
+        ld b, 0                 ; index
+hi_find:
+        ld a, b
+        cp 5
+        ret z                   ; no slot (shouldn't happen)
+        ld e, (ix+0)
+        ld d, (ix+1)
+        push hl
+        or a
+        sbc hl, de
+        pop hl
+        jr c, hi_next
+        jr z, hi_next
+        jr hi_at
+hi_next:
+        inc b
+        ld de, 2
+        add ix, de
+        jr hi_find
+hi_at:
+        ; B = insert index; shift entries [B..3] down by one
+        ld a, 4
+        sub b
+        ld c, a                 ; entries to move
+        or a
+        jr z, hi_put            ; inserting at the bottom, no shift
+        ; --- shift scores ---
+        push bc
+        ld a, c
+        add a, a
+        ld c, a
+        ld b, 0                 ; BC = move bytes (scores)
+        ld hl, hs_scores+7      ; entry 3 high byte
+        ld de, hs_scores+9      ; entry 4 high byte
+        lddr
+        pop bc
+        ; --- shift names ---
+        push bc
+        ld a, c
+        ld d, a
+        add a, a
+        add a, d                ; *3
+        ld c, a
+        ld b, 0
+        ld hl, hs_names+11      ; entry 3 last char
+        ld de, hs_names+14      ; entry 4 last char
+        lddr
+        pop bc
+hi_put:
+        ; write new entry at index B
+        ld a, b
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, hs_scores
+        add hl, de
+        ld a, (score)
+        ld (hl), a
+        inc hl
+        ld a, (score+1)
+        ld (hl), a
+        ; names[B] = ie_buf
+        ld a, b
+        ld d, a
+        add a, a
+        add a, d                ; *3
+        ld e, a
+        ld d, 0
+        ld hl, hs_names
+        add hl, de
+        ld a, (ie_buf+0)
+        ld (hl), a
+        inc hl
+        ld a, (ie_buf+1)
+        ld (hl), a
+        inc hl
+        ld a, (ie_buf+2)
+        ld (hl), a
         ret
 
 ; fire_down: Z set if Space or Kempston-fire is pressed
@@ -166,6 +667,9 @@ init_game:
         ld (boss_active), a
         ld (boss_hp), a
         ld (shake), a
+        ld (paused), a
+        ld (pause_prev), a
+        ld (poptimer), a
         ld a, (spawn_period)
         ld (spawn_timer), a
         ld hl, 750
@@ -286,29 +790,55 @@ read_input:
         xor a                   ; reset movement intents
         ld (want_x), a
         ld (want_y), a
-        ld bc, 0xFBFE           ; Q row -> up
+        ld a, (ctrl_scheme)
+        or a
+        jr nz, ri_cursor
+        ; ----- scheme 0: QAOP -----
+        ld bc, 0xFBFE           ; Q -> up
         in a, (c)
         bit 0, a
         jr nz, ri_notup
         call ship_up
 ri_notup:
-        ld bc, 0xFDFE           ; A row -> down
+        ld bc, 0xFDFE           ; A -> down
         in a, (c)
         bit 0, a
         jr nz, ri_notdn
         call ship_down
 ri_notdn:
-        ld bc, 0xDFFE           ; P,O row
+        ld bc, 0xDFFE           ; O -> left
         in a, (c)
-        bit 1, a                ; O -> left
+        bit 1, a
         jr nz, ri_notlf
         call ship_left
 ri_notlf:
-        ld bc, 0xDFFE
+        ld bc, 0xDFFE           ; P -> right
         in a, (c)
-        bit 0, a                ; P -> right
+        bit 0, a
         jr nz, ri_notrt
         call ship_right
+        jr ri_notrt
+ri_cursor:
+        ; ----- scheme 1: cursor keys 5/6/7/8 -----
+        ld bc, 0xEFFE           ; 6,7,8,9,0 row
+        in a, (c)
+        bit 3, a                ; 7 -> up
+        jr nz, ri_cnotup
+        call ship_up
+ri_cnotup:
+        bit 4, a                ; 6 -> down
+        jr nz, ri_cnotdn
+        call ship_down
+ri_cnotdn:
+        bit 2, a                ; 8 -> right
+        jr nz, ri_cnotrt
+        call ship_right
+ri_cnotrt:
+        ld bc, 0xF7FE           ; 1-5 row
+        in a, (c)
+        bit 4, a                ; 5 -> left
+        jr nz, ri_notrt
+        call ship_left
 ri_notrt:
         call read_joy           ; Kempston (0 if absent/floating)
         ld e, a
@@ -630,6 +1160,8 @@ db_objloop:
         ld (iy+0), a
         ld bc, 5
         call add_score
+        ld hl, str_p5
+        call set_popup
         xor a
         ld (ix+0), a
         call sfx_explode
@@ -768,12 +1300,16 @@ obj_collect:
         call add_score
         xor a
         ld (ix+0), a
+        ld hl, str_p10
+        call set_popup
         call sfx_pickup
         jp do_obj_next
 obj_power:
         xor a
         ld (ix+0), a
         call grant_power
+        ld hl, str_pwr
+        call set_popup
         call sfx_power
         jp do_obj_next
 obj_draw:
@@ -1270,6 +1806,8 @@ kill_boss:
         call sfx_explode
         ; big explosion at boss position
         call spawn_explosion
+        ld hl, str_p200
+        call set_popup
         call next_world
         ret
 
@@ -1858,29 +2396,241 @@ next_world:
 ;  HUD / TEXT
 ; ============================================================================
 show_hud:
-        ld hl, str_score
+        call show_score         ; 5 digits at row0 col0
+        call draw_popup         ; "+N" gain by the score
+        call draw_lives         ; ship icons, row0 right
+        call draw_distbar       ; distance-to-boss bar, row0
+        call draw_zonename      ; zone name, row1 left
+        call draw_powers        ; active power-ups, row1 mid
+        ret
+
+; ---- HUD helpers ----
+; draw_glyph: B=row C=col, (dg_ptr)->8 bytes  (copies a cell)
+draw_glyph:
+        ld a, b
+        add a, a
+        add a, a
+        add a, a
+        ld (dg_row), a
+        ld a, c
+        ld (dg_col), a
+        ld b, 8
+dg_loop:
+        push bc
+        ld a, (dg_row)
+        ld l, a
+        ld h, 0
+        add hl, hl
+        ld de, addrtab
+        add hl, de
+        ld e, (hl)
+        inc hl
+        ld d, (hl)
+        ld a, (dg_col)
+        ld l, a
+        ld h, 0
+        add hl, de
+        ld de, (dg_ptr)
+        ld a, (de)
+        ld (hl), a
+        inc de
+        ld (dg_ptr), de
+        ld a, (dg_row)
+        inc a
+        ld (dg_row), a
+        pop bc
+        djnz dg_loop
+        ret
+
+draw_lives:
+        ld b, 0                 ; blank cols 27..31
+        ld c, 27
+dl_blank:
+        ld a, 32
+        push bc
+        call print_char
+        pop bc
+        inc c
+        ld a, c
+        cp 32
+        jr nz, dl_blank
+        ld a, (lives)
+        cp 6
+        jr c, dl_cap
+        ld a, 5
+dl_cap:
+        or a
+        ret z
+        ld d, a                 ; count
+        ld c, 27
+dl_icon:
+        ld hl, life_icon
+        ld (dg_ptr), hl
         ld b, 0
-        ld c, 0
-        call print_str_at
-        call show_score
-        ld hl, str_ships
+        push de
+        push bc
+        call draw_glyph
+        pop bc
+        pop de
+        inc c
+        dec d
+        jr nz, dl_icon
+        ret
+
+draw_distbar:
+        ld a, (boss_active)
+        or a
+        jr z, db_bar
+        ld hl, str_boss
         ld b, 0
         ld c, 20
         call print_str_at
-        ld a, (lives)
-        add a, '0'
+        ret
+db_bar:
+        ld hl, (world_timer)
+        add hl, hl
+        ld a, h                 ; world_timer / 128
+        cp 7
+        jr c, db_cap
+        ld a, 6
+db_cap:
+        ld d, a                 ; filled cells
+        ld e, 6                 ; total
+        ld c, 20
+db_cell:
+        ld a, d
+        or a
+        jr z, db_empty
+        dec d
+        ld hl, bar_full
+        jr db_put
+db_empty:
+        ld hl, bar_empty
+db_put:
+        ld (dg_ptr), hl
         ld b, 0
-        ld c, 26
+        push de
+        push bc
+        call draw_glyph
+        pop bc
+        pop de
+        inc c
+        dec e
+        jr nz, db_cell
+        ret
+
+draw_zonename:
+        ld b, 1                 ; blank cols 0..13
+        ld c, 0
+dz_blank:
+        ld a, 32
+        push bc
         call print_char
-        ld hl, str_zone
+        pop bc
+        inc c
+        ld a, c
+        cp 14
+        jr nz, dz_blank
+        ld a, (world)
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, zone_names
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
         ld b, 1
         ld c, 0
         call print_str_at
-        ld a, (world)
-        add a, '1'
-        ld b, 1
-        ld c, 5
+        ret
+
+; show one power-up letter if its flag is set, advancing the column
+; (helper used by draw_powers): A=flag value, used with (dp_col),(dp_chr)
+draw_powers:
+        ld b, 1                 ; blank cols 15..20
+        ld c, 15
+dp_blank:
+        ld a, 32
+        push bc
         call print_char
+        pop bc
+        inc c
+        ld a, c
+        cp 21
+        jr nz, dp_blank
+        ld a, 15
+        ld (dp_col), a
+        ld a, (pw_twin)
+        or a
+        jr z, dp_r
+        ld a, 'T'
+        call dp_emit
+dp_r:
+        ld a, (pw_rapid)
+        or a
+        jr z, dp_f
+        ld a, 'R'
+        call dp_emit
+dp_f:
+        ld a, (pw_speed)
+        or a
+        jr z, dp_s
+        ld a, 'F'
+        call dp_emit
+dp_s:
+        ld a, (pw_shield)
+        or a
+        ret z
+        ld a, 'S'
+        call dp_emit
+        ret
+dp_emit:
+        ld c, a                 ; char
+        ld a, (dp_col)
+        ld e, a
+        ld a, c
+        ld b, 1
+        ld c, e
+        push bc
+        call print_char
+        pop bc
+        ld a, (dp_col)
+        inc a
+        ld (dp_col), a
+        ret
+
+; set_popup: show "+N" near the score; HL -> 0-terminated string
+set_popup:
+        ld (pop_str), hl
+        ld a, 24
+        ld (poptimer), a
+        ret
+
+draw_popup:
+        ld a, (poptimer)
+        or a
+        jr z, dpop_blank
+        dec a
+        ld (poptimer), a
+        ld hl, (pop_str)
+        ld b, 0
+        ld c, 6
+        call print_str_at
+        ret
+dpop_blank:
+        ld b, 0                 ; clear the popup cells
+        ld c, 6
+dpop_b:
+        ld a, 32
+        push bc
+        call print_char
+        pop bc
+        inc c
+        ld a, c
+        cp 11
+        jr nz, dpop_b
         ret
 
 show_score:
@@ -1899,7 +2649,7 @@ show_score:
         ld (ix+0), a
         ld hl, decbuf
         ld b, 0
-        ld c, 6
+        ld c, 0
 ss_print:
         ld a, (hl)
         push hl
@@ -1910,7 +2660,7 @@ ss_print:
         inc hl
         inc c
         ld a, c
-        cp 11
+        cp 5
         jr nz, ss_print
         ret
 
@@ -2436,6 +3186,27 @@ str_over:   db "GAME OVER",0
 str_score:  db "SCORE",0
 str_ships:  db "SHIPS",0
 str_zone:   db "ZONE",0
+str_hiscores: db "HIGH SCORES",0
+str_ctrl:   db "QAOP/KEMPSTON   H-PAUSE",0
+str_newhi:  db "NEW HIGH SCORE!",0
+str_entini: db "ENTER INITIALS - FIRE",0
+str_schopts: db "1-QAOP   2-CURSOR",0
+str_qaop:   db "USING QAOP  ",0
+str_cursor: db "USING CURSOR",0
+credits_msg: db "STELLAR DRIFT - A CAVE FLYER FOR THE HC-91 - DODGE, "
+             db "SHOOT, COLLECT - BEAT THE ZONE BOSSES - GOOD LUCK PILOT     ",0
+
+hs_def_names:  db "ACE","ZAP","HC9","FOX","BEE"
+hs_def_scores: dw 500,400,300,200,100
+
+hs_names:   defs 15
+hs_scores:  defs 10
+ie_buf:     defs 3
+ie_pos:     defb 0
+ie_letter:  defb 0
+ie_prevud:  defb 0
+ie_prevfire: defb 0
+hst_row:    defb 0
 
 state:        defb 0
 lives:        defb 0
@@ -2498,6 +3269,33 @@ terr_tile:    defb 0
 ss_base:      defb 0
 ss_row:       defb 0
 ss_tile:      defw 0
+dg_row:       defb 0
+dg_col:       defb 0
+dg_ptr:       defw 0
+dp_col:       defb 0
+poptimer:     defb 0
+pop_str:      defw 0
+paused:       defb 0
+pause_prev:   defb 0
+ctrl_scheme:  defb 0
+tctr:         defb 0
+credit_idx:   defb 0
+
+zone_names:   dw zn0, zn1, zn2, zn3
+zn0:          db "ASTEROID BELT",0
+zn1:          db "NEBULA",0
+zn2:          db "INFERNO",0
+zn3:          db "VERDANT REACH",0
+str_boss:     db "BOSS!!",0
+str_pause:    db "PAUSED",0
+str_p10:      db "+10",0
+str_p5:       db "+5",0
+str_p200:     db "+200",0
+str_pwr:      db "PWR!",0
+
+life_icon:    db 0,48,60,255,255,60,48,0
+bar_full:     db 0,0,0,255,255,0,0,0
+bar_empty:    db 0,0,0,24,24,0,0,0
 
 ; cave ceiling tiles (4 x 8 bytes; top pixel first, solid at top)
 ceil_tiles:

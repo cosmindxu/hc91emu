@@ -62,22 +62,20 @@ Status legend: ✅ done · ◐ partial · ☐ todo
 
 ## 4. Presentation & UX
 
-- ◐ Title screen + game-over (text only today).
-- ☐ **Loading screen (`SCR`)** — the single most nostalgic thing a
-  Spectrum game can have. A drawn title image that paints in as the tape
-  loads. (Author a 6912-byte screen; prepend to the tape.)
-- ☐ **Attractive title screen**: logo, animated demo/attract mode,
-  scrolling credits, "PRESS FIRE" blink.
-- ☐ **High-score table with 3-letter initials entry** — the arcade ritual.
-  Persist within the session; on 128K, consider saving.
-- ☐ **Pause** (and a tasteful paused overlay).
-- ☐ **Control selection menu**: Keyboard / Kempston / Sinclair / Cursor,
-  plus redefine-keys (a Spectrum staple). The emulator supports all
-  joystick types via `--joy-type`.
-- ☐ **Lives shown as ship icons** rather than a digit; **score pop-ups**
-  at pickups.
-- ☐ **HUD polish**: shield/energy bar, zone name (not just number),
-  distance-to-next-zone indicator.
+- ✅ Title screen + game-over flow with state machine.
+- ✅ **Loading screen (`SCR`)** — a drawn title screen is prepended to the
+  `.tap`/`.tzx` so it paints in as the game loads (see tools/mkscr.py).
+- ✅ **Attractive title screen**: title, high-score table, control menu,
+  blinking "PRESS FIRE" and a horizontally scrolling credits line.
+- ✅ **High-score table with 3-letter initials entry** — qualify on game
+  over, cycle letters with up/down + fire, inserted into the sorted table.
+- ✅ **Pause** — 'H' toggles a frozen state with a PAUSED HUD overlay.
+- ✅ **Control selection menu**: QAOP or Cursor keys (selectable on the
+  title), with the Kempston joystick always live.
+- ✅ **Lives shown as ship icons**; **score pop-ups** ("+10/+5/+200/PWR")
+  beside the score.
+- ✅ **HUD polish**: zone name, distance-to-boss bar, active power-up
+  letters, score pop-ups.
 - ✅ **Screen-shake / border flash** on hits and explosions (`shake`
   counter flashes the border white for a few frames).
 
