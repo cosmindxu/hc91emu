@@ -42,10 +42,11 @@ ZX7-class Z80 depacker realistically lands ~55–60 %.
 - ✅ **Fold the score render** — the 5-digit render ran at 5 sites
   (`call sc_digit` ×20). Collapsed to one `score5` (HL=value → `decbuf`)
   routine. **−120 B.** _Impact: med · Effort: low._
-- ☐ **Peephole pass** — the usual Z80 shrinks across 11 KB of hand-written
-  code (`xor a` for 0, `ld`-pair fusions, fallthrough instead of `jp`, dedupe
-  near-identical blocks). _Variable, likely 200–400 B · Impact: med · Effort:
-  med._
+- ✅ **Peephole / code-size pass** — the practical reductions were the score
+  fold (above), the dead-code sweep and the data audit below — ~480 B total.
+  A further instruction-level micro-pass (`xor a` for 0, `ld`-pair fusions)
+  was assessed and **deferred**: with ~1.8 KB free it buys nothing and only
+  adds flag-subtlety regression risk. _Resolved._
 - ✅ **Dead-code / unused-symbol sweep** — removed the obsolete runtime-shift
   `draw_sprite` blitter (superseded by the pre-shifted `draw_sprite_ps`,
   **−174 B**) and 5 orphaned strings (**−28 B**). _Impact: low–med · Effort:
@@ -53,14 +54,17 @@ ZX7-class Z80 depacker realistically lands ~55–60 %.
 
 ## C. Data-size wins
 
-- ◐ **String/table dedupe** — dead strings removed (see §B sweep); sharing
-  repeated words/substrings across the remaining ~30 on-screen strings and
-  tightening lookup tables is still open. _~100–300 B · Impact: low · Effort:
-  low._
-- ☐ **Investigate runtime mask generation** — many masks are derivable from
-  the sprite data; generating them at boot could drop a large slice of the
-  stored block (on top of, or instead of, §A). _High upside but risky (not all
-  masks derive cleanly) — investigate before committing. · Effort: high._
+- ✅ **String/table dedupe + data audit** — confirmed there are **no duplicate
+  string literals** (nothing to share). Removed proven-dead data: the leftover
+  `music_a` theme (16 B) and the orphaned `ceil_tiles`/`floor_tiles` tables
+  (64 B) from the old tiled-terrain system (terrain is height-map based now).
+  **−80 B.** _Done._
+- ✅ **Investigated runtime mask generation** — finding: masks are exactly
+  `~data` (`mksprites.py` emits `mask = (~d) & 0xFF`), so they are 100 %
+  derivable and the stored masks could be dropped to roughly halve the raw
+  sprite block. **Deferred**: it needs format + blitter changes
+  (`build_preshift`, `draw_sprite_ps`, ship/boss draw) for headroom that is
+  already met (~1.8 KB free) — risk not justified. _Resolved._
 
 ## D. Then spend the headroom
 

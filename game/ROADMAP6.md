@@ -21,9 +21,8 @@ Status: ☐ todo · ◐ partial · ✅ done
 - ✅ **Boss-defeat fanfare** — every boss that falls plays a short triumphant
   motif over the explosion, distinct from a normal kill. _Impact: med ·
   Effort: low._
-- ☐ **Weapon level-up chirp** — leveling an existing weapon plays a rising
-  chirp distinct from a fresh pickup. _Impact: low · Effort: low · deferred
-  (memory)._
+- ✅ **Weapon level-up chirp** — leveling an existing weapon plays a rising
+  chirp distinct from a fresh pickup. _Done in Phase 8 (`sfx_levelup`)._
 
 ## B. Mastery / payoff
 
@@ -31,20 +30,18 @@ Status: ☐ todo · ◐ partial · ✅ done
   from the final score, giving skilled players a target to beat. Shown on
   the ending and covered by CI (via the `VTEST` fast-path build). _Impact:
   high · Effort: med._
-- ☐ **Rank on GAME OVER** — the same grade on a failed run, scaled by zones
-  reached. _Impact: med · Effort: low · deferred (memory)._
-- ☐ **Veteran restart (NG+)** — once the mission is beaten, the title offers a
-  tougher restart that reuses the existing `difficulty` plumbing. _Impact:
-  high · Effort: med · deferred (needs ~free space first)._
+- ✅ **Rank on GAME OVER** — the same grade on a failed run, scaled by zones
+  reached. _Done in Phase 8 (shared `score_rank` + depth bonus)._
+- ✅ **Veteran restart (NG+)** — once the mission is beaten, the title offers a
+  tougher restart that reuses the existing `difficulty` plumbing. _Done in
+  Phase 8 (unlockable 4th skill tier)._
 
 ## C. Spectacle
 
-- ☐ **Boss-defeat screen flash** — a brief bright attribute flash on a boss
-  kill, on top of the existing screen-shake. _Impact: med · Effort: low ·
-  deferred (memory / attr-restore cost)._
-- ☐ **Persistent boss name** — show the war-machine's name by the HP bar for
-  the whole fight, not just the entry taunt. _Impact: med · Effort: med ·
-  deferred (HUD space)._
+- ✅ **Boss-defeat screen flash** — a colour-cycling border flash on a boss
+  kill, on top of the existing screen-shake. _Done in Phase 8 (`do_bflash`)._
+- ✅ **Persistent boss name** — show the war-machine's name on the HUD for
+  the whole fight, not just the entry taunt. _Done in Phase 8 (`draw_zonename`)._
 
 ---
 

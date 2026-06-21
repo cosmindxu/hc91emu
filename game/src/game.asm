@@ -4387,8 +4387,6 @@ music3: db 0,0,3,3, 5,5,4,2, 1,1,4,4, 6,6,5,3
 music4: db 2,4,6,7, 6,4,2,0, 3,5,7,5, 3,1,3,5
 music5: db 7,5,3,1, 0,2,4,6, 7,5,4,2, 1,3,5,7
 music_boss: db 7,7,6,7, 5,5,4,5, 7,7,6,4, 2,4,6,7   ; tense boss theme
-music_a:
-        db 0,2,4,5, 4,2,0,2, 1,3,5,6, 5,3,1,3
 
 ; ============================================================================
 ;  SPAWNING
@@ -6986,19 +6984,6 @@ str_bonus:    db "BONUS STAGE!",0
 life_icon:    db 0,48,60,255,255,60,48,0
 bar_full:     db 0,0,0,255,255,0,0,0
 bar_empty:    db 0,0,0,24,24,0,0,0
-
-; cave ceiling tiles (4 x 8 bytes; top pixel first, solid at top)
-ceil_tiles:
-        db 255,255,255,126, 60, 24,  0,  0
-        db 255,255,255,255,255,126, 60, 24
-        db 255,255,126, 60, 24,  0,  0,  0
-        db 255,255,255,219,126, 60, 24,  0
-; cave floor tiles (4 x 8 bytes; solid at bottom)
-floor_tiles:
-        db   0,  0, 24, 60,126,255,255,255
-        db  24, 60,126,255,255,255,255,255
-        db   0,  0,  0, 24, 60,126,255,255
-        db   0, 24, 60,126,219,255,255,255
 
 ; sine table: 32 entries, 0..24 (centre 12), one full period
 sintab:

@@ -21,46 +21,33 @@ The runtime scratch already lives low (`0x6000–0x62F2`); the gap from
 **`0x62F2` to `0x8000` is ~7.4 KB of unused RAM**. Most of that is reachable
 for *static, read-only* data if we load it there at tape time.
 
-- ☐ **Second tape block for static data** — split the read-only data (sprite
-  source pixels, the long story/credits strings, the zone/boss tables) into a
-  second `CODE` block that loads to a fixed low address (≈`0x6300`, ending
-  well under the BASIC loader stack near RAMTOP `0x7FFF` — target ~5 KB so
-  ~`0x6300–0x7700`). The high image shrinks by that much, restoring real
-  headroom. Touches `tools/mktap.py` (emit + load a 2nd block at a given
-  org), `build.sh` (assemble the split / adjust the guard), and the memory
-  map. _Impact: high (unblocks everything) · Effort: high._
-  - CI: the multi-block tap still autoloads, boots and plays on 48K **and**
-    128K; verify load timing under `--turbo`.
-- ☐ **Data audit & dedupe** — a smaller, independent win: fold duplicated
-  strings/sub-strings and tighten tables for a few hundred bytes with no tape
-  changes. Good warm-up if the second block slips. _Impact: low–med · Effort:
-  low._
+- ✗ **Second tape block for static data** — _superseded._ The user chose to
+  stay single-tape, so this was **not pursued**; Phase 8 reclaimed the same
+  headroom by LZSS-compressing the sprite data into the existing single image
+  (no loader change). The original idea was to split the read-only data into a
+  second `CODE` block loaded low (~`0x6300`), shrinking the high image — sound
+  but riskier (multi-block loader, stack-vs-load timing) than compression.
+- ✅ **Data audit & dedupe** — done in Phase 8: no duplicate string literals;
+  removed 80 B of proven-dead data (`music_a`, `ceil_tiles`, `floor_tiles`).
 
 ## B. Mastery (spend the headroom)
 
-- ☐ **Veteran restart (NG+)** — once the mission is beaten (`won_flag`), the
-  title offers a tougher restart that reuses the existing `difficulty`
-  plumbing plus a `veteran` flag (faster spawns / +boss HP / fewer pods).
-  _Impact: high · Effort: med._
-- ☐ **Rank on GAME OVER** — grade a *failed* run S/A/B/C from score scaled by
-  the zone reached, reusing the Phase-6 grader. CI-testable via the run that
-  already ends in GAME OVER. _Impact: med · Effort: low._
+- ✅ **Veteran restart (NG+)** — done in Phase 8: an unlockable 4th skill tier
+  (`won_flag`-gated) with ~25 % faster spawns and +25 % boss HP.
+- ✅ **Rank on GAME OVER** — done in Phase 8 (shared `score_rank` + a
+  `world*2000` depth bonus; covered by CI).
 
 ## C. Spectacle
 
-- ☐ **Boss-defeat screen flash** — a brief bright attribute flash on a boss
-  kill (save the attr band, flash white ~2 frames, restore), layered over the
-  existing screen-shake. _Impact: med · Effort: low._
-- ☐ **Persistent boss name** — show the war-machine's name beside the HP bar
-  for the whole fight (reuse the `boss_taunts` strings + the change-only HUD
-  repaint), not just the entry taunt. CI-testable by OCR during a boss fight.
-  _Impact: med · Effort: med._
+- ✅ **Boss-defeat screen flash** — done in Phase 8 (`do_bflash`, a
+  colour-cycling border flash layered over the shake).
+- ✅ **Persistent boss name** — done in Phase 8 (`draw_zonename` shows the
+  machine name on HUD row 1 for the whole fight; CI-tested via the BTEST build).
 
 ## D. Sound
 
-- ☐ **Weapon level-up chirp** — a distinct rising chirp when an existing
-  weapon *levels up* vs a fresh pickup: a flag out of `grant_power` + a short
-  note table fed to the Phase-6 `play_notes`. _Impact: low · Effort: low._
+- ✅ **Weapon level-up chirp** — done in Phase 8 (`sfx_levelup`, triggered by
+  a `pw_twin+pw_rapid` snapshot around `grant_power`).
 
 ---
 
@@ -84,3 +71,11 @@ for *static, read-only* data if we load it there at tape time.
   data (two ceilings now: the high image and the low static block).
 - Order matters: §A is the gate. Each of §B–§D is independently shippable
   once headroom exists, in any order.
+
+## Status
+
+Resolved. The headroom unlock (§A) was delivered single-tape in **Phase 8**
+(LZSS sprite compression), so the second-tape plan was deliberately not
+pursued. All of §B–§D (NG+, rank on GAME OVER, boss flash, persistent boss
+name, level-up chirp) plus the data audit are implemented and validated in
+Phase 8 — see `ROADMAP8.md`.
