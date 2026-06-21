@@ -492,12 +492,15 @@ mcrCol: ld a,b
         ld (dsRow),a
         ret
 
-; attribute for dsSquare -> A.  The paper is always the square colour from
-; the active scheme (cursor/selected squares override it); only the ink
-; varies.  Black pieces and outline-mode white pieces use ink 0 (black) —
-; black draws a solid silhouette, white an outline.  In fill mode a white
-; piece uses ink 7 (white) for a solid white silhouette with no contour.
-; schemeTable rows are [light, dark, cursor, selected].
+; attribute for dsSquare -> A.  The paper is the square colour from the
+; active scheme (cursor/selected squares override it); only the ink varies.
+; Outline mode (whiteStyle=0) uses the schemeTable palettes (light squares
+; for black ink to read) and ink 0 for every piece — black draws a solid
+; silhouette, white an outline.  Fill mode (whiteStyle=1) uses the separate
+; schemeTableFill palettes — mid-tone squares where BOTH a solid black and
+; a solid white (ink 7) piece read across the whole board — and gives white
+; pieces ink 7.  schemeAttr selects the table; rows are [light, dark,
+; cursor, selected].
 squareAttr:
         ld b,a
         and 7
@@ -541,31 +544,15 @@ saField:
         or a
         jr z,saEnd             ; empty
         and COLBIT
-        jr nz,saEnd            ; black piece
-        ; white piece, fill mode: sit it on the scheme's dark backdrop so a
-        ; solid white body always has contrast — except on the cursor /
-        ; selected square, where that highlight paper is kept.
-        ld a,(dsSquare)
-        ld hl,cursorSq
-        cp (hl)
-        jr z,saWInk
-        ld a,(dsSquare)
-        ld hl,selSq
-        cp (hl)
-        jr z,saWInk
-        ld a,(colorScheme)
-        ld e,a
-        ld d,0
-        ld hl,whiteBackTbl
-        add hl,de
-        ld e,(hl)              ; E = filled-white backdrop for this scheme
-saWInk: ld a,e
-        or 0x07                ; ink 7 (white)
+        jr nz,saEnd            ; black piece -> ink 0
+        ld a,e
+        or 0x07                ; white piece, fill mode: ink 7 (white)
         ret
 saEnd:  ld a,e
         ret
 
-; schemeAttr(A = field 0..3) -> A = attribute byte from the active scheme
+; schemeAttr(A = field 0..3) -> A = attribute byte.  Outline mode reads the
+; schemeTable palettes, fill mode the schemeTableFill palettes.
 schemeAttr:
         ld e,a
         ld a,(colorScheme)
@@ -574,27 +561,36 @@ schemeAttr:
         add a,e
         ld e,a
         ld d,0
+        ld a,(whiteStyle)
+        or a
         ld hl,schemeTable
-        add hl,de
+        jr z,saTbl
+        ld hl,schemeTableFill
+saTbl:  add hl,de
         ld a,(hl)
         ret
 
 ; Colour schemes — 4 attribute bytes each: light, dark, cursor, selected.
-; All bright, ink 0 (pieces are black); only the paper colour varies.
 NSCHEMES equ 3
+; Outline mode: light squares so the black-ink outlines/silhouettes read.
 schemeTable:
         defb 0x70,0x50,0x68,0x58   ; 0 Classic: yellow / red   (cyan, magenta)
         defb 0x70,0x60,0x68,0x58   ; 1 Meadow:  yellow / green (cyan, magenta)
         defb 0x78,0x68,0x60,0x58   ; 2 Clean:   white  / cyan  (green, magenta)
-; Backdrop paper for a filled-mode white piece (dark enough that a solid
-; white body reads): Classic red, Meadow green, Clean blue (its cyan is too
-; light).  Indexed by colorScheme.
-whiteBackTbl:
-        defb 0x50,0x60,0x48
+; Fill mode: mid-tone squares where a solid white AND a solid black piece
+; both read on every square (no near-white or near-black squares).
+schemeTableFill:
+        defb 0x60,0x50,0x68,0x58   ; 0 Holly:  green / red    (cyan, magenta)
+        defb 0x60,0x58,0x68,0x50   ; 1 Orchid: green / magenta(cyan, red)
+        defb 0x50,0x68,0x60,0x58   ; 2 Coral:  red   / cyan   (green, magenta)
 schemeNames:
         defw nmSchClassic
         defw nmSchMeadow
         defw nmSchClean
+schemeNamesFill:
+        defw nmSchHolly
+        defw nmSchOrchid
+        defw nmSchCoral
 whiteNames:
         defw nmWOutline
         defw nmWFilled
@@ -875,8 +871,12 @@ drawScheme:
         add a,a
         ld e,a
         ld d,0
+        ld a,(whiteStyle)
+        or a
         ld hl,schemeNames
-        add hl,de
+        jr z,dschNm
+        ld hl,schemeNamesFill
+dschNm: add hl,de
         ld a,(hl)
         inc hl
         ld h,(hl)
@@ -2181,6 +2181,9 @@ nmQGD:       defb "QGD",0
 nmSchClassic: defb "Classic",0
 nmSchMeadow:  defb "Meadow ",0
 nmSchClean:   defb "Clean  ",0
+nmSchHolly:   defb "Holly  ",0
+nmSchOrchid:  defb "Orchid ",0
+nmSchCoral:   defb "Coral  ",0
 nmWOutline:   defb "Outline",0
 nmWFilled:    defb "Filled ",0
 msgColK:      defb "C:",0
