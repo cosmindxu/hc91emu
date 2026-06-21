@@ -121,6 +121,24 @@ bBish    equ 0xE106
 gamePhase equ 0xE107
 matVal   equ 0xE108      ; (2)
 nullEp    equ 0xE10A      ; saved ep square across a null move
+hashKey  equ 0xE10C      ; 16-bit Zobrist key of the current position (2)
+mkOldCastle equ 0xE10E
+mkOldEp  equ 0xE10F
+ttFrom   equ 0xE110      ; transposition-table move hint
+ttTo     equ 0xE111
+keyMismatch equ 0xE112   ; perft key self-test flag
+gameKeyN equ 0xE113      ; plies recorded in the game key history
+ckSave   equ 0xE115      ; (2) saved key during the consistency check
+
+; Zobrist random tables (filled at start) and the transposition table,
+; both in otherwise-unused RAM.
+zobPiece  equ 0xD500     ; 12 pieces * 64 squares * 2 bytes = 1536
+zobCastle equ 0xDB00     ; 16 * 2
+zobEp     equ 0xDB20     ; 8 * 2
+zobSide   equ 0xDB30     ; 2
+TT_BASE   equ 0x6000     ; 1024 entries * 8 bytes = 8 KB
+TT_MASK   equ 0x03FF
+gameKeys  equ 0x5B00     ; game position-key history (2 bytes/ply)
 
 PHASE_EG equ 8           ; below this non-pawn phase, use endgame king PST
 DOUBLED  equ 12
@@ -150,6 +168,7 @@ start:
         di
         ld sp,0xFFF0
         call seedRng
+        call zobInit
         call newGame
         call drawScreenFull
 mainLoop:
@@ -239,6 +258,9 @@ ngFile: ld a,(hl)
         ld (wking),a
         ld a,0x74
         ld (bking),a
+        call computeKey
+        xor a
+        ld (gameKeyN),a
         ret
 
 startPos:
@@ -963,6 +985,7 @@ mfqYes: ld a,(mvFlag)
         include "movegen.inc"
         include "engine.inc"
         include "perft.inc"
+        include "zobrist.inc"
 
 ; =====================================================================
 ;  MISC
@@ -1007,6 +1030,7 @@ msgPerftBad: defb "PERFT BAD - movegen error",0
 msgKiwi:     defb "kiwipete d3",0
 msgEpT:      defb "enpassant d4",0
 msgPromo:    defb "promotion d3",0
+msgZob:      defb "zobrist key",0
 msgWmate:    defb "Checkmate! Black wins   SPC=new",0
 msgBmate:    defb "Checkmate! White wins   SPC=new",0
 msgStale:    defb "Stalemate - draw        SPC=new",0

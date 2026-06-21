@@ -57,6 +57,10 @@ prLoop:
         inc hl
         ld (hl),d
         call makeMove
+        ld a,(searchPly)
+        cp 2
+        call c,checkKey          ; verify key on the top plies (fast, but
+                                 ; still covers castling/ep/promotion)
         call moverInCheck
         or a
         jr nz,prIllegal
@@ -77,6 +81,23 @@ prLoop:
 prIllegal:
         call unmakeMove
         jp prLoop
+
+; checkKey — verify the incremental key matches a from-scratch recompute
+checkKey:
+        ld hl,(hashKey)
+        ld (ckSave),hl
+        call computeKey
+        ld hl,(ckSave)
+        ld de,(hashKey)
+        or a
+        sbc hl,de
+        jr z,ckKeep
+        ld a,0xFF
+        ld (keyMismatch),a
+ckKeep:
+        ld hl,(ckSave)
+        ld (hashKey),hl
+        ret
 
 perftLeaf:
         ld hl,perftCnt
@@ -100,6 +121,7 @@ perftSelfTest:
         call clearScreen
         xor a
         ld (perftFail),a
+        ld (keyMismatch),a
         ld hl,msgPerftHdr
         ld b,0
         ld c,0
@@ -219,13 +241,34 @@ pstNext:
         ld hl,msgPromo
         call printStr
         call runOnePerft
+        ; --- zobrist key consistency ---
+        ld b,10
+        ld c,0
+        ld hl,msgZob
+        call printStr
+        ld a,(keyMismatch)
+        or a
+        jr z,pstZobOk
+        ld a,0xFF
+        ld (perftFail),a
+        ld b,10
+        ld c,22
+        ld hl,msgBAD
+        call printStr
+        jr pstVerdict
+pstZobOk:
+        ld b,10
+        ld c,22
+        ld hl,msgOK
+        call printStr
         ; --- verdict ---
+pstVerdict:
         ld a,(perftFail)
         or a
         ld hl,msgPerftOK
-        jr z,pstVerdict
+        jr z,pstShow
         ld hl,msgPerftBad
-pstVerdict:
+pstShow:
         ld b,11
         ld c,0
         call printStr
@@ -350,6 +393,7 @@ sbKn:   inc c
         ld (selSq),a
         ld hl,1
         ld (moveCount),hl
+        call computeKey
         ret
 
 ; --- test positions (64 board bytes a1..h8, then side, castling, ep) ---
