@@ -88,6 +88,17 @@ glLegal  equ 0xE0BD
 rootFrom equ 0xE0BE
 rootTo   equ 0xE0BF
 rootFlag equ 0xE0C0
+perftCnt equ 0xE0C2      ; 4 bytes (32-bit node counter)
+perftDepth equ 0xE0C6
+numBuf   equ 0xE0C7      ; 4 bytes working value for division
+pdDigits equ 0xE0CB      ; 11 bytes digit scratch
+pdN      equ 0xE0D6
+pdRow    equ 0xE0D7
+pdCol    equ 0xE0D8
+pdCurCol equ 0xE0D9
+rpBoard  equ 0xE0DA      ; perft test: position pointer (0 = start)
+rpDepth  equ 0xE0DC
+rpExp    equ 0xE0DD      ; pointer to 4-byte expected count
 
 ; per-ply move buffers: base + ply*512 (128 moves * 4 bytes)
 moveBufBase equ 0xB000   ; 0xB000..0xD000 = 16 plies
@@ -656,8 +667,14 @@ scanKeys:
         ld bc,0xFBFE           ; Q,W,E,R,T
         in a,(c)
         bit 0,a
-        jr nz,sk_a
+        jr nz,sk_t
         ld a,'Q'
+        ret
+sk_t:   ld bc,0xFBFE
+        in a,(c)
+        bit 4,a                ; T = perft self-test
+        jr nz,sk_a
+        ld a,'T'
         ret
 sk_a:   ld bc,0xFDFE           ; A,S,D,F,G
         in a,(c)
@@ -747,6 +764,8 @@ hmLoop: call readKeyDebounced
         jr z,hmFlip
         cp 'N'
         jp z,hmNew
+        cp 'T'
+        jr z,hmPerft
         cp '1'
         jp c,hmLoop
         cp '6'
@@ -783,6 +802,12 @@ hmFlip: ld a,(flipFlag)
         jp hmLoop
 
 hmNew:  call newGame
+        call drawScreenFull
+        jp hmLoop
+
+hmPerft:
+        call perftSelfTest     ; runs perft, shows results, waits for a key
+        call newGame
         call drawScreenFull
         jp hmLoop
 
@@ -910,6 +935,7 @@ mfqYes: ld a,(mvFlag)
 
         include "movegen.inc"
         include "engine.inc"
+        include "perft.inc"
 
 ; =====================================================================
 ;  MISC
@@ -944,7 +970,16 @@ msgThinking: defb "Thinking...        ",0
 msgIllegal:  defb "Illegal move       ",0
 msgPick:     defb "Pick your piece    ",0
 msgDiff:     defb "Difficulty set     ",0
-msgKeys:     defb "QAOP move ENT pick N new F flip",0
+msgKeys:     defb "QAOP move ENT pick N new T perft",0
+msgPerftHdr: defb "PERFT self-test (start position)",0
+msgPerftN:   defb "perft",0
+msgOK:       defb "OK",0
+msgBAD:      defb "BAD",0
+msgPerftOK:  defb "PERFT OK - movegen verified",0
+msgPerftBad: defb "PERFT BAD - movegen error",0
+msgKiwi:     defb "kiwipete d3",0
+msgEpT:      defb "enpassant d4",0
+msgPromo:    defb "promotion d3",0
 msgWmate:    defb "Checkmate! Black wins   SPC=new",0
 msgBmate:    defb "Checkmate! White wins   SPC=new",0
 msgStale:    defb "Stalemate - draw        SPC=new",0

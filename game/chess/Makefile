@@ -44,6 +44,15 @@ test: chess.tap
 	else \
 		echo "chess: FAIL - engine did not reply to 1.e4"; cat /tmp/chess_play.txt; exit 1; \
 	fi
+	@# perft self-test: proves move generation / make-unmake correctness
+	@$(EMU) --machine 48k --rom $(ROM) chess.tap --autoload --turbo \
+		--keys "960:T" --frames 70000 --text > /tmp/chess_perft.txt 2>&1
+	@if grep -q "PERFT OK" /tmp/chess_perft.txt; then \
+		echo "chess: perft verified (startpos 1-4, kiwipete, en passant, promotion)"; \
+	else \
+		echo "chess: FAIL - perft mismatch"; \
+		sed -n '/SCREEN/,/END/p' /tmp/chess_perft.txt; exit 1; \
+	fi
 
 play: chess.tap
 	$(EMU) --machine 48k --rom $(ROM) chess.tap --autoload --sdl --scale 3

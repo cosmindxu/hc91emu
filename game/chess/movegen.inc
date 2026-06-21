@@ -99,12 +99,152 @@ gmCont:
         jp nz,gmLoop
         ret
 
+; --- castling generation (called from gmKing) ------------------------
+; Adds O-O / O-O-O when the right is held, the path is clear, the king is
+; not in check and does not pass through or land on an attacked square.
+genCastling:
+        ld a,(sideToMove)
+        or a
+        jp nz,gcBlack
+        ld a,(genFrom)
+        cp 0x04                 ; white king home e1
+        ret nz
+        ld a,8
+        ld (atkSide),a
+        ld a,0x04
+        call isAttacked
+        or a
+        ret nz                  ; in check
+        ld a,(castling)
+        and 1
+        jr z,gcWq
+        ld h,0xE0
+        ld l,0x05
+        ld a,(hl)
+        or a
+        jr nz,gcWq
+        ld l,0x06
+        ld a,(hl)
+        or a
+        jr nz,gcWq
+        ld a,0x05
+        call isAttacked
+        or a
+        jr nz,gcWq
+        ld a,0x06
+        call isAttacked
+        or a
+        jr nz,gcWq
+        ld a,0x06
+        ld (genTo),a
+        ld a,SP_OO
+        ld (genFlag),a
+        call addMove
+gcWq:
+        ld a,(castling)
+        and 2
+        ret z
+        ld h,0xE0
+        ld l,0x03
+        ld a,(hl)
+        or a
+        ret nz
+        ld l,0x02
+        ld a,(hl)
+        or a
+        ret nz
+        ld l,0x01
+        ld a,(hl)
+        or a
+        ret nz
+        ld a,0x03
+        call isAttacked
+        or a
+        ret nz
+        ld a,0x02
+        call isAttacked
+        or a
+        ret nz
+        ld a,0x02
+        ld (genTo),a
+        ld a,SP_OOO
+        ld (genFlag),a
+        call addMove
+        ret
+gcBlack:
+        ld a,(genFrom)
+        cp 0x74                 ; black king home e8
+        ret nz
+        xor a
+        ld (atkSide),a
+        ld a,0x74
+        call isAttacked
+        or a
+        ret nz
+        ld a,(castling)
+        and 4
+        jr z,gcBq
+        ld h,0xE0
+        ld l,0x75
+        ld a,(hl)
+        or a
+        jr nz,gcBq
+        ld l,0x76
+        ld a,(hl)
+        or a
+        jr nz,gcBq
+        ld a,0x75
+        call isAttacked
+        or a
+        jr nz,gcBq
+        ld a,0x76
+        call isAttacked
+        or a
+        jr nz,gcBq
+        ld a,0x76
+        ld (genTo),a
+        ld a,SP_OO
+        ld (genFlag),a
+        call addMove
+gcBq:
+        ld a,(castling)
+        and 8
+        ret z
+        ld h,0xE0
+        ld l,0x73
+        ld a,(hl)
+        or a
+        ret nz
+        ld l,0x72
+        ld a,(hl)
+        or a
+        ret nz
+        ld l,0x71
+        ld a,(hl)
+        or a
+        ret nz
+        ld a,0x73
+        call isAttacked
+        or a
+        ret nz
+        ld a,0x72
+        call isAttacked
+        or a
+        ret nz
+        ld a,0x72
+        ld (genTo),a
+        ld a,SP_OOO
+        ld (genFlag),a
+        call addMove
+        ret
+
 ; --- knight ----------------------------------------------------------
 gmKnight:
         ld hl,knightDirs
         ld b,8
         jp gmHop
 gmKing:
+        call genCastling
         ld hl,kingDirs
         ld b,8
 gmHop:                          ; non-sliding: HL=dir table, B=count
