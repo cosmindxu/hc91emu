@@ -12,23 +12,24 @@ so the masked blitter can do:  screen = (screen AND mask) OR data
 """
 
 SPRITES = {
-# Player ship, pointing right (travel is left-to-right)
+# Player ship: a side-on rocket, nose to the right, swept rear fins and
+# exhaust at the tail (Chronos-inspired). Travel is left-to-right.
 "spr_ship": [
     "................",
-    ".....XX.........",
-    ".....XXX........",
-    "..X..XXXX.......",
-    "..XXXXXXXXX.....",
-    ".XXXXXXXXXXXX...",
-    ".XXXXXXXXXXXXXX.",
+    "................",
+    "...XXX..........",
+    "..XXXXXX........",
+    "...XXXXXXXXXX...",
+    "...XXXXXXXXXXXX.",
     "XXXXXXXXXXXXXXXX",
     "XXXXXXXXXXXXXXXX",
-    ".XXXXXXXXXXXXXX.",
-    ".XXXXXXXXXXXX...",
-    "..XXXXXXXXX.....",
-    "..X..XXXX.......",
-    ".....XXX........",
-    ".....XX.........",
+    "...XXXXXXXXXXXX.",
+    "...XXXXXXXXXX...",
+    "..XXXXXX........",
+    "...XXX..........",
+    "................",
+    "................",
+    "................",
     "................",
 ],
 # Asteroid / rock hazard
