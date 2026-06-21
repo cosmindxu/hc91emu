@@ -2231,40 +2231,85 @@ blNo:
 bookTable:
         defw 0xD7A4
         defb 0x64,0x44
-        defw nmOpen         ; 1.e4 e5
+        defw nmOpen     ; Open game
         defw 0xFD7F
         defb 0x71,0x52
-        defw nmKK           ; 1.e4 e5 2.Nf3 Nc6
+        defw nmKK       ; King's Knight
         defw 0x48E7
         defb 0x60,0x50
-        defw nmRuy          ; 3.Bb5 a6
+        defw nmRuy      ; Ruy Lopez
         defw 0x9C49
         defb 0x76,0x55
-        defw nmRuy          ; 4.Ba4 Nf6
+        defw nmRuy      ; Ruy Lopez
         defw 0x2983
         defb 0x75,0x42
-        defw nmItalian      ; 3.Bc4 Bc5
+        defw nmItalian  ; Italian Game
+        defw 0x2A60
+        defb 0x76,0x55
+        defw nmItalian  ; Italian Game
+        defw 0x0D8F
+        defb 0x63,0x53
+        defw nmItalian  ; Italian Game
+        defw 0x4C18
+        defb 0x44,0x33
+        defw nmScotch   ; Scotch
+        defw 0xA523
+        defb 0x76,0x55
+        defw nmKK       ; King's Knight
+        defw 0x73DD
+        defb 0x76,0x55
+        defw nmOpen     ; Open game
+        defw 0xFF7D
+        defb 0x76,0x55
+        defw nmOpen     ; Open game
+        defw 0x1646
+        defb 0x44,0x33
+        defw nmOpen     ; Open game
         defw 0xAD47
         defb 0x63,0x43
-        defw nmClosed       ; 1.d4 d5
+        defw nmClosed   ; Closed game
         defw 0x1DFD
         defb 0x64,0x54
-        defw nmQG           ; 2.c4 e6
+        defw nmQG       ; Queen's Gambit
         defw 0xFDA2
         defb 0x76,0x55
-        defw nmQP           ; 2.Nf3 Nf6
+        defw nmQP       ; Queen's Pawn
         defw 0x4EE5
         defb 0x76,0x55
-        defw nmQGD          ; 3.Nc3 Nf6
+        defw nmQGD      ; QGD
+        defw 0x4CE7
+        defb 0x76,0x55
+        defw nmQGD      ; QGD
+        defw 0x318B
+        defb 0x76,0x55
+        defw nmLondon   ; London
+        defw 0x978A
+        defb 0x76,0x55
+        defw nmClosed   ; Closed game
         defw 0x467E
         defb 0x76,0x55
-        defw nmReti         ; 1.Nf3 Nf6
+        defw nmReti     ; Reti
+        defw 0xE8C4
+        defb 0x64,0x54
+        defw nmReti     ; Reti
+        defw 0x671A
+        defb 0x63,0x43
+        defw nmReti     ; Reti
         defw 0xA621
         defb 0x64,0x44
-        defw nmEnglish      ; 1.c4 e5
+        defw nmEnglish  ; English
+        defw 0x2D2E
+        defb 0x76,0x55
+        defw nmEnglish  ; English
         defw 0x82FA
         defb 0x63,0x43
-        defw nmBird         ; 1.f4 d5
+        defw nmBird     ; Bird
+        defw 0x29FF
+        defb 0x63,0x43
+        defw nmClosed   ; Closed game
+        defw 0x7AD7
+        defb 0x64,0x44
+        defw nmOpen     ; Open game
         defw 0xFFFF
 
 ; =====================================================================
