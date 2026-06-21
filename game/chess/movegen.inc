@@ -1154,6 +1154,15 @@ utStale:
         call setMsg
         ret
 utHas:
+        call isInsufficient
+        or a
+        jr z,utHm
+        ld a,4
+        ld (gameState),a
+        ld hl,msgMat
+        call setMsg
+        ret
+utHm:
         ld a,(halfmove)
         cp 100
         jr c,utPlay
@@ -1171,4 +1180,51 @@ utPlay:
         ret z
         ld hl,msgCheck
         call setMsg
+        ret
+
+; isInsufficient -> A=1 if the position is a draw by insufficient material
+; (KvK, KNvK, KBvK).  Any pawn/rook/queen, or >=2 minors, is sufficient.
+isInsufficient:
+        ld c,0                  ; square
+        ld d,0                  ; minor count
+        ld e,0                  ; pawn/rook/queen present?
+iiLoop:
+        ld a,c
+        and 0x88
+        jr nz,iiNext
+        ld h,0xE0
+        ld l,c
+        ld a,(hl)
+        and 7
+        cp 1
+        jr z,iiHeavy
+        cp 4
+        jr z,iiHeavy
+        cp 5
+        jr z,iiHeavy
+        cp 2
+        jr z,iiMinor
+        cp 3
+        jr z,iiMinor
+        jr iiNext
+iiHeavy:
+        ld e,1
+        jr iiNext
+iiMinor:
+        inc d
+iiNext:
+        inc c
+        ld a,c
+        cp 0x78
+        jr nz,iiLoop
+        ld a,e
+        or a
+        jr nz,iiNo
+        ld a,d
+        cp 2
+        jr nc,iiNo
+        ld a,1
+        ret
+iiNo:
+        xor a
         ret
