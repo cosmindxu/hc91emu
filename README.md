@@ -141,20 +141,26 @@ and one 128K title when the library is present. The files are
 copyrighted period software and are never committed; the library
 README carries the full index.
 
-## ZX-CHESS — bundled original game
+## ZX-CHESS — bundled chess engine + game
 
-[`game/chess/`](game/chess/) is an original chess engine + game written
-in Z80 assembly for this machine, designed by studying the best
-open-source engines (Stockfish/Leela, lichess) and re-deriving the same
-algorithms under 8-bit constraints: a 0x88 board, direction-offset move
-generation with full castling/en-passant/promotion, check/mate/stalemate
-detection, and a negamax search with material + piece-square evaluation
-and selectable strength. It assembles with `pasmo` into a bootable tape
-(`cd game/chess && make`), runs on every supported machine, and is
-verified headlessly by `make test`. The phased plan from this Foundation
-to a club-strength engine with quiescence, transposition tables, an
-opening book and analysis mode is in
-[`game/chess/ROADMAP.md`](game/chess/ROADMAP.md).
+[`game/chess/`](game/chess/) is a chess engine and game written from
+scratch in Z80 assembly for this machine. Chess programs are as old as
+home computing, so the interesting part is not the genre but the build:
+modern open-source engines (Stockfish/Leela, lichess) are mined for their
+algorithms, which are then re-derived under 8-bit constraints — a 0x88
+board, direction-offset move generation with full
+castling/en-passant/promotion, check/mate/stalemate detection, and a
+negamax search with material + piece-square evaluation and selectable
+strength. Two things set it apart from a typical retro port: the search
+is deliberately structured (a `searchPly`-indexed frame) so alpha-beta,
+PVS and a transposition table slot in without a rewrite, and the whole
+thing is verified **headlessly and reproducibly** by this emulator's own
+harness — `make test` golden-checks the rendered board and confirms the
+engine answers 1.e4 with a legal reply. It assembles with `pasmo` into a
+bootable tape (`cd game/chess && make`) and runs on every supported
+machine. The phased plan from this Foundation to a club-strength engine
+with quiescence, transposition tables, an opening book and analysis mode
+is in [`game/chess/ROADMAP.md`](game/chess/ROADMAP.md).
 
 ## ROMs
 
