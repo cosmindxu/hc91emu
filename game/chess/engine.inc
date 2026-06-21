@@ -1289,7 +1289,37 @@ smv1:
         ld a,c
         or a
         jr nz,smvCap
-        xor a                    ; quiet move
+        ; quiet move: score from the history heuristic (0..63)
+        push hl
+        ld h,0xE0
+        ld l,e
+        ld a,(hl)
+        and 7
+        dec a                    ; type-1
+        ld l,a
+        ld h,0
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        add hl,hl                ; *64
+        ld a,d
+        and 0x70
+        rrca
+        ld c,a
+        ld a,d
+        and 7
+        or c                     ; to64
+        ld c,a
+        ld b,0
+        add hl,bc
+        ld bc,historyTbl
+        add hl,bc
+        ld a,(hl)
+        pop hl
+        srl a
+        srl a                    ; /4 -> 0..63
         jr smvStore
 smvCap:
         ld a,b
@@ -1568,6 +1598,59 @@ ukShift:
         inc hl
         ld a,(mvTo)
         ld (hl),a
+        ; history: history[pieceType][to64] += depth (saturating)
+        call histAddr
+        call ptrDepth
+        ld a,(hl)
+        ld b,a                   ; B = depth
+        ex de,hl                 ; HL = history entry (histAddr left it in DE)
+        ld a,(hl)
+        add a,b
+        jr nc,ukHsave
+        ld a,255
+ukHsave:
+        ld (hl),a
+        ret
+
+; histAddr -> DE = &history[type(mvFrom)-1][to64(mvTo)]
+histAddr:
+        ld a,(mvFrom)
+        ld l,a
+        ld h,0xE0
+        ld a,(hl)
+        and 7
+        dec a                    ; type-1 (0..5)
+        add a,a
+        add a,a
+        add a,a
+        add a,a
+        add a,a
+        add a,a                  ; *64
+        ld e,a
+        ld d,0
+        ld a,(mvTo)
+        ld c,a
+        and 0x70
+        rrca
+        ld l,a
+        ld a,c
+        and 7
+        or l                     ; to64
+        ld c,a
+        ld hl,historyTbl
+        add hl,de
+        ld d,0
+        ld e,c
+        add hl,de
+        ex de,hl                 ; DE = entry address
+        ret
+
+clearHistory:
+        ld hl,historyTbl
+        ld de,historyTbl+1
+        ld bc,383
+        ld (hl),0
+        ldir
         ret
 
 clearKillers:
