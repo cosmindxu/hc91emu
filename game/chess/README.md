@@ -25,16 +25,17 @@ It is a full, rules-correct game against a genuinely searching engine:
   windows**, **quiescence**, **null-move** and **reverse-futility**
   pruning, and an 8 KB **transposition table** keyed by an
   incrementally-maintained **Zobrist** hash
-- move ordering by **TT move + PV + MVV-LVA + killer moves**
+- move ordering by **TT move + PV + MVV-LVA + killer moves + history**
 - **tapered** evaluation (endgame king centralisation), **bishop pair**,
-  **doubled/isolated pawns**, **king-safety pawn shield**, material +
-  piece-square tables
+  **doubled/isolated/passed pawns**, **king-safety pawn shield**, a
+  **KQK/KRK mating drive**, material + piece-square tables
 - **perft self-test** (press `T`) proving the move generator against the
   canonical counts — start position to depth 4 plus Kiwipete, an
   en-passant and a promotion position — and verifying the Zobrist key
-- **two-player** mode, **take-back/undo**, and an **analysis readout**
-  (the engine's last move + evaluation), selectable strength (depth 1–5),
-  board flip, new game
+- **two-player** mode, **take-back/undo**, a promotion chooser, beeper
+  move sound, an **analysis readout** (opening name, the engine's last
+  move, its evaluation and the material balance), and an endgame demo
+  loader — selectable strength (depth 1–5), board flip, new game
 
 See [ROADMAP.md](ROADMAP.md) for the phase-by-phase status and the
 remaining "excellence" items (opening book, KQK/KRK endgame logic,
@@ -77,9 +78,12 @@ ROM character set, so it is fully 48K-compatible.
 | `1`–`5` | set engine strength (search depth) |
 | `Z` | take back / undo |
 | `V` | toggle two-player (human vs human) |
+| `E` | load a K+R vs K endgame demo |
 | `F` | flip the board |
 | `N` | new game |
 | `T` | run the perft + Zobrist self-test |
+
+On a pawn promotion the game prompts for the piece (`Q`/`R`/`B`/`N`).
 
 You play White (bottom). Select your piece, move the cursor to the
 destination and confirm. Promotions auto-queen for now (a Q/R/B/N chooser
