@@ -78,10 +78,62 @@ cgNo:   or a
 
 ; =====================================================================
 ;  eval — static evaluation, side-to-move relative, returns HL.
+;  Material + piece-square tables, with a tapered king table (centralise
+;  in the endgame), a bishop-pair bonus, and doubled/isolated pawn
+;  penalties.
 ; =====================================================================
+computePhase:
+        ld c,0
+        ld b,0                  ; phase
+cpLoop:
+        ld a,c
+        and 0x88
+        jr nz,cpNext
+        ld h,0xE0
+        ld l,c
+        ld a,(hl)
+        and 7
+        cp 2
+        jr z,cpMinor
+        cp 3
+        jr z,cpMinor
+        cp 4
+        jr z,cpRook
+        cp 5
+        jr z,cpQueen
+        jr cpNext
+cpMinor:
+        inc b
+        jr cpNext
+cpRook:
+        inc b
+        inc b
+        jr cpNext
+cpQueen:
+        ld a,b
+        add a,4
+        ld b,a
+cpNext:
+        inc c
+        ld a,c
+        cp 0x78
+        jr nz,cpLoop
+        ld a,b
+        ld (gamePhase),a
+        ret
+
 eval:
+        call computePhase
         ld hl,0
         ld (evalAcc),hl
+        xor a
+        ld (wBish),a
+        ld (bBish),a
+        ld hl,wpFile
+        ld b,16
+ezf:    ld (hl),0
+        inc hl
+        djnz ezf
         ld a,0
 evLoop:
         ld (tmpSq),a
@@ -94,7 +146,40 @@ evLoop:
         or a
         jp z,evNext
         ld b,a                  ; piece
-        ; material -> DE
+        ; --- bishop / pawn-file statistics ---
+        ld a,b
+        and 7
+        cp 3
+        jr nz,evNotB
+        ld a,b
+        and 8
+        jr nz,evBb
+        ld hl,wBish
+        inc (hl)
+        jr evStat
+evBb:   ld hl,bBish
+        inc (hl)
+        jr evStat
+evNotB:
+        cp 1
+        jr nz,evStat
+        ld a,(tmpSq)
+        and 7
+        ld e,a
+        ld d,0
+        ld a,b
+        and 8
+        jr nz,evBp
+        ld hl,wpFile
+        add hl,de
+        inc (hl)
+        jr evStat
+evBp:   ld hl,bpFile
+        add hl,de
+        inc (hl)
+evStat:
+        ; --- material ---
+        ld a,b
         and 7
         add a,a
         ld e,a
@@ -103,8 +188,9 @@ evLoop:
         add hl,de
         ld e,(hl)
         inc hl
-        ld d,(hl)               ; DE = material value
-        ; pst index (white) = ((sq&0x70)>>1)|(sq&7)
+        ld d,(hl)
+        ld (matVal),de
+        ; --- pst index (white) ---
         ld a,(tmpSq)
         ld c,a
         and 0x70
@@ -113,15 +199,27 @@ evLoop:
         ld a,c
         and 7
         or l
-        ld c,a                  ; C = white index
+        ld c,a
         ld a,b
         and 8
         jr z,evWi
         ld a,c
         xor 0x38
-        ld c,a                  ; black: mirror rank
+        ld c,a
 evWi:
-        ; pst row base = pstTables + (type-1)*64
+        ; --- choose PST table ---
+        ld a,b
+        and 7
+        cp 6
+        jr nz,evNorm
+        ld a,(gamePhase)
+        cp PHASE_EG
+        jr nc,evKmg
+        ld hl,pstKingEG
+        jr evTbl
+evKmg:  ld hl,pstTables+5*64
+        jr evTbl
+evNorm:
         ld a,b
         and 7
         dec a
@@ -132,27 +230,22 @@ evWi:
         add hl,hl
         add hl,hl
         add hl,hl
-        add hl,hl               ; *64
+        add hl,hl
+        ld de,pstTables
+        add hl,de
+evTbl:
         ld a,c
-        ld c,l
-        ld b,h                  ; BC = (type-1)*64
-        ld l,a
-        ld h,0
-        add hl,bc               ; + index
-        ld bc,pstTables
-        add hl,bc
+        ld e,a
+        ld d,0
+        add hl,de
         ld a,(hl)               ; signed PST byte
-        ; HL = sign-extend(A)
         ld l,a
         rla
         sbc a,a
         ld h,a
-        add hl,de               ; total = material + pst
-        ; re-load piece colour (B was clobbered) from board
-        ld a,(tmpSq)
-        ld e,a
-        ld d,0xE0
-        ld a,(de)
+        ld de,(matVal)
+        add hl,de               ; total
+        ld a,b
         and 8
         jr nz,evBlack
         ld de,(evalAcc)
@@ -170,6 +263,96 @@ evNext:
         inc a
         cp 0x78
         jp nz,evLoop
+        ; --- bishop pair ---
+        ld a,(wBish)
+        cp 2
+        jr c,evBpb
+        ld hl,(evalAcc)
+        ld de,BISHOP_PAIR
+        add hl,de
+        ld (evalAcc),hl
+evBpb:  ld a,(bBish)
+        cp 2
+        jr c,evPawns
+        ld hl,(evalAcc)
+        ld de,BISHOP_PAIR
+        or a
+        sbc hl,de
+        ld (evalAcc),hl
+        ; --- doubled / isolated pawns ---
+evPawns:
+        ld c,0                  ; file
+evPf:
+        ; white doubled
+        ld b,0
+        ld a,c
+        ld e,a
+        ld d,0
+        ld hl,wpFile
+        add hl,de
+        ld a,(hl)
+        cp 2
+        jr c,evPwIso
+        ld hl,(evalAcc)
+        ld de,DOUBLED
+        or a
+        sbc hl,de
+        ld (evalAcc),hl
+evPwIso:
+        ld a,c
+        ld e,a
+        ld d,0
+        ld hl,wpFile
+        add hl,de
+        ld a,(hl)
+        or a
+        jr z,evPb
+        ld a,c
+        call hasNeighborW
+        or a
+        jr nz,evPb
+        ld hl,(evalAcc)
+        ld de,ISOLATED
+        or a
+        sbc hl,de
+        ld (evalAcc),hl
+evPb:
+        ; black doubled
+        ld a,c
+        ld e,a
+        ld d,0
+        ld hl,bpFile
+        add hl,de
+        ld a,(hl)
+        cp 2
+        jr c,evPbIso
+        ld hl,(evalAcc)
+        ld de,DOUBLED
+        add hl,de
+        ld (evalAcc),hl
+evPbIso:
+        ld a,c
+        ld e,a
+        ld d,0
+        ld hl,bpFile
+        add hl,de
+        ld a,(hl)
+        or a
+        jr z,evPnext
+        ld a,c
+        call hasNeighborB
+        or a
+        jr nz,evPnext
+        ld hl,(evalAcc)
+        ld de,ISOLATED
+        add hl,de
+        ld (evalAcc),hl
+evPnext:
+        inc c
+        ld a,c
+        cp 8
+        jp nz,evPf
+        ; --- side relative ---
         ld a,(sideToMove)
         or a
         jr z,evWhiteRet
@@ -180,6 +363,62 @@ evNext:
         ret
 evWhiteRet:
         ld hl,(evalAcc)
+        ret
+
+; hasNeighborW(A=file) -> A=1 if a white pawn exists on file-1 or file+1
+hasNeighborW:
+        ld c,a
+        or a
+        jr z,hnwR
+        dec a
+        ld e,a
+        ld d,0
+        ld hl,wpFile
+        add hl,de
+        ld a,(hl)
+        or a
+        jr nz,hnY
+hnwR:
+        ld a,c
+        cp 7
+        jr z,hnN
+        inc a
+        ld e,a
+        ld d,0
+        ld hl,wpFile
+        add hl,de
+        ld a,(hl)
+        or a
+        jr nz,hnY
+hnN:    xor a
+        ret
+hnY:    ld a,1
+        ret
+hasNeighborB:
+        ld c,a
+        or a
+        jr z,hnbR
+        dec a
+        ld e,a
+        ld d,0
+        ld hl,bpFile
+        add hl,de
+        ld a,(hl)
+        or a
+        jr nz,hnY
+hnbR:
+        ld a,c
+        cp 7
+        jr z,hnN
+        inc a
+        ld e,a
+        ld d,0
+        ld hl,bpFile
+        add hl,de
+        ld a,(hl)
+        or a
+        jr nz,hnY
+        xor a
         ret
 
 ; =====================================================================
@@ -864,3 +1103,13 @@ pstTables:
         defb -10,-20,-20,-20,-20,-20,-20,-10
         defb  20, 20,  0,  0,  0,  0, 20, 20
         defb  20, 30, 10,  0,  0, 10, 30, 20
+; --- king (endgame): centralise ---
+pstKingEG:
+        defb -50,-40,-30,-20,-20,-30,-40,-50
+        defb -30,-20,-10,  0,  0,-10,-20,-30
+        defb -30,-10, 20, 30, 30, 20,-10,-30
+        defb -30,-10, 30, 40, 40, 30,-10,-30
+        defb -30,-10, 30, 40, 40, 30,-10,-30
+        defb -30,-10, 20, 30, 30, 20,-10,-30
+        defb -30,-30,  0,  0,  0,  0,-30,-30
+        defb -50,-30,-30,-30,-30,-30,-30,-50
