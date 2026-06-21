@@ -487,10 +487,12 @@ mcrCol: ld a,b
         ld (dsRow),a
         ret
 
-; attribute for dsSquare -> A.  Pieces are drawn with black ink on the
-; square colour (white = hollow outline, black = solid), so the attribute
-; is just the square's paper, taken from the active colour scheme's row of
-; schemeTable: [light, dark, cursor, selected].
+; attribute for dsSquare -> A.  Pieces are drawn with black ink: a black
+; piece is a solid silhouette on the square colour; a white piece is a
+; black outline on a WHITE paper, so its body fills white (the cell's
+; backdrop also turns white — the cost of a black line + white fill + a
+; coloured board in a single-ink ZX cell).  Square colours come from the
+; active scheme's schemeTable row: [light, dark, cursor, selected].
 squareAttr:
         ld b,a
         and 7
@@ -518,9 +520,19 @@ saBase: call schemeAttr
 saSel:  ld a,(dsSquare)
         ld hl,selSq
         cp (hl)
-        jr nz,saEnd
+        jr nz,saWp
         ld a,3                 ; selected-square highlight
         jp schemeAttr
+saWp:   ld a,(dsSquare)        ; white piece here? -> white fill tile
+        ld h,0xE0
+        ld l,a
+        ld a,(hl)
+        or a
+        jr z,saEnd             ; empty
+        and COLBIT
+        jr nz,saEnd            ; black piece -> keep square colour
+        ld a,0x78              ; white piece: bright, ink 0, paper 7 (white)
+        ret
 saEnd:  ld a,e
         ret
 
