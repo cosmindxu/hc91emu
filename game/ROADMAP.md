@@ -45,10 +45,10 @@ Status legend: ✅ done · ◐ partial · ☐ todo
 
 - ✅ Side-on ship sprite; per-object attribute colour; per-zone palette
   and border.
-- ✅ **Banded / gradient backdrops per zone** — `attr_row[24]` gives each
-  zone six nebula colour bands (vivid blues/magentas/reds inspired by space
-  nebulae), applied per row by the blitter so sprites never bleed across a
-  band.
+- ✅ **Banded / gradient backdrops per zone** — `attr_row[24]` keeps a
+  **black backdrop** in every band (easy on the eyes; bright object inks
+  pop) while each zone's six bands carry a distinct star/terrain ink, so the
+  blitter still paints per row and sprites never bleed across a band.
 - ✅ **Parallax starfield in 3 depth layers** — speeds 1–3; the near layer
   draws a 2px dash so it reads brighter.
 - ✅ **Sprite animation.** Ship exhaust flicker (two frames), spinning
