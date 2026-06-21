@@ -1,8 +1,16 @@
 ; =====================================================================
-;  tt.inc — transposition table (8 KB, 1024 buckets x 8 bytes).
+;  tt.inc — transposition table.
 ;  Entry: key(2) score(2) depth(1) flag(1) from(1) to(1).
 ;  flag: 0 exact, 1 lower bound (>=beta), 2 upper bound (<=alpha).
 ;  depth 0 marks an empty slot.
+;
+;  48K: 8 KB / 1024 buckets at 0x6000, addressed directly.
+;  128K (is128=1): 64 KB / 8192 buckets across the four spare 16K RAM
+;  banks (1,3,4,6) paged through 0x7FFD into the 0xC000 window.  Each
+;  access stages the 8-byte entry to/from ttStage (non-pageable RAM) with
+;  a register-only LDIR inside a DI/EI window — no stack use and no ISR
+;  while a bank is paged, so the workspace/stack (also in 0xC000-0xFFFF)
+;  stay coherent.  ttFetch/ttFlush hide the split; the search is unchanged.
 ; =====================================================================
 
 ptrOrigAlpha:
@@ -64,7 +72,7 @@ setBetaDE:
         ld (hl),d
         ret
 
-; ttAddr -> HL = entry address for the current hashKey
+; ttAddr -> HL = 48K entry address (0x6000 table) for the current hashKey
 ttAddr:
         ld hl,(hashKey)
         ld a,h
@@ -77,12 +85,122 @@ ttAddr:
         add hl,de
         ret
 
+; ttAddr128 -> HL = 0xC000 window address, A = 0x7FFD bank value, for the
+; current hashKey.  Uses 13 key bits: top 2 select one of 4 spare banks,
+; low 11 index an 8-byte slot within that bank (8192 slots total).
+; Called outside the DI/EI window, so it may use the stack.
+ttAddr128:
+        ld hl,(hashKey)
+        ld a,h
+        and 0x1F
+        ld h,a                  ; HL = key & 0x1FFF (13-bit index)
+        ld a,h
+        rrca
+        rrca
+        rrca
+        and 3                   ; bank index 0..3 = idx>>11
+        ld e,a
+        ld d,0
+        push hl                 ; save the 13-bit index
+        ld hl,ttBanks
+        add hl,de
+        ld c,(hl)               ; C = 0x7FFD bank value
+        pop hl
+        ld a,h
+        and 7
+        ld h,a                  ; HL = idx & 0x7FF (slot within bank)
+        add hl,hl
+        add hl,hl
+        add hl,hl               ; *8 -> 0..0x3FF8 offset
+        ld de,0xC000
+        add hl,de               ; HL = window address
+        ld a,c                  ; A = bank value
+        ret
+
+; ttFetch — copy the current position's 8-byte entry into ttStage.
+ttFetch:
+        ld a,(is128)
+        or a
+        jr nz,ttFetch128
+        call ttAddr
+        ld de,ttStage
+        ld bc,8
+        ldir
+        ret
+ttFetch128:
+        call ttAddr128          ; HL = src window addr, A = bank value
+        ld de,ttStage
+        di
+        ld bc,0x7FFD
+        out (c),a               ; page the TT bank in
+        ld bc,8
+        ldir                    ; [HL banked] -> [DE ttStage], register-only
+        ld bc,0x7FFD
+        ld a,0x10
+        out (c),a               ; restore ROM1, bank 0
+        ei
+        ret
+
+; ttFlush — write ttStage back into the current position's entry.
+ttFlush:
+        ld a,(is128)
+        or a
+        jr nz,ttFlush128
+        call ttAddr
+        ex de,hl                ; DE = dest
+        ld hl,ttStage
+        ld bc,8
+        ldir
+        ret
+ttFlush128:
+        call ttAddr128          ; HL = dest window addr, A = bank value
+        ex de,hl                ; DE = dest (A preserved)
+        ld hl,ttStage           ; src
+        di
+        ld bc,0x7FFD
+        out (c),a               ; page the TT bank in
+        ld bc,8
+        ldir
+        ld bc,0x7FFD
+        ld a,0x10
+        out (c),a               ; restore ROM1, bank 0
+        ei
+        ret
+
 ttClear:
+        ld a,(is128)
+        or a
+        jr nz,ttClear128
         ld hl,TT_BASE
         ld de,TT_BASE+1
         ld bc,0x1FFF
         ld (hl),0
         ldir
+        ret
+; clear all four spare banks (16K each) of the 128K transposition table
+ttClear128:
+        ld b,4
+        ld hl,ttBanks
+ttc128L:
+        ld a,(hl)
+        push hl
+        push bc
+        di
+        ld bc,0x7FFD
+        out (c),a               ; page this bank in
+        ld hl,0xC000
+        ld de,0xC001
+        ld bc,0x3FFF
+        ld (hl),0
+        ldir
+        ld bc,0x7FFD
+        ld a,0x10
+        out (c),a               ; restore bank 0
+        ei
+        pop bc
+        pop hl
+        inc hl
+        djnz ttc128L
         ret
 
 ; ttProbe(A=depth) -> A=1 and HL=score on a usable cutoff; otherwise A=0
@@ -91,35 +209,26 @@ ttProbe:
         ld (ttCurDepth),a
         ld a,0xFF
         ld (ttFrom),a
-        call ttAddr
+        call ttFetch            ; ttStage = entry for this position
+        ld hl,ttStage
         ld e,(hl)
         inc hl
         ld d,(hl)               ; DE = entry.key
-        push hl                  ; HL at +1
         ld hl,(hashKey)
         or a
         sbc hl,de
-        pop hl
         jr nz,ttMiss            ; key mismatch
-        ; HL is at entry+1; walk to fields
-        inc hl                  ; +2 score lo
-        ld e,(hl)
-        inc hl
-        ld d,(hl)               ; DE = score
-        ld (ttEntScore),de
-        inc hl                  ; +4 depth
-        ld a,(hl)
+        ld hl,(ttStage+2)
+        ld (ttEntScore),hl      ; score
+        ld a,(ttStage+4)        ; depth
         or a
         jr z,ttMiss            ; empty slot
         ld (ttEntDepth),a
-        inc hl                  ; +5 flag
-        ld a,(hl)
+        ld a,(ttStage+5)
         ld (ttEntFlag),a
-        inc hl                  ; +6 from
-        ld a,(hl)
+        ld a,(ttStage+6)
         ld (ttFrom),a
-        inc hl                  ; +7 to
-        ld a,(hl)
+        ld a,(ttStage+7)
         ld (ttTo),a
         ; usable for a cutoff only if entry depth >= current depth
         ld a,(ttEntDepth)
@@ -174,7 +283,7 @@ ttNoCut:
 ;         (nbFromArr[ply])/(nbToArr[ply]) = best move.
 ttStore:
         ld (ttEntFlag),a
-        call ttAddr
+        ld hl,ttStage
         ld de,(hashKey)
         ld (hl),e
         inc hl
@@ -190,27 +299,11 @@ ttStore:
         inc hl
         ld a,(ttEntFlag)
         ld (hl),a               ; flag
-        inc hl
         call ptrNbFrom
         ld a,(hl)
-        call ttAddrNb6          ; store from at +6
+        ld (ttStage+6),a        ; from
         call ptrNbTo
         ld a,(hl)
-        call ttAddrNb7          ; store to at +7
-        ret
-ttAddrNb6:
-        push af
-        call ttAddr
-        ld de,6
-        add hl,de
-        pop af
-        ld (hl),a
-        ret
-ttAddrNb7:
-        push af
-        call ttAddr
-        ld de,7
-        add hl,de
-        pop af
-        ld (hl),a
+        ld (ttStage+7),a        ; to
+        call ttFlush            ; write the entry back (banked on 128K)
         ret

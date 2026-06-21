@@ -65,6 +65,14 @@ test: chess.tap
 		ok = b(0x34)==1 and b(0x44)==9 and b(0x64)==0 and b(0x14)==0; \
 		print('chess: tape save/load round-trip OK' if ok else 'chess: FAIL - save/load did not restore the position'); \
 		sys.exit(0 if ok else 1)"
+	@# 128K banked transposition table: run a forced search (KRK, no book) on
+	@# both machines; the move must match (banking must not corrupt), 128K must
+	@# detect paging (is128=1), and its spare banks must hold real TT entries.
+	@$(EMU) --machine 48k --rom $(ROM) chess.tap --autoload --turbo \
+		--keys "1000:E" --frames 4000 --save-sna /tmp/chess_krk48.sna >/dev/null 2>&1
+	@$(EMU) --machine hc128 --rom $(ROM) chess.tap --autoload --turbo \
+		--keys "1000:E" --keys "1300:5" --frames 9000 --save-szx /tmp/chess_krk128.szx >/dev/null 2>&1
+	@$(PY) tt_check.py /tmp/chess_krk48.sna /tmp/chess_krk128.szx
 
 play: chess.tap
 	$(EMU) --machine 48k --rom $(ROM) chess.tap --autoload --sdl --scale 3
