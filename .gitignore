@@ -6,6 +6,7 @@ roms/
 core
 tests/vectors/
 dist/
+__pycache__/
 
 # ZX-CHESS build artifacts (source + generated pieces.inc are committed)
 game/chess/chess.bin
