@@ -1954,6 +1954,33 @@ clkElapsed:
         sbc hl,de
         ret
 
+; clkBudgetExceeded -> CF=1 if this move has used its time budget (the side
+; to move's remaining clock >> 5, i.e. ~1/32 of the clock), so iterative
+; deepening should stop before starting another, slower iteration.  Lets
+; the engine pace itself by the clock instead of always paying full depth.
+clkBudgetExceeded:
+        call clkElapsed          ; HL = frames used this move
+        ld a,(clkTurnSide)
+        or a
+        ld de,(wClock)
+        jr z,cbeShift
+        ld de,(bClock)
+cbeShift:
+        srl d
+        rr e
+        srl d
+        rr e
+        srl d
+        rr e
+        srl d
+        rr e
+        srl d
+        rr e                     ; DE = clock >> 5  (time budget for this move)
+        or a
+        sbc hl,de                ; CF=1 (borrow) iff elapsed < budget
+        ccf                      ; CF=1 iff elapsed >= budget -> exceeded
+        ret
+
 ; clkCommit — subtract this turn's elapsed time from the mover's clock,
 ; clamping at zero; a zero clock is a flag-fall loss (unless the position
 ; is already terminal, in which case that result stands).
