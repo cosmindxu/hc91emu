@@ -46,19 +46,19 @@ Status legend: ✅ done · ◐ partial · ☐ todo
 
 - ✅ Side-on ship sprite; per-object attribute colour; per-zone palette
   and border.
-- ☐ **Banded / gradient backdrops per zone** (sky→ground colour bands)
-  for depth without attribute clash on the sprites.
-- ☐ **Parallax starfield in 2–3 depth layers** with brightness via
-  bright-bit, not just speed.
-- ☐ **Sprite animation.** Engine-exhaust flicker on the ship, spinning
-  asteroids, pulsing crystals — 2–3 frames each.
+- ✅ **Banded / gradient backdrops per zone** — `attr_row[24]` gives each
+  zone three sky/mid/ground colour bands, applied per row by the blitter
+  so sprites never bleed across a band.
+- ✅ **Parallax starfield in 3 depth layers** — speeds 1–3; the near layer
+  draws a 2px dash so it reads brighter.
+- ✅ **Sprite animation.** Ship exhaust flicker (two frames), spinning
+  asteroids, pulsing crystals.
 - ✅ **Explosion animation** — a 3-frame expanding burst plays where
   hazards, the player and the boss are destroyed.
-- ☐ **Scrolling foreground terrain** (cave walls top & bottom) to lean
-  fully into the cave-flyer fantasy. Hardest item; do as a
-  character-cell scroll first.
-- ☐ **Anti-clash tricks**: keep moving sprites a single ink, reserve a
-  colour per object class, draw bullets in their own cells.
+- ✅ **Scrolling foreground terrain** — a character-cell cave ceiling and
+  floor scroll left with feed-in tiles, over the banded backdrop.
+- ✅ **Anti-clash tricks**: each object class has one reserved ink, the
+  banded backdrop keeps paper per row, and bullets stay uncoloured.
 
 ## 4. Presentation & UX
 

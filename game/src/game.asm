@@ -194,7 +194,11 @@ zero_objects:
 ;  PER-FRAME PLAY
 ; ============================================================================
 play_frame:
+        ld a, (anim_ctr)
+        inc a
+        ld (anim_ctr), a
         call do_stars
+        call scroll_terrain
         ; erase ship at old position
         ld a, (ship_x)
         ld (spr_x), a
@@ -218,7 +222,12 @@ play_frame:
         and 4
         jr nz, pf_skipship
 pf_drawship:
-        ld hl, spr_ship
+        ld hl, spr_ship         ; flicker the exhaust between two frames
+        ld a, (anim_ctr)
+        and 4
+        jr z, pf_shipf
+        ld hl, spr_shipb
+pf_shipf:
         ld (spr_ptr), hl
         ld a, (ship_x)
         ld (spr_x), a
@@ -474,13 +483,13 @@ ai_ymove:
         ld b, a
         ld a, (ship_y)
         add a, b
-        cp 20
+        cp 24
         jr nc, ai_ylo
-        ld a, 20
+        ld a, 24
 ai_ylo:
-        cp 177
+        cp 161
         jr c, ai_yhi
-        ld a, 176
+        ld a, 160
 ai_yhi:
         ld (ship_y), a
         ret
@@ -775,7 +784,15 @@ obj_draw:
         jr z, obj_spr_p
         cp T_ENEMY
         jr z, obj_spr_e
+        ; rock: spin between two frames
+        ld a, (ix+6)
+        and 4
+        jr z, obj_rk0
+        ld hl, spr_rock2
+        jr obj_rkd
+obj_rk0:
         ld hl, spr_rock
+obj_rkd:
         ld a, 7                 ; rock: white
         jr obj_spr_set
 obj_spr_e:
@@ -783,7 +800,15 @@ obj_spr_e:
         ld a, 4                 ; enemy: green
         jr obj_spr_set
 obj_spr_c:
+        ; crystal: pulse between two frames
+        ld a, (ix+6)
+        and 4
+        jr z, obj_cr0
+        ld hl, spr_crystal2
+        jr obj_crd
+obj_cr0:
         ld hl, spr_crystal
+obj_crd:
         ld a, 6                 ; crystal: yellow
         jr obj_spr_set
 obj_spr_p:
@@ -1284,36 +1309,61 @@ gp_n3:
 ;  Block is (sab_w) cells wide x 3 cells tall.
 ; ============================================================================
 ; set_attr_block: A=attr  B=cell row  C=cell col
+; set_attr_block: B=cell row, C=cell col.  Fills a (sab_w x 3) block.
+; Each row's attribute = (attr_row[row] & sab_keep) | sab_or, so the band
+; backdrop is preserved per row (no cross-band bleed).
 set_attr_block:
-        ld (sab_attr), a
         ld a, b
-        ld l, a
+        ld (sab_r), a
         ld h, 0
+        ld l, b
         add hl, hl
         add hl, hl
         add hl, hl
         add hl, hl
         add hl, hl              ; row*32
+        ld d, 0
+        ld e, c
+        add hl, de              ; + col
         ld de, ATTR
         add hl, de
-        ld a, c
-        ld e, a
-        ld d, 0
-        add hl, de              ; + col
+        push hl
+        pop ix                  ; IX = cell address
         ld b, 3                 ; rows
 sab_row:
-        push hl
-        ld a, (sab_w)
-        ld c, a
-        ld a, (sab_attr)
-sab_col:
-        ld (hl), a
-        inc hl
-        dec c
-        jr nz, sab_col
-        pop hl
-        ld de, 32
+        push bc
+        ld a, (sab_r)           ; band attribute for this row
+        ld e, a
+        ld d, 0
+        ld hl, attr_row
         add hl, de
+        ld a, (hl)
+        ld b, a
+        ld a, (sab_keep)
+        and b
+        ld b, a
+        ld a, (sab_or)
+        or b
+        ld c, a                 ; final attribute
+        ld a, (sab_w)
+        ld b, a
+sab_col:
+        ld (ix+0), c
+        inc ix
+        dec b
+        jr nz, sab_col
+        ld de, 32
+        ld a, (sab_w)
+        ld e, a
+        ld a, 32
+        sub e
+        ld e, a
+        ld d, 0
+        add ix, de              ; advance to next row start
+        ld a, (sab_r)
+        inc a
+        ld (sab_r), a
+        pop bc
         djnz sab_row
         ret
 
@@ -1328,26 +1378,25 @@ color_ship:
         ld c, a
         ld a, 4
         ld (sab_w), a
-color_common:
-        ld a, (zone_base)
-        and 0xF8
-        or c
-        ld (sab_attr), a
+color_common:                   ; C = ink on entry
+        ld a, 0xF8              ; keep paper+bright, replace ink
+        ld (sab_keep), a
+        ld a, c
+        ld (sab_or), a
         ld a, (spr_y)
         srl a
         srl a
         srl a
-        ld b, a
+        ld b, a                 ; cell row
         ld a, (spr_x)
         srl a
         srl a
         srl a
-        ld c, a
-        ld a, (sab_attr)
+        ld c, a                 ; cell col
         call set_attr_block
         ret
 
-; uncolor_obj / uncolor_ship: reset cells under spr_x,spr_y to the zone attr
+; uncolor_obj / uncolor_ship: reset cells under spr_x,spr_y to the band attr
 uncolor_obj:
         ld a, 3
         ld (sab_w), a
@@ -1356,6 +1405,10 @@ uncolor_ship:
         ld a, 4
         ld (sab_w), a
 uncolor_common:
+        ld a, 0xFF             ; keep the whole band attribute
+        ld (sab_keep), a
+        xor a
+        ld (sab_or), a
         ld a, (spr_y)
         srl a
         srl a
@@ -1366,7 +1419,6 @@ uncolor_common:
         srl a
         srl a
         ld c, a
-        ld a, (zone_base)
         call set_attr_block
         ret
 
@@ -1557,7 +1609,7 @@ sp_settype:
         ld (ix+1), a
         ld (ix+3), a
         call rnd
-        and 0x7F
+        and 0x6F                ; keep clear of the cave floor with the weave
         add a, 24
         ld (ix+2), a
         ld (ix+4), a
@@ -1581,9 +1633,11 @@ is_loop:
         and 0x7F
         add a, 24
         ld (ix+1), a
-        call rnd
-        and 1
-        inc a
+        call rnd                ; depth layer: speed 1 (far) .. 3 (near)
+        and 3
+        jr nz, is_spd
+        ld a, 3
+is_spd:
         ld (ix+3), a
         ld de, 4
         add ix, de
@@ -1603,6 +1657,16 @@ ds_star_loop:
         ld a, (ix+2)            ; ox
         ld c, a
         call clr_pixel
+        ld a, (ix+3)            ; near star? erase its 2nd pixel too
+        cp 3
+        jr c, ds_e1
+        ld a, (ix+1)
+        ld b, a
+        ld a, (ix+2)
+        inc a
+        ld c, a
+        call clr_pixel
+ds_e1:
         ld a, (ix+0)
         sub (ix+3)
         jr nc, ds_star_okx
@@ -1614,6 +1678,16 @@ ds_star_okx:
         ld a, (ix+0)
         ld c, a
         call set_pixel
+        ld a, (ix+3)            ; near star = 2px dash (brighter)
+        cp 3
+        jr c, ds_d1
+        ld a, (ix+1)
+        ld b, a
+        ld a, (ix+0)
+        inc a
+        ld c, a
+        call set_pixel
+ds_d1:
         ld a, (ix+0)
         ld (ix+2), a
         ld de, 4
@@ -1625,13 +1699,90 @@ ds_star_okx:
         ret
 
 ; ============================================================================
+;  SCROLLING TERRAIN  -  cave ceiling (row 2) and floor (row 23)
+;  Character-cell scroll: every 4th frame shift each strip left one cell
+;  and feed a fresh tile at the right.
+; ============================================================================
+scroll_terrain:
+        ld a, (terr_div)
+        inc a
+        and 3
+        ld (terr_div), a
+        ret nz
+        ld a, (terr_tile)
+        inc a
+        and 3
+        ld (terr_tile), a
+        ; ceiling at pixel row 16
+        add a, a
+        add a, a
+        add a, a                ; tile*8
+        ld e, a
+        ld d, 0
+        ld hl, ceil_tiles
+        add hl, de
+        ld (ss_tile), hl
+        ld a, 16
+        ld (ss_base), a
+        call scroll_strip
+        ; floor at pixel row 184
+        ld a, (terr_tile)
+        add a, a
+        add a, a
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, floor_tiles
+        add hl, de
+        ld (ss_tile), hl
+        ld a, 184
+        ld (ss_base), a
+        call scroll_strip
+        ret
+
+; scroll_strip: (ss_base)=top pixel row, (ss_tile)->8 feed bytes
+scroll_strip:
+        ld a, (ss_base)
+        ld (ss_row), a
+        ld b, 8
+ss_loop:
+        push bc
+        ld a, (ss_row)
+        ld l, a
+        ld h, 0
+        add hl, hl
+        ld de, addrtab
+        add hl, de
+        ld e, (hl)
+        inc hl
+        ld d, (hl)              ; DE = strip row address (col 0)
+        ld h, d                 ; HL = addr+1 (source)
+        ld l, e
+        inc hl
+        ld bc, 31
+        ldir                    ; shift 31 bytes left; DE -> addr+31
+        ld hl, (ss_tile)
+        ld a, (hl)
+        ld (de), a              ; feed new tile byte at the right edge
+        inc hl
+        ld (ss_tile), hl
+        ld a, (ss_row)
+        inc a
+        ld (ss_row), a
+        pop bc
+        djnz ss_loop
+        ret
+
+; ============================================================================
 ;  WORLDS / ZONES
 ; ============================================================================
+; worlds_tab entry: border, period, sky, mid, ground   (5 bytes)
 set_world_attr:
         ld a, (world)
         ld b, a
         add a, a
-        add a, b                ; world*3
+        add a, a
+        add a, b                ; world*5
         ld e, a
         ld d, 0
         ld hl, worlds_tab
@@ -1640,23 +1791,56 @@ set_world_attr:
         ld (cur_border), a
         out (254), a
         inc hl
-        ld a, (hl)              ; play-area attribute
-        ld (zone_base), a
-        push hl
-        ld hl, ATTR+64
-        ld (hl), a
-        ld de, ATTR+65
-        ld bc, 703
-        ldir
-        ld hl, ATTR             ; HUD rows kept readable
-        ld (hl), 0x47
-        ld de, ATTR+1
-        ld bc, 63
-        ldir
-        pop hl
-        inc hl
         ld a, (hl)              ; spawn period
         ld (spawn_period), a
+        inc hl
+        ld a, (hl)              ; sky
+        ld (zone_base), a
+        ld (zb_sky), a
+        inc hl
+        ld a, (hl)              ; mid
+        ld (zb_mid), a
+        inc hl
+        ld a, (hl)              ; ground
+        ld (zb_gnd), a
+        ; build attr_row[24]: HUD(0,1), sky(2..9), mid(10..16), ground(17..23)
+        ld hl, attr_row
+        ld (hl), 0x47
+        inc hl
+        ld (hl), 0x47
+        inc hl
+        ld a, (zb_sky)
+        ld b, 8                 ; rows 2..9
+swa_sky:
+        ld (hl), a
+        inc hl
+        djnz swa_sky
+        ld a, (zb_mid)
+        ld b, 7                 ; rows 10..16
+swa_mid:
+        ld (hl), a
+        inc hl
+        djnz swa_mid
+        ld a, (zb_gnd)
+        ld b, 7                 ; rows 17..23
+swa_gnd:
+        ld (hl), a
+        inc hl
+        djnz swa_gnd
+        ; paint the screen attributes from attr_row (32 cells per row)
+        ld hl, ATTR
+        ld ix, attr_row
+        ld c, 24                ; rows
+swa_paintrow:
+        ld a, (ix+0)
+        ld b, 32                ; cells
+swa_paintcell:
+        ld (hl), a
+        inc hl
+        djnz swa_paintcell
+        inc ix
+        dec c
+        jr nz, swa_paintrow
         ret
 
 next_world:
@@ -2238,12 +2422,13 @@ esh_row:
 ; ============================================================================
         include "src/sprites.inc"
 
-; world*3: border colour, play-area attribute, spawn period (frames)
+; worlds_tab entry: border, spawn-period, sky, mid, ground attributes
+; (all attrs bright | paper | white ink; banded backdrop top->bottom)
 worlds_tab:
-        db 0, 0x47, 48          ; Zone 1: black  (gentle start)
-        db 1, 0x4F, 38          ; Zone 2: blue
-        db 2, 0x57, 30          ; Zone 3: red
-        db 3, 0x5F, 24          ; Zone 4: magenta
+        db 0, 48, 0x47, 0x47, 0x4F   ; Zone 1 Asteroid Belt: black -> blue
+        db 1, 38, 0x4F, 0x4F, 0x5F   ; Zone 2 Nebula: blue -> magenta
+        db 2, 30, 0x5F, 0x57, 0x57   ; Zone 3 Inferno: magenta -> red
+        db 4, 24, 0x4F, 0x67, 0x67   ; Zone 4 Verdant: blue -> green
 
 str_title:  db "STELLAR DRIFT",0
 str_fire:   db "PRESS FIRE",0
@@ -2274,7 +2459,14 @@ pc_font:      defw 0
 decbuf:       defs 5
 cur_border:   defb 0
 zone_base:    defb 0x47
+zb_sky:       defb 0x47
+zb_mid:       defb 0x47
+zb_gnd:       defb 0x47
+attr_row:     defs 24
 sab_attr:     defb 0
+sab_keep:     defb 0xF8
+sab_or:       defb 0
+sab_r:        defb 0
 sab_w:        defb 3
 shbuf2:       defb 0,0,0,0,0,0,0,0
 
@@ -2300,6 +2492,25 @@ pw_next:      defb 0
 boss_active:  defb 0
 boss_hp:      defb 0
 shake:        defb 0
+anim_ctr:     defb 0
+terr_div:     defb 0
+terr_tile:    defb 0
+ss_base:      defb 0
+ss_row:       defb 0
+ss_tile:      defw 0
+
+; cave ceiling tiles (4 x 8 bytes; top pixel first, solid at top)
+ceil_tiles:
+        db 255,255,255,126, 60, 24,  0,  0
+        db 255,255,255,255,255,126, 60, 24
+        db 255,255,126, 60, 24,  0,  0,  0
+        db 255,255,255,219,126, 60, 24,  0
+; cave floor tiles (4 x 8 bytes; solid at bottom)
+floor_tiles:
+        db   0,  0, 24, 60,126,255,255,255
+        db  24, 60,126,255,255,255,255,255
+        db   0,  0,  0, 24, 60,126,255,255
+        db   0, 24, 60,126,219,255,255,255
 
 ; sine table: 32 entries, 0..24 (centre 12), one full period
 sintab:
