@@ -36,21 +36,24 @@ ZX7-class Z80 depacker realistically lands ~55–60 %.
 
 ## B. Code-size wins (low risk, do first)
 
-- ☐ **Fold the score render** — the 5-digit render runs at ~4–5 sites
-  (`call sc_digit` ×20). Collapse to one `render_score5` (HL=value, B/C=pos)
-  routine. _~100–150 B · Impact: med · Effort: low._
+- ✅ **Fold the score render** — the 5-digit render ran at 5 sites
+  (`call sc_digit` ×20). Collapsed to one `score5` (HL=value → `decbuf`)
+  routine. **−120 B.** _Impact: med · Effort: low._
 - ☐ **Peephole pass** — the usual Z80 shrinks across 11 KB of hand-written
   code (`xor a` for 0, `ld`-pair fusions, fallthrough instead of `jp`, dedupe
   near-identical blocks). _Variable, likely 200–400 B · Impact: med · Effort:
   med._
-- ☐ **Dead-code / unused-symbol sweep** — remove anything no longer called as
-  the game evolved across six phases. _Impact: low–med · Effort: low._
+- ✅ **Dead-code / unused-symbol sweep** — removed the obsolete runtime-shift
+  `draw_sprite` blitter (superseded by the pre-shifted `draw_sprite_ps`,
+  **−174 B**) and 5 orphaned strings (**−28 B**). _Impact: low–med · Effort:
+  low._
 
 ## C. Data-size wins
 
-- ☐ **String/table dedupe** — share repeated words/substrings across the ~30
-  on-screen strings and tighten lookup tables. _~100–300 B · Impact: low ·
-  Effort: low._
+- ◐ **String/table dedupe** — dead strings removed (see §B sweep); sharing
+  repeated words/substrings across the remaining ~30 on-screen strings and
+  tightening lookup tables is still open. _~100–300 B · Impact: low · Effort:
+  low._
 - ☐ **Investigate runtime mask generation** — many masks are derivable from
   the sprite data; generating them at boot could drop a large slice of the
   stored block (on top of, or instead of, §A). _High upside but risky (not all
@@ -68,12 +71,13 @@ in priority order, each independently:
 
 ## Suggested milestones
 
-1. **"Trim the obvious"** — score-render fold + dead-code sweep + string
-   dedupe (§B/§C, all low-risk). Banks the first few hundred bytes with no
-   tooling changes.
-2. **"The big squeeze"** — sprite-data compression (§A) for the ~2 KB. The one
-   item that needs new tooling and careful verification.
-3. **"Spend it"** — the deferred features (§D), cheapest/highest-impact first.
+1. ✅ **"Trim the obvious"** — score-render fold + dead-code sweep (§B/§C, all
+   low-risk, no tooling). **Done: reclaimed 322 B; headroom 26 → 348 B free.**
+2. ☐ **"The big squeeze"** — sprite-data compression (§A) for the ~2 KB. The
+   one item that needs new tooling and careful verification.
+3. ☐ **"Spend it"** — the deferred features (§D), cheapest/highest-impact
+   first. With 348 B free, the cheapest (rank on GAME OVER, level-up chirp)
+   already fit without §A.
 
 ## Risks & notes
 
