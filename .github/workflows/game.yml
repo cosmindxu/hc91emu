@@ -106,8 +106,8 @@ jobs:
           # victory screen + state-4 flow are exercised without a full
           # playthrough; VSCORE seeds a final score so the rank path is
           # exercised end to end (9999 -> top grade S, not the C fallback)
-          ( cd game && pasmo --equ VTEST=1 --equ VSCORE=9999 src/game.asm \
-            /tmp/vtest.bin \
+          ( cd game && pasmo --equ VTEST=1 --equ BTEST=0 --equ VSCORE=9999 \
+            src/game.asm /tmp/vtest.bin \
             && python3 tools/mktap.py /tmp/vtest.bin /tmp/vtest.tap 32768 stellar )
           ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
             --joy "1750-1758:F" --joy "1850-1858:F" --frames 1980 --text \
@@ -128,7 +128,8 @@ jobs:
           ! grep -q "VETERAN" /tmp/gate.txt
           # after winning (VTEST build), the title shows the unlock badge and
           # cycling skill now reaches Veteran (two presses Pilot->Ace->Veteran)
-          ( cd game && pasmo --equ VTEST=1 --equ VSCORE=0 src/game.asm /tmp/vw.bin \
+          ( cd game && pasmo --equ VTEST=1 --equ BTEST=0 --equ VSCORE=0 \
+            src/game.asm /tmp/vw.bin \
             && python3 tools/mktap.py /tmp/vw.bin /tmp/vw.tap 32768 stellar )
           ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
             --joy "1750-1758:F" --joy "1850-1858:F" --joy "1950-1958:F" \
@@ -136,3 +137,14 @@ jobs:
             | tee /tmp/vet.txt
           grep -q "VETERAN UNLOCKED" /tmp/vet.txt
           grep -q "VETERAN" /tmp/vet.txt
+
+      - name: Spectacle - persistent boss name on the HUD (BTEST build)
+        run: |
+          # a test-only build (BTEST=1) spawns the zone boss almost immediately;
+          # the HUD row 1 must name the war-machine (SENTINEL) during the fight
+          ( cd game && pasmo --equ VTEST=0 --equ BTEST=1 src/game.asm /tmp/bt.bin \
+            && python3 tools/mktap.py /tmp/bt.bin /tmp/bt.tap 32768 stellar )
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1810-1818:F" --frames 2000 --text \
+            /tmp/bt.tap | tee /tmp/boss.txt
+          grep -q "SENTINEL" /tmp/boss.txt

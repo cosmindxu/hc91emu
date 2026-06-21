@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 EMU=../build/hc91emu
 
 python3 tools/mksprites.py
-pasmo --equ VTEST=0 src/game.asm build/game.bin
+pasmo --equ VTEST=0 --equ BTEST=0 src/game.asm build/game.bin
 
 # Guard: psbuf (NSPR*768 = 14592 bytes of runtime scratch) sits right after
 # the loaded image, and its end must stay below the stack at 0xFDF0 with a

@@ -75,7 +75,13 @@ With §B/§A's headroom the deferred items now fit:
 3. ✅ **Weapon level-up chirp** — `sfx_levelup` plays a rising chirp when a
    pickup raises a weapon's level (snapshot of `pw_twin+pw_rapid` around
    `grant_power`); a fresh grant still plays the normal pickup sound.
-4. ☐ **Boss-defeat screen flash**, **persistent boss name**.
+4. ✅ **Boss-defeat screen flash** — `do_bflash` cycles the border through the
+   8 colours for ~24 frames on a kill (photosensitivity-gated like the
+   hit-shake), distinct from the white hit flash.
+5. ✅ **Persistent boss name** — `draw_zonename` shows the war-machine's name
+   (SENTINEL/REAVER/...) on HUD row 1 for the whole fight, reverting to the
+   zone name afterwards (single cache, no extra per-frame cost). A `BTEST`
+   build spawns the boss instantly so CI can OCR the name.
 
 ---
 
@@ -85,9 +91,9 @@ With §B/§A's headroom the deferred items now fit:
    low-risk, no tooling). **Done: reclaimed 322 B; headroom 26 → 348 B free.**
 2. ✅ **"The big squeeze"** — sprite-data compression (§A). **Done: −1651 B;
    headroom now ~1.9 KB free.** Verified byte-identical in CI.
-3. ◐ **"Spend it"** — the deferred features (§D). **Done: rank on GAME OVER,
-   level-up chirp, and NG+/Veteran restart.** Remaining: boss-defeat flash and
-   the persistent boss name.
+3. ✅ **"Spend it"** — all deferred features shipped: rank on GAME OVER,
+   level-up chirp, NG+/Veteran restart, boss-defeat flash, persistent boss
+   name.
 
 ## Risks & notes
 
