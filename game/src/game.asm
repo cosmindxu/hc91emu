@@ -379,6 +379,12 @@ show_title:
         ld c, 9
         call print_str_at
         ld hl, str_tagline      ; story hint, low so it clears the ship preview
+        ld a, (bossrush)        ; rush armed -> say so (highest priority)
+        or a
+        jr z, st_nr
+        ld hl, str_rush_on
+        jr st_tag
+st_nr:
         ld a, (won_flag)        ; once beaten, show the victory badge instead
         or a
         jr z, st_tag
@@ -425,7 +431,7 @@ draw_opts:
         call print_str_at
         ld hl, str_opts1
         ld b, 18
-        ld c, 5
+        ld c, 1
         call print_str_at
         ld hl, str_defk
         ld b, 19
@@ -792,15 +798,15 @@ tp_opts:
         ld e, a                 ; E = 1-5 row
         ld bc, 0xEFFE           ; 6-0 half-row
         in a, (c)
-        and 0x10                ; key 6 = bit4
-        ld d, a                 ; D = 6 bit
+        and 0x18                ; key 6 = bit4, key 7 = bit3 (active low)
+        ld d, a                 ; D = 6,7 bits
         ld a, e
         and 0x1C                ; bits 2,3,4 = keys 3,4,5 (active low)
         cp 0x1C
         jr nz, tp_optpress      ; one of 3/4/5 pressed
         ld a, d
-        or a
-        jr nz, tp_optnone       ; key 6 also up -> nothing pressed
+        cp 0x18
+        jr z, tp_optnone        ; keys 6 and 7 also up -> nothing pressed
 tp_optpress:
         ld a, (opt_prev)
         or a
@@ -840,9 +846,18 @@ tp_o5:
         ld (opt_shake), a
         jr tp_optredraw
 tp_o6:
+        bit 4, d                ; key 6 pressed? (else it's key 7)
+        jr nz, tp_o7
         ld a, (opt_practice)    ; key 6: safe/practice
         xor 1
         ld (opt_practice), a
+        jr tp_optredraw
+tp_o7:
+        ld a, (bossrush)        ; key 7: toggle boss-rush mode
+        xor 1
+        ld (bossrush), a
+        call show_title         ; redraw so the armed tagline updates
+        ret
 tp_optredraw:
         call draw_opts
         ret
@@ -1549,6 +1564,11 @@ IF BTEST
         ld hl, 40               ; BTEST build: boss spawns almost immediately
         ld (world_timer), hl
 ENDIF
+        ld a, (bossrush)        ; boss-rush mode: first boss right away
+        or a
+        ret z
+        ld hl, 40
+        ld (world_timer), hl
         ret
 
 zero_objects:
@@ -5230,6 +5250,13 @@ nw_nobest:
         ld a, 80
         ld (zone_msg_t), a
         call set_zone_card      ; new zone's story flavour
+        ld a, (bossrush)        ; boss-rush: skip the bonus, next boss at once
+        or a
+        ret z
+        ld hl, 0
+        ld (bonus_timer), hl
+        ld hl, 40
+        ld (world_timer), hl
         ret
 
 ; set_zone_wave: point wave_base/wave_ptr at the current zone's script
@@ -6726,7 +6753,8 @@ str_d0:      db "[CADET]  ",0    ; padded to 9 so cycling overwrites cleanly
 str_d1:      db "[PILOT]  ",0
 str_d2:      db "[ACE]    ",0
 str_d3:      db "[VETERAN]",0    ; unlocked once the mission is beaten
-str_opts1:   db "4-MUSIC 5-FLASH 6-SAFE",0
+str_opts1:   db "4-MUSIC 5-FLASH 6-SAFE 7-RUSH",0
+str_rush_on: db "** BOSS RUSH ARMED **",0
 diff_tab:    dw str_d0, str_d1, str_d2, str_d3
 credits_msg: db "STELLAR DRIFT - A CAVE FLYER FOR THE HC-91 - DODGE, "
              db "SHOOT, COLLECT - BEAT THE ZONE BOSSES - GOOD LUCK PILOT     ",0
@@ -6841,6 +6869,7 @@ opt_softblink: defb 1         ; 1 = pulse ship colour while invuln; 0 = hide
 opt_music:    defb 1          ; 1 = AY melody on
 opt_shake:    defb 1          ; 1 = full border flash; 0 = soft (photosensitive)
 opt_practice: defb 0          ; 1 = practice mode (no life loss)
+bossrush:     defb 0          ; 1 = boss-rush mode (zone boss spawns at once)
 difficulty:   defb 1          ; 0 Cadet, 1 Pilot, 2 Ace
 combo:        defb 0          ; current chain length
 combo_mult:   defb 1          ; score multiplier (1..)
