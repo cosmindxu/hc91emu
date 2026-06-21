@@ -3356,7 +3356,6 @@ gp_n3:
 ; Each row's attribute = (attr_row[row] & sab_keep) | sab_or, so the band
 ; backdrop is preserved per row (no cross-band bleed).
 set_attr_block:
-        push ix                 ; preserve caller's IX (object pointer etc.)
         ld a, b
         ld (sab_r), a
         ld h, 0
@@ -3370,12 +3369,17 @@ set_attr_block:
         ld e, c
         add hl, de              ; + col
         ld de, ATTR
-        add hl, de
-        push hl
-        pop ix                  ; IX = cell address
-        ld b, 3                 ; rows
+        add hl, de              ; HL = cell addr (no IX -> caller's IX is safe)
+        ld a, 32
+        ld b, a
+        ld a, (sab_w)
+        neg
+        add a, b
+        ld (sab_stride), a      ; 32 - sab_w
+        ld a, 3
+        ld (sab_rows), a
 sab_row:
-        push bc
+        push hl
         ld a, (sab_r)           ; band attribute for this row
         ld e, a
         ld d, 0
@@ -3389,27 +3393,24 @@ sab_row:
         ld a, (sab_or)
         or b
         ld c, a                 ; final attribute
+        pop hl
         ld a, (sab_w)
         ld b, a
 sab_col:
-        ld (ix+0), c
-        inc ix
-        dec b
-        jr nz, sab_col
-        ld de, 32
-        ld a, (sab_w)
-        ld e, a
-        ld a, 32
-        sub e
+        ld (hl), c              ; HL writes are 7T vs the old IX 19T
+        inc hl
+        djnz sab_col
+        ld a, (sab_stride)      ; advance to next row start
         ld e, a
         ld d, 0
-        add ix, de              ; advance to next row start
+        add hl, de
         ld a, (sab_r)
         inc a
         ld (sab_r), a
-        pop bc
-        djnz sab_row
-        pop ix                  ; restore caller's IX
+        ld a, (sab_rows)
+        dec a
+        ld (sab_rows), a
+        jr nz, sab_row
         ret
 
 ; color_obj / color_ship: A = ink (0..7); paint cells under spr_x,spr_y
@@ -5653,7 +5654,7 @@ dsh_row:
         ld h, 0
         add hl, de
         ld (scr_addr), hl
-        ld hl, (spr_ptr)
+        ld hl, (spr_ptr)        ; load the 3 data bytes (mask == ~data, unused)
         ld a, (hl)
         ld (shbuf2+0), a
         inc hl
@@ -5662,21 +5663,11 @@ dsh_row:
         inc hl
         ld a, (hl)
         ld (shbuf2+2), a
-        inc hl
-        ld a, (hl)
-        ld (shbuf2+4), a
-        inc hl
-        ld a, (hl)
-        ld (shbuf2+5), a
-        inc hl
-        ld a, (hl)
-        ld (shbuf2+6), a
-        inc hl
+        ld de, 4
+        add hl, de              ; skip the 3 mask bytes (+6 total per row)
         ld (spr_ptr), hl
         xor a
         ld (shbuf2+3), a        ; data byte 3 = 0
-        ld a, 255
-        ld (shbuf2+7), a        ; mask byte 3 = 255
         ld a, (shift_n)
         or a
         jr z, dsh_noshift
@@ -5690,53 +5681,24 @@ dsh_shloop:
         rr (hl)
         inc hl
         rr (hl)
-        ld hl, shbuf2+4
-        scf
-        rr (hl)
-        inc hl
-        rr (hl)
-        inc hl
-        rr (hl)
-        inc hl
-        rr (hl)
         dec c
         jr nz, dsh_shloop
 dsh_noshift:
-        ld hl, (scr_addr)
-        ld a, (shbuf2+4)
-        ld c, a
-        ld a, (hl)
-        and c
-        ld c, a
+        ld hl, (scr_addr)       ; OR data onto the screen (== masked, mask=~data)
         ld a, (shbuf2+0)
-        or c
+        or (hl)
         ld (hl), a
         inc hl
-        ld a, (shbuf2+5)
-        ld c, a
-        ld a, (hl)
-        and c
-        ld c, a
         ld a, (shbuf2+1)
-        or c
+        or (hl)
         ld (hl), a
         inc hl
-        ld a, (shbuf2+6)
-        ld c, a
-        ld a, (hl)
-        and c
-        ld c, a
         ld a, (shbuf2+2)
-        or c
+        or (hl)
         ld (hl), a
         inc hl
-        ld a, (shbuf2+7)
-        ld c, a
-        ld a, (hl)
-        and c
-        ld c, a
         ld a, (shbuf2+3)
-        or c
+        or (hl)
         ld (hl), a
         ld a, (row_y)
         inc a
@@ -5754,23 +5716,32 @@ erase_ship:
         and 0x1F
         ld (xc_tmp), a
         ld a, (spr_y)
-        ld (row_y), a
+        ld c, a                 ; C = current pixel row
         ld b, 16
-esh_row:
-        push bc
-        ld a, (row_y)
+esh_loop:
+        ld a, c                 ; (re)compute base at each cell boundary
+        and 7
+        jr nz, esh_have
+        ld a, c
         ld l, a
         ld h, 0
         add hl, hl
+        push bc
         ld de, addrtab
         add hl, de
         ld e, (hl)
         inc hl
         ld d, (hl)
         ld a, (xc_tmp)
-        ld l, a
-        ld h, 0
-        add hl, de
+        add a, e
+        ld e, a
+        jr nc, esh_nc
+        inc d
+esh_nc:
+        pop bc
+esh_have:
+        ld h, d
+        ld l, e
         xor a
         ld (hl), a
         inc hl
@@ -5779,12 +5750,10 @@ esh_row:
         ld (hl), a
         inc hl
         ld (hl), a
-        ld a, (row_y)
-        inc a
-        ld (row_y), a
-        pop bc
+        inc d                   ; base += 256 -> next pixel line in cell
+        inc c
         dec b
-        jr nz, esh_row
+        jr nz, esh_loop
         ret
 
 ; ============================================================================
@@ -5931,6 +5900,8 @@ cf_src:       defw 0
 dps_end:      defb 0
 dps_incell:   defb 0
 dts_n:        defb 0
+sab_stride:   defb 0
+sab_rows:     defb 0
 ss_base:      defb 0
 ss_row:       defb 0
 ss_tile:      defw 0
