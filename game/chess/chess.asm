@@ -178,6 +178,7 @@ MV_REC  equ 4
 INF     equ 30000
 MATE    equ 29000
 MAXPLY  equ 15
+ASPW    equ 40           ; aspiration-window half-width (centipawns)
 
 ; flag byte: bits0-2 special, bits4-7 promo type
 SP_NONE   equ 0

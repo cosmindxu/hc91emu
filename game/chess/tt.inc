@@ -44,6 +44,20 @@ ptrKiller:
         ld h,0xD1
         ret
 
+; set root alpha/beta (searchPly assumed 0) from DE
+setAlphaDE:
+        call ptrAlpha
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        ret
+setBetaDE:
+        call ptrBeta
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        ret
+
 ; ttAddr -> HL = entry address for the current hashKey
 ttAddr:
         ld hl,(hashKey)

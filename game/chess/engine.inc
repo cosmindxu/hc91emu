@@ -1354,19 +1354,63 @@ aiMove:
 aidLoop:
         xor a
         ld (searchPly),a
-        ld bc,-INF
-        call ptrAlpha
-        ld (hl),c
-        inc hl
-        ld (hl),b
-        ld bc,INF
-        call ptrBeta
-        ld (hl),c
-        inc hl
-        ld (hl),b
+        ; aspiration window: full for depth 1, else [prev-W, prev+W]
+        ld a,(aidIter)
+        cp 2
+        jr c,aspFull
+        ld hl,(lastScore)
+        ld de,ASPW
+        push hl
+        or a
+        sbc hl,de
+        ex de,hl
+        call setAlphaDE          ; alpha = lastScore - W
+        pop hl
+        ld de,ASPW
+        add hl,de
+        ex de,hl
+        call setBetaDE           ; beta  = lastScore + W
+        jr aspGo
+aspFull:
+        ld de,-INF
+        call setAlphaDE
+        ld de,INF
+        call setBetaDE
+aspGo:
         ld a,(aidIter)
         call negamax
-        ld (lastScore),hl        ; engine score at this depth
+        ld (lastScore),hl
+        ; if the result fell outside the window, re-search with a full one
+        ld a,(aidIter)
+        cp 2
+        jr c,aspOk
+        call ptrAlpha
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        ld de,(lastScore)
+        call cmpDEgtBC           ; score > alpha ?
+        jr nc,aspWiden           ; fail low
+        call ptrBeta
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        ld de,(lastScore)
+        push bc
+        push de
+        pop bc                   ; BC = score
+        pop de                   ; DE = beta
+        call cmpDEgtBC           ; beta > score ?
+        jr c,aspOk               ; inside window
+aspWiden:
+        ld de,-INF
+        call setAlphaDE
+        ld de,INF
+        call setBetaDE
+        ld a,(aidIter)
+        call negamax
+        ld (lastScore),hl
+aspOk:
         ; remember this iteration's best as the PV hint for the next one
         ld a,(bestFrom)
         ld (pvFrom),a
