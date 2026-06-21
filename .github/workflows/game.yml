@@ -1,5 +1,5 @@
-# CI for the STELLAR DRIFT game: assemble it and run headless smoke tests
-# against the emulator (build, screenshot and beeper-WAV capture).
+# CI for the STELLAR DRIFT game: assemble it and run headless tests against
+# the emulator (build, screenshot, OCR gameplay assertions and WAV capture).
 name: game
 
 on:
@@ -30,23 +30,46 @@ jobs:
           test -s game/build/game.tzx
           test -s game/build/game.bin
 
-      - name: Smoke test - boot, start and play a few hundred frames
+      - name: Title screen shows the game name
         run: |
           ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
-            --joy "1500-1508:F" --joy "1540-1900:F" \
-            --frames 1900 --screenshot /tmp/play.png \
+            --frames 1800 --text game/build/game.tap | tee /tmp/title.txt
+          grep -q "STELLAR DRIFT" /tmp/title.txt
+
+      - name: Gameplay - boot, start and reach the first zone
+        run: |
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1800-2600:F" \
+            --frames 2600 --screenshot /tmp/play.png \
             --save-scr /tmp/play.scr game/build/game.tap
           test -s /tmp/play.png
-          # the HUD text must be present once we are in-game
           ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
-            --joy "1500-1508:F" --joy "1540-1900:F" --frames 1900 --text \
+            --joy "1750-1758:F" --joy "1800-2600:F" --frames 2600 --text \
             game/build/game.tap | tee /tmp/screen.txt
-          grep -q "ASTEROID BELT" /tmp/screen.txt
+          # the in-game HUD must show the first zone's name
+          grep -q "ORION DRIFT" /tmp/screen.txt
 
-      - name: Smoke test - 128K AY audio capture
+      - name: Gameplay regression - long run stays alive and on-HUD
+        run: |
+          # play ~6000 frames with fire held; the HUD (zone name) must still
+          # be present, proving the game did not crash back to the ROM.
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1800-7000:F" --frames 7000 --text \
+            game/build/game.tap | tee /tmp/long.txt
+          grep -Eq "DRIFT|VEIL|SAPPHIRE|MAGENTA|EMERALD|VOID|BONUS|GAME OVER" /tmp/long.txt
+
+      - name: Gameplay regression - terrain crash costs lives (game over)
+        run: |
+          # holding UP flies into the cave ceiling repeatedly -> GAME OVER
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1800-9000:U" --frames 9000 --text \
+            game/build/game.tap | tee /tmp/crash.txt
+          grep -q "GAME OVER" /tmp/crash.txt
+
+      - name: 128K - boots and captures AY audio
         run: |
           ./build/hc91emu --machine hc128 --rom roms/hc-128.rom \
             --rom1 roms/hc-128.rom --autoload --kempston \
-            --joy "1500-1520:F" --joy "1560-2000:F" --frames 1900 \
+            --joy "1750-1770:F" --joy "1800-2600:F" --frames 2600 \
             --wav /tmp/ay.wav game/build/game.tap
           test -s /tmp/ay.wav

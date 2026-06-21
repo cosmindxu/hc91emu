@@ -61,6 +61,7 @@ SI_FLAME2 equ 18
 start:
         di
         ld sp, 0xFDF0           ; above psbuf, below the IM2 ISR (0xFDFD)
+        call detect_128k        ; probe paging before psbuf fills 0xC000+
         call build_addrtab
         call build_preshift
         call ay_init
@@ -68,11 +69,120 @@ start:
         ld a, r
         ld (seed), a
         call init_hiscores
+        call bank_load          ; 128K: restore the banked high-score table
         xor a
         ld (state), a           ; 0 = title
         call show_title
         ei
         jp main_loop            ; (do not fall through into setup_im2)
+
+; ============================================================================
+;  128K RAM BANKING  -  store a backup of the high-score table in RAM bank 1
+;  (page 0x7FFD).  Detected once at boot; a no-op (and 48K-safe) otherwise.
+;  These routines never touch the stack while a bank is paged in, and run
+;  from low code, so the swapped-out region (incl. the stack) is undisturbed.
+; ============================================================================
+; detect_128k: write differing sentinels to two banks at 0xC000 and compare.
+; Runs at boot with interrupts off, before build_preshift fills psbuf.
+detect_128k:
+        ld bc, 0x7FFD
+        ld a, 1
+        out (c), a              ; bank 1
+        ld a, 0xAA
+        ld (0xC000), a
+        ld bc, 0x7FFD
+        ld a, 3
+        out (c), a              ; bank 3
+        ld a, 0x55
+        ld (0xC000), a
+        ld bc, 0x7FFD
+        ld a, 1
+        out (c), a              ; back to bank 1
+        ld a, (0xC000)          ; 0xAA on 128K (separate banks); 0x55 on 48K
+        ld e, a
+        ld bc, 0x7FFD
+        xor a
+        out (c), a              ; restore bank 0
+        ld a, e
+        cp 0xAA
+        ld a, 0
+        jr nz, d128_set
+        ld a, 1
+d128_set:
+        ld (is128k), a
+        ret
+
+; bank_save: copy the marker + high-score table into RAM bank 1
+bank_save:
+        ld a, (is128k)
+        or a
+        ret z
+        di
+        ld bc, 0x7FFD
+        ld a, 1
+        out (c), a
+        ld hl, bank_marker
+        ld de, 0xC000
+        ld bc, 2
+        ldir
+        ld hl, hs_names
+        ld de, 0xC002
+        ld bc, 25               ; 5*3 names + 5*2 scores
+        ldir
+        ld bc, 0x7FFD
+        xor a
+        out (c), a
+        ei
+        ret
+
+; bank_load: if a valid marker is present in bank 1, restore the table
+bank_load:
+        ld a, (is128k)
+        or a
+        ret z
+        di
+        ld bc, 0x7FFD
+        ld a, 1
+        out (c), a
+        ld a, (0xC000)
+        cp 'H'
+        jr nz, bl_done
+        ld a, (0xC001)
+        cp 'S'
+        jr nz, bl_done
+        ld hl, 0xC002
+        ld de, hs_names
+        ld bc, 25
+        ldir
+bl_done:
+        ld bc, 0x7FFD
+        xor a
+        out (c), a
+        ei
+        ret
+
+bank_marker:  db 'H','S'
+
+; save_scores / load_scores: persist the high-score table to TAPE via the ROM
+; (SA-BYTES 0x04C2 / LD-BYTES 0x0556).  Works on tape-based machines incl. the
+; HC-2000; the emulator captures it with --save-tape.
+save_scores:
+        di
+        ld ix, hs_names
+        ld de, 25
+        ld a, 0xFF             ; data block flag
+        call 0x04C2            ; SA-BYTES
+        ei
+        ret
+load_scores:
+        di
+        ld ix, hs_names
+        ld de, 25
+        ld a, 0xFF
+        scf                    ; carry set = LOAD (not verify)
+        call 0x0556            ; LD-BYTES
+        ei
+        ret
 
 ; setup_im2: vector table of 0xFD at 0xFE00 -> ISR jp at 0xFDFD
 setup_im2:
@@ -515,6 +625,34 @@ tp_mup:
 tp_dup:
         xor a
         ld (d_prev), a
+        ld bc, 0xFDFE           ; S -> save scores to tape
+        in a, (c)
+        bit 1, a
+        jr nz, tp_sup
+        ld a, (sl_prev)
+        or a
+        jr nz, tp_scheme
+        ld a, 1
+        ld (sl_prev), a
+        call save_scores
+        call show_title
+        ret
+tp_sup:
+        ld bc, 0xBFFE           ; L -> load scores from tape
+        in a, (c)
+        bit 1, a
+        jr nz, tp_slup
+        ld a, (sl_prev)
+        or a
+        jr nz, tp_scheme
+        ld a, 1
+        ld (sl_prev), a
+        call load_scores
+        call show_title
+        ret
+tp_slup:
+        xor a
+        ld (sl_prev), a
 tp_scheme:
         ld bc, 0xF7FE           ; control-scheme select: 1 / 2
         in a, (c)
@@ -911,6 +1049,7 @@ hi_put:
         inc hl
         ld a, (ie_buf+2)
         ld (hl), a
+        call bank_save          ; 128K: persist the table to a spare bank
         ret
 
 ; fire_down: Z set if Space or Kempston-fire is pressed
@@ -1069,10 +1208,14 @@ play_frame:
         call show_title
         ret
 pf_go:
+        ld a, (tick)            ; frame-budget guard: note the start tick
+        ld (frame_t0), a
         ld a, (anim_ctr)
         inc a
         ld (anim_ctr), a
-        call do_planet          ; far background layer (drawn first)
+        ld a, (lag_skip)        ; if the last frame overran, drop the planet
+        or a
+        call z, do_planet       ; far background layer (drawn first)
         call do_stars
         call scroll_terrain
         ; erase ship at old position
@@ -1168,6 +1311,18 @@ pf_nobonus:
         call start_boss
 pf_hud:
         call show_hud
+        ; frame-budget guard: did this frame overrun its 50Hz slot?
+        ld a, (tick)
+        ld hl, frame_t0
+        sub (hl)
+        cp 2
+        jr c, pf_nolag
+        ld a, 1                 ; overran -> drop the planet next frame
+        ld (lag_skip), a
+        ret
+pf_nolag:
+        xor a
+        ld (lag_skip), a
         ret
 
 ; draw_flame: animated exhaust just behind the ship's tail
@@ -3681,9 +3836,9 @@ CMAX    equ 5
 scroll_terrain:
         ld a, (terr_div)
         inc a
-        and 3
+        and 1
         ld (terr_div), a
-        jr nz, draw_cave        ; only shift the map every 4th frame
+        jr nz, draw_cave        ; shift the map every 2nd frame (smoother)
         ; shift ceil_h/floor_h left by one cell
         ld hl, ceil_h+1
         ld de, ceil_h
@@ -5463,6 +5618,9 @@ tctr:         defb 0
 credit_idx:   defb 0
 d_prev:       defb 0
 dk_i:         defb 0
+sl_prev:      defb 0
+frame_t0:     defb 0
+lag_skip:     defb 0
 
 ; 6 designs x 3 banks (level, climb, dive)
 ship_tab:
@@ -5489,6 +5647,7 @@ mus_div:      defb 0
 mus_idx:      defb 0
 ay_noise_t:   defb 0
 ay_sfx_t:     defb 0
+is128k:       defb 0
 tick:         defb 0
 cheat_kprev:  defb 0
 
@@ -5507,7 +5666,7 @@ str_p200:     db "+200",0
 str_p50:      db "+50",0
 str_midboss:  db "WARSHIP!",0
 str_demo:     db "DEMO",0
-str_defk:     db "D-DEFINE KEYS",0
+str_defk:     db "D-KEYS S-SAVE L-LOAD",0
 str_defup:    db "PRESS UP KEY   ",0
 str_defdn:    db "PRESS DOWN KEY ",0
 str_deflf:    db "PRESS LEFT KEY ",0
