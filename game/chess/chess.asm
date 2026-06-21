@@ -542,8 +542,25 @@ saField:
         jr z,saEnd             ; empty
         and COLBIT
         jr nz,saEnd            ; black piece
-        ld a,e
-        or 0x07                ; white piece, fill mode: ink 7 (white)
+        ; white piece, fill mode: sit it on the scheme's dark backdrop so a
+        ; solid white body always has contrast — except on the cursor /
+        ; selected square, where that highlight paper is kept.
+        ld a,(dsSquare)
+        ld hl,cursorSq
+        cp (hl)
+        jr z,saWInk
+        ld a,(dsSquare)
+        ld hl,selSq
+        cp (hl)
+        jr z,saWInk
+        ld a,(colorScheme)
+        ld e,a
+        ld d,0
+        ld hl,whiteBackTbl
+        add hl,de
+        ld e,(hl)              ; E = filled-white backdrop for this scheme
+saWInk: ld a,e
+        or 0x07                ; ink 7 (white)
         ret
 saEnd:  ld a,e
         ret
@@ -569,6 +586,11 @@ schemeTable:
         defb 0x70,0x50,0x68,0x58   ; 0 Classic: yellow / red   (cyan, magenta)
         defb 0x70,0x60,0x68,0x58   ; 1 Meadow:  yellow / green (cyan, magenta)
         defb 0x78,0x68,0x60,0x58   ; 2 Clean:   white  / cyan  (green, magenta)
+; Backdrop paper for a filled-mode white piece (dark enough that a solid
+; white body reads): Classic red, Meadow green, Clean blue (its cyan is too
+; light).  Indexed by colorScheme.
+whiteBackTbl:
+        defb 0x50,0x60,0x48
 schemeNames:
         defw nmSchClassic
         defw nmSchMeadow
