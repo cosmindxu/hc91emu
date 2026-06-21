@@ -26,6 +26,12 @@ T_ENEMY equ 2
 T_CRYS  equ 3
 T_POWER equ 4
 T_BOSS  equ 5
+T_DIVER equ 6               ; swoops toward the ship
+T_MINE  equ 7               ; slow drifting spiked hazard
+T_DRONE equ 8               ; homes on the ship and fires
+T_TURRET equ 9              ; clings to ceiling/floor, fires aimed
+T_MIDBOSS equ 10            ; multi-hit mini-boss (hp in +7)
+NZONES  equ 6               ; number of named zones in the cycle
 
 ; pre-shifted 16x16 sprite indices (into sprtab / psbuf)
 NSPR    equ 19
@@ -919,10 +925,14 @@ ig_setlives:
         ld (hud_zone), a
         ld a, (spawn_period)
         ld (spawn_timer), a
-        ld hl, wave_script      ; reset the wave script
-        ld (wave_ptr), hl
-        ld a, 1
-        ld (wave_delay), a
+        call set_zone_wave      ; zone 0 wave script
+        call set_music_zone
+        xor a
+        ld (midboss_flag), a
+        ld a, 1                 ; show zone-1 intro banner
+        ld (zone_msg), a
+        ld a, 80
+        ld (zone_msg_t), a
         ld hl, 0
         ld (bonus_timer), hl
         ld hl, 1000
@@ -1553,10 +1563,12 @@ db_objloop:
         ld a, (iy+2)
         ld e, a
         call collide
-        jr nz, db_objnext
+        jp nz, db_objnext
         ld a, (iy+0)
         cp T_BOSS
         jr z, db_hit_boss
+        cp T_MIDBOSS
+        jp z, db_hit_mb
         ; normal target destroyed
         ld a, (iy+3)
         ld (spr_x), a
@@ -1575,7 +1587,7 @@ db_objloop:
         call sfx_explode
         ld a, (ix+0)            ; piercing bolt keeps going
         cp 2
-        jr z, db_objnext
+        jp z, db_objnext
         xor a
         ld (ix+0), a
         jp db_next
@@ -1608,6 +1620,42 @@ dhb_keep:
         or a
         jp nz, db_next
         call kill_boss
+        jp db_next
+db_hit_mb:
+        dec (iy+7)              ; mini-boss hp in +7
+        jr z, db_mb_dead
+        ld bc, 1
+        call add_score
+        call sfx_hit
+        ld a, 2
+        ld (shake), a
+        ld a, (ix+0)            ; charged pierces; normal consumed
+        cp 2
+        jp z, db_objnext
+        xor a
+        ld (ix+0), a
+        jp db_next
+db_mb_dead:
+        ld a, (iy+3)
+        ld (spr_x), a
+        ld a, (iy+4)
+        ld (spr_y), a
+        call erase_sprite
+        call uncolor_obj
+        call spawn_explosion
+        call spawn_debris
+        xor a
+        ld (iy+0), a
+        ld bc, 50
+        call add_kill_score
+        ld hl, str_p50
+        call set_popup
+        call sfx_explode
+        ld a, (ix+0)
+        cp 2
+        jp z, db_objnext
+        xor a
+        ld (ix+0), a
         jp db_next
 db_objnext:
         ld de, OBJSZ
@@ -1681,10 +1729,20 @@ do_obj_loop:
         jp do_obj_next
 obj_alive:
         ld (ix+1), a
-        ; --- vertical pattern: enemies weave on a sine ---
+        ; --- per-type vertical behaviour ---
         ld a, (ix+0)
         cp T_ENEMY
-        jr nz, obj_movey_done
+        jr z, mv_enemy
+        cp T_MIDBOSS
+        jp z, mv_midboss
+        cp T_DIVER
+        jp z, mv_diver
+        cp T_DRONE
+        jp z, mv_drone
+        cp T_TURRET
+        jp z, mv_turret
+        jp obj_movey_done       ; rocks / mines / crystals / pods: drift only
+mv_enemy:
         ld a, (ix+6)
         rra                     ; phase/2
         and 0x1F                ; sine index 0..31
@@ -1695,15 +1753,76 @@ obj_alive:
         ld a, (ix+7)            ; ybase
         add a, (hl)             ; + sine (0..24)
         ld (ix+2), a
-        ; occasional aimed shot
-        ld a, (ix+6)
+        ld a, (ix+6)            ; occasional aimed shot
         and 0x3F
         cp 20
-        jr nz, obj_movey_done
+        jp nz, obj_movey_done
         ld a, (ix+1)
-        cp 150                  ; only fire once it's well on-screen
-        jr nc, obj_movey_done
+        cp 200
+        jp nc, obj_movey_done
         call enemy_fire
+        jp obj_movey_done
+mv_midboss:
+        ld a, (ix+1)            ; hold station at x~190 once it arrives
+        cp 190
+        jr nc, mvmb_fire
+        add a, (ix+5)
+        ld (ix+1), a
+mvmb_fire:
+        ld a, (ix+6)            ; fires often (every ~32 frames, two-ish)
+        and 0x1F
+        cp 10
+        jp nz, obj_movey_done
+        ld a, (ix+1)
+        cp 220
+        jp nc, obj_movey_done
+        call enemy_fire
+        jp obj_movey_done
+mv_diver:
+        ld a, (ship_y)          ; swoop toward the ship's height (2px)
+        ld b, a
+        ld a, (ix+2)
+        cp b
+        jp z, obj_movey_done
+        jr c, mvd_down
+        dec (ix+2)
+        dec (ix+2)
+        jp obj_movey_done
+mvd_down:
+        inc (ix+2)
+        inc (ix+2)
+        jp obj_movey_done
+mv_drone:
+        ld a, (ship_y)          ; home 1px/frame
+        ld b, a
+        ld a, (ix+2)
+        cp b
+        jr z, mvdr_fire
+        jr c, mvdr_dn
+        dec (ix+2)
+        jr mvdr_fire
+mvdr_dn:
+        inc (ix+2)
+mvdr_fire:
+        ld a, (ix+6)
+        and 0x3F
+        cp 24
+        jp nz, obj_movey_done
+        ld a, (ix+1)
+        cp 200
+        jp nc, obj_movey_done
+        call enemy_fire
+        jp obj_movey_done
+mv_turret:
+        ld a, (ix+6)            ; fixed y, fire aimed periodically
+        and 0x3F
+        cp 28
+        jp nz, obj_movey_done
+        ld a, (ix+1)
+        cp 210
+        jp nc, obj_movey_done
+        call enemy_fire
+        jp obj_movey_done
 obj_movey_done:
         ; --- ship collision (unless invulnerable) ---
         ld a, (invuln)
@@ -1762,6 +1881,16 @@ obj_draw:
         jr z, obj_spr_p
         cp T_ENEMY
         jr z, obj_spr_e
+        cp T_DIVER
+        jr z, obj_spr_dv
+        cp T_DRONE
+        jr z, obj_spr_dr
+        cp T_MINE
+        jr z, obj_spr_mn
+        cp T_TURRET
+        jr z, obj_spr_tr
+        cp T_MIDBOSS
+        jr z, obj_spr_mb
         ; rock: spin between two frames
         ld a, (ix+6)
         and 4
@@ -1778,6 +1907,31 @@ obj_spr_e:
         ld a, SI_ENEMY
         ld (spr_idx), a
         ld a, 4                 ; enemy: green
+        jr obj_spr_set
+obj_spr_dv:
+        ld a, SI_DIVER
+        ld (spr_idx), a
+        ld a, 2                 ; diver: red
+        jr obj_spr_set
+obj_spr_dr:
+        ld a, SI_DRONE
+        ld (spr_idx), a
+        ld a, 6                 ; drone: yellow
+        jr obj_spr_set
+obj_spr_mn:
+        ld a, SI_MINE
+        ld (spr_idx), a
+        ld a, 2                 ; mine: red
+        jr obj_spr_set
+obj_spr_tr:
+        ld a, SI_TURRET
+        ld (spr_idx), a
+        ld a, 7                 ; turret: white
+        jr obj_spr_set
+obj_spr_mb:
+        ld a, SI_ENEMY
+        ld (spr_idx), a
+        ld a, 3                 ; mini-boss: magenta
         jr obj_spr_set
 obj_spr_c:
         ; crystal: pulse between two frames
@@ -1854,9 +2008,19 @@ boss_hold:
         add a, (hl)
         add a, (hl)             ; doubled amplitude
         ld (ix+2), a
-        ; boss fire
+        ; boss fire — phase 2 (below half HP) fires twice as often
+        ld a, (boss_hp_max)
+        srl a
+        ld b, a                 ; half HP
+        ld a, (boss_hp)
+        cp b
         ld a, (ix+6)
+        jr nc, boss_p1
+        and 0x0F                ; phase 2: rapid fire
+        jr boss_firechk
+boss_p1:
         and 0x1F
+boss_firechk:
         jr nz, boss_nofire
         call boss_fire
 boss_nofire:
@@ -1879,14 +2043,22 @@ boss_nofire:
         jr nz, boss_draw
         call ship_hit
 boss_draw:
-        ld hl, spr_boss
+        ld hl, (boss_spr)       ; per-zone boss silhouette
         ld (spr_ptr), hl
         ld a, (ix+1)
         ld (spr_x), a
         ld a, (ix+2)
         ld (spr_y), a
         call draw_ship
-        ld a, 3                 ; boss: magenta
+        ld a, (boss_hp_max)     ; phase 2 turns the boss red
+        srl a
+        ld b, a
+        ld a, (boss_hp)
+        cp b
+        ld a, 3                 ; phase 1: magenta
+        jr nc, boss_ink
+        ld a, 2                 ; phase 2: red (enraged)
+boss_ink:
         call color_ship
         ld a, (ix+1)
         ld (ix+3), a
@@ -2149,6 +2321,7 @@ deb_next:
 ; ============================================================================
 ; spawn_explosion: at spr_x,spr_y
 spawn_explosion:
+        push ix                 ; preserve caller's object/bullet pointer
         ld ix, expls
         ld a, MAXEXPL
         ld (xcount), a
@@ -2162,6 +2335,7 @@ se_find:
         dec a
         ld (xcount), a
         jr nz, se_find
+        pop ix
         ret
 se_free:
         ld a, 6
@@ -2171,6 +2345,7 @@ se_free:
         ld a, (spr_y)
         ld (ix+2), a
         call ay_noise_burst     ; 128K: explosion noise
+        pop ix
         ret
 
 do_explosions:
@@ -2227,6 +2402,7 @@ dx_next:
 ; ============================================================================
 ; spawn_debris: scatter a few sparks from spr_x,spr_y
 spawn_debris:
+        push ix                 ; preserve caller's object/bullet pointer
         ld b, 4                 ; try to seed up to 4 sparks
         ld ix, debris
 sd_loop:
@@ -2255,6 +2431,7 @@ sd_skip:
         add ix, de
         pop bc
         djnz sd_loop
+        pop ix
         ret
 
 do_debris:
@@ -2456,6 +2633,21 @@ start_boss:
         add a, a
         add a, 16               ; hp = 16 + world*4
         ld (boss_hp), a
+        ld (boss_hp_max), a
+        ld a, (world)           ; pick the zone's boss silhouette (cycle 4)
+        and 3
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, boss_tab
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
+        ld (boss_spr), hl
+        ld hl, str_boss
+        call set_popup
         ; find a free slot
         ld ix, objs
         ld a, MAXOBJ
@@ -2847,7 +3039,7 @@ dm_on:
         ld (mus_idx), a
         ld e, a
         ld d, 0
-        ld hl, music_a
+        ld hl, (music_ptr)
         add hl, de
         ld a, (hl)              ; note index
         add a, a
@@ -2870,6 +3062,32 @@ dm_on:
 
 note_tab:
         dw 504, 423, 377, 336, 283, 252, 212, 168
+; set_music_zone: pick the per-zone AY melody (capped to the table)
+set_music_zone:
+        ld a, (world)
+        cp 6
+        jr c, smz_ok
+        ld a, 5
+smz_ok:
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, music_tab
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
+        ld (music_ptr), hl
+        ret
+music_tab:
+        dw music0, music1, music2, music3, music4, music5
+music0: db 0,2,4,5, 4,2,0,2, 1,3,5,6, 5,3,1,3
+music1: db 1,3,4,6, 5,4,3,1, 0,2,4,2, 3,5,4,2
+music2: db 5,4,3,2, 1,2,3,4, 5,6,7,6, 5,3,1,0
+music3: db 0,0,3,3, 5,5,4,2, 1,1,4,4, 6,6,5,3
+music4: db 2,4,6,7, 6,4,2,0, 3,5,7,5, 3,1,3,5
+music5: db 7,5,3,1, 0,2,4,6, 7,5,4,2, 1,3,5,7
 music_a:
         db 0,2,4,5, 4,2,0,2, 1,3,5,6, 5,3,1,3
 
@@ -2908,7 +3126,7 @@ ds_wave:
         ld a, (hl)              ; type (0xFF = loop)
         cp 0xFF
         jr nz, dw_ok
-        ld hl, wave_script
+        ld hl, (wave_base)      ; loop the current zone's script
         ld a, (hl)
 dw_ok:
         ld (sp_type), a
@@ -2935,12 +3153,16 @@ dw_setd:
         ret c
         ld a, (sp_type)
         ld (ix+0), a
-        cp T_ENEMY
-        jr nz, dw_spd1
-        ld a, 2
-        jr dw_spds
-dw_spd1:
+        cp T_ENEMY              ; fast movers: enemies, divers, drones
+        jr z, dw_fast
+        cp T_DIVER
+        jr z, dw_fast
+        cp T_DRONE
+        jr z, dw_fast
         ld a, 1
+        jr dw_spds
+dw_fast:
+        ld a, 2
 dw_spds:
         ld (ix+5), a
         ld a, (sp_yv)
@@ -2952,6 +3174,13 @@ dw_spds:
         ld (ix+3), a
         xor a
         ld (ix+6), a
+        ld a, (sp_type)         ; mini-boss: slow, hp in +7
+        cp T_MIDBOSS
+        ret nz
+        ld a, 1
+        ld (ix+5), a
+        ld a, 8
+        ld (ix+7), a
         ret
 
 ; sp_find_slot: free object slot -> IX; carry set if none free
@@ -2987,24 +3216,86 @@ sp_setpos:
         ret
 
 ; designed wave formations (type, y, frames-to-next); 0xFF = loop
-wave_script:
+; per-zone wave scripts (type, y, frames-to-next); 0xFF loops the zone
+wave_tab:
+        dw wave0, wave1, wave2, wave3, wave4, wave5
+; Zone 1 - gentle: rocks, a few weavers, a power-up
+wave0:
         db T_ROCK,  40, 26
         db T_ROCK,  72, 26
         db T_CRYS,  56, 30
         db T_ENEMY, 48, 22
         db T_ENEMY, 80, 22
-        db T_ENEMY,112, 36
         db T_ROCK, 100, 26
-        db T_ROCK,  60, 26
         db T_POWER, 70, 40
-        db T_ENEMY, 36, 20
         db T_ENEMY, 64, 20
-        db T_ENEMY, 92, 20
         db T_CRYS,  48, 28
-        db T_CRYS, 104, 28
         db T_ROCK,  84, 24
+        db 0xFF
+; Zone 2 - divers appear
+wave1:
         db T_ROCK,  44, 24
-        db T_ENEMY, 96, 30
+        db T_DIVER, 30, 24
+        db T_ENEMY, 80, 22
+        db T_CRYS,  60, 28
+        db T_DIVER, 36, 22
+        db T_ENEMY, 96, 22
+        db T_ROCK,  64, 22
+        db T_POWER, 50, 40
+        db T_DIVER, 28, 20
+        db T_ENEMY, 72, 20
+        db 0xFF
+; Zone 3 - mines + drones
+wave2:
+        db T_MINE,  48, 26
+        db T_DRONE, 40, 24
+        db T_ENEMY, 88, 20
+        db T_MINE,  72, 24
+        db T_CRYS,  56, 26
+        db T_DRONE, 64, 22
+        db T_DIVER, 32, 20
+        db T_POWER, 60, 40
+        db T_MINE,  96, 22
+        db T_ENEMY, 80, 18
+        db 0xFF
+; Zone 4 - a mini-boss + mixed swarm
+wave3:
+        db T_TURRET,28, 24
+        db T_TURRET,140,24
+        db T_DRONE, 50, 20
+        db T_MIDBOSS,70, 60
+        db T_DIVER, 36, 20
+        db T_MINE,  90, 20
+        db T_CRYS,  56, 24
+        db T_ENEMY, 80, 18
+        db T_DRONE, 44, 18
+        db T_POWER, 64, 40
+        db 0xFF
+; Zone 5 - dense divers/drones
+wave4:
+        db T_DIVER, 30, 18
+        db T_DRONE, 60, 18
+        db T_MINE,  96, 20
+        db T_DIVER, 40, 16
+        db T_ENEMY, 84, 16
+        db T_MIDBOSS,64, 56
+        db T_DRONE, 50, 16
+        db T_CRYS,  56, 22
+        db T_DIVER, 34, 16
+        db T_POWER, 60, 40
+        db 0xFF
+; Zone 6 - everything, fast
+wave5:
+        db T_TURRET,28, 18
+        db T_DIVER, 30, 14
+        db T_DRONE, 70, 14
+        db T_MINE,  90, 16
+        db T_MIDBOSS,60, 50
+        db T_DIVER, 40, 14
+        db T_ENEMY, 96, 14
+        db T_DRONE, 54, 14
+        db T_TURRET,150,18
+        db T_POWER, 60, 36
         db 0xFF
 
 ; ============================================================================
@@ -3234,18 +3525,47 @@ pw_coltab: db 5,6,7,4            ; power-up shimmer: cyan, yellow, white, green
 next_world:
         ld a, (world)
         inc a
-        and 3
+        cp NZONES
+        jr c, nw_set
+        xor a
+nw_set:
         ld (world), a
         call set_world_attr
+        call set_music_zone     ; switch the AY theme for this zone
         call sfx_zone
-        ld hl, wave_script      ; fresh formations each zone
-        ld (wave_ptr), hl
-        ld a, 1
-        ld (wave_delay), a
+        xor a
+        ld (midboss_flag), a
+        call set_zone_wave      ; fresh per-zone formations
         ld hl, 300              ; short bonus stage between zones
         ld (bonus_timer), hl
         ld hl, 750
         ld (world_timer), hl
+        ld a, 1                 ; show a ZONE CLEAR / intro flash
+        ld (zone_msg), a
+        ld a, 80
+        ld (zone_msg_t), a
+        ret
+
+; set_zone_wave: point wave_base/wave_ptr at the current zone's script
+set_zone_wave:
+        ld a, (world)
+        cp 6
+        jr c, szw_ok
+        ld a, 5
+szw_ok:
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, wave_tab
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
+        ld (wave_base), hl
+        ld (wave_ptr), hl
+        ld a, 1
+        ld (wave_delay), a
         ret
 
 ; ============================================================================
@@ -3260,6 +3580,47 @@ show_hud:
         call draw_powers        ; active power-ups, row1 mid
         call draw_combo         ; combo multiplier, row1 right
         call draw_bombs         ; smart-bomb count, row1 right
+        call draw_zone_banner   ; brief centered zone name on entry
+        ret
+
+; draw_zone_banner: show the new zone's name centred while zone_msg_t > 0
+draw_zone_banner:
+        ld a, (zone_msg_t)
+        or a
+        jr z, zb_chk
+        dec a
+        ld (zone_msg_t), a
+        ld a, (world)
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, zone_names
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
+        ld b, 11
+        ld c, 8
+        call print_str_at
+        ret
+zb_chk:
+        ld a, (zone_msg)
+        or a
+        ret z
+        xor a
+        ld (zone_msg), a
+        ld b, 11                ; blank the banner row once
+        ld c, 0
+zb_bl:
+        ld a, 32
+        push bc
+        call print_char
+        pop bc
+        inc c
+        ld a, c
+        cp 32
+        jr nz, zb_bl
         ret
 
 ; draw_combo: "x<n>" at row1 col22 (only when a chain is active)
@@ -4433,6 +4794,10 @@ worlds_tab:
         db 0, 30, 0x41,0x45,0x41,0x45,0x41,0x45
         ; Zone 4  MAGENTA STORM    black sky, magenta/white stars
         db 0, 24, 0x43,0x47,0x43,0x47,0x43,0x47
+        ; Zone 5  EMERALD RIFT     black sky, green/yellow stars
+        db 0, 22, 0x44,0x46,0x44,0x46,0x44,0x46
+        ; Zone 6  VOID NEXUS       black sky, mixed bright stars
+        db 0, 20, 0x47,0x45,0x43,0x46,0x42,0x47
 
 str_title:  db "STELLAR DRIFT",0
 str_fire:   db "PRESS FIRE",0
@@ -4526,6 +4891,9 @@ pw_speed:     defb 0
 pw_next:      defb 0
 boss_active:  defb 0
 boss_hp:      defb 0
+boss_hp_max:  defb 16
+boss_spr:     defw 0
+midboss_flag: defb 0
 shake:        defb 0
 anim_ctr:     defb 0
 terr_div:     defb 0
@@ -4593,7 +4961,13 @@ ship_tab:
         dw spr_ship4, spr_ship4_up, spr_ship4_dn
         dw spr_ship5, spr_ship5_up, spr_ship5_dn
 ship_bank:    defb 0
+boss_tab:
+        dw spr_boss, spr_boss1, spr_boss2, spr_boss3
 wave_ptr:     defw 0
+wave_base:    defw wave0
+music_ptr:    defw music0
+zone_msg:     defb 0
+zone_msg_t:   defb 0
 wave_delay:   defb 1
 sp_type:      defb 0
 sp_yv:        defb 0
@@ -4605,16 +4979,20 @@ ay_noise_t:   defb 0
 tick:         defb 0
 cheat_kprev:  defb 0
 
-zone_names:   dw zn0, zn1, zn2, zn3
+zone_names:   dw zn0, zn1, zn2, zn3, zn4, zn5
 zn0:          db "ORION DRIFT",0
 zn1:          db "CRIMSON VEIL",0
 zn2:          db "SAPPHIRE EXPANSE",0
 zn3:          db "MAGENTA STORM",0
+zn4:          db "EMERALD RIFT",0
+zn5:          db "VOID NEXUS",0
 str_boss:     db "BOSS!!",0
 str_pause:    db "PAUSED",0
 str_p10:      db "+10",0
 str_p5:       db "+5",0
 str_p200:     db "+200",0
+str_p50:      db "+50",0
+str_midboss:  db "WARSHIP!",0
 str_pwr:      db "PWR!",0
 str_1up:      db "1UP!",0
 str_bonus:    db "BONUS STAGE!",0
