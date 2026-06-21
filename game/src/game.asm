@@ -160,6 +160,7 @@ show_title:
         call print_str_at
         call draw_hstable
         call draw_scheme
+        call draw_shipsel
         ld hl, str_fire
         ld b, 20
         ld c, 11
@@ -168,6 +169,45 @@ show_title:
         ld b, 22
         ld c, 4
         call print_str_at
+        ret
+
+; set_ship_ptr: spr_ptr = ship_tab[ship_choice]
+set_ship_ptr:
+        ld a, (ship_choice)
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, ship_tab
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
+        ld (spr_ptr), hl
+        ret
+
+; draw_shipsel: show the chosen ship preview + label on the title
+draw_shipsel:
+        ld a, 116
+        ld (spr_x), a
+        ld a, 104
+        ld (spr_y), a
+        call erase_ship
+        call set_ship_ptr
+        ld a, 116
+        ld (spr_x), a
+        ld a, 104
+        ld (spr_y), a
+        call draw_ship
+        ld hl, str_shipsel
+        ld b, 15
+        ld c, 7
+        call print_str_at
+        ld a, (ship_choice)
+        add a, 'A'
+        ld b, 15
+        ld c, 14
+        call print_char
         ret
 
 ; title_anim: blink PRESS FIRE and scroll the credits line (attract mode)
@@ -322,6 +362,28 @@ ps5_loop:
         ret
 
 title_poll:
+        ld bc, 0x7FFE           ; M -> cycle ship design
+        in a, (c)
+        bit 2, a
+        jr nz, tp_mup
+        ld a, (m_prev)
+        or a
+        jr nz, tp_scheme        ; held: ignore until released
+        ld a, 1
+        ld (m_prev), a
+        ld a, (ship_choice)
+        inc a
+        cp 6
+        jr c, tp_mok
+        xor a
+tp_mok:
+        ld (ship_choice), a
+        call draw_shipsel
+        ret
+tp_mup:
+        xor a
+        ld (m_prev), a
+tp_scheme:
         ld bc, 0xF7FE           ; control-scheme select: 1 / 2
         in a, (c)
         bit 0, a
@@ -788,13 +850,7 @@ play_frame:
         and 4
         jr nz, pf_skipship
 pf_drawship:
-        ld hl, spr_ship         ; flicker the exhaust between two frames
-        ld a, (anim_ctr)
-        and 4
-        jr z, pf_shipf
-        ld hl, spr_shipb
-pf_shipf:
-        ld (spr_ptr), hl
+        call set_ship_ptr       ; spr_ptr = the chosen ship design
         ld a, (ship_x)
         ld (spr_x), a
         ld a, (ship_y)
@@ -3736,6 +3792,7 @@ str_entini: db "ENTER INITIALS - FIRE",0
 str_schopts: db "1-QAOP   2-CURSOR",0
 str_qaop:   db "USING QAOP  ",0
 str_cursor: db "USING CURSOR",0
+str_shipsel: db "M-SHIP",0
 credits_msg: db "STELLAR DRIFT - A CAVE FLYER FOR THE HC-91 - DODGE, "
              db "SHOOT, COLLECT - BEAT THE ZONE BOSSES - GOOD LUCK PILOT     ",0
 
@@ -3827,8 +3884,13 @@ hud_pow:      defb 0xFF
 paused:       defb 0
 pause_prev:   defb 0
 ctrl_scheme:  defb 0
+ship_choice:  defb 0
+m_prev:       defb 0
 tctr:         defb 0
 credit_idx:   defb 0
+
+ship_tab:
+        dw spr_ship0, spr_ship1, spr_ship2, spr_ship3, spr_ship4, spr_ship5
 wave_ptr:     defw 0
 wave_delay:   defb 1
 sp_type:      defb 0

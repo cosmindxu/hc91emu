@@ -21,8 +21,10 @@ an AY soundtrack on 128K.
 | Fire   | **Space** | **Space** | fire |
 
 Pick **QAOP** or **Cursor** keys on the title (keys **1** / **2**); the
-Kempston joystick is always live. **H** pauses. Press **Fire** to start and
-to continue after **GAME OVER**; hold Fire to stream shots.
+Kempston joystick is always live. Press **M** on the title to choose your
+**ship** from six designs (A–F; A is the default). **H** pauses. Press
+**Fire** to start and to continue after **GAME OVER**; hold Fire to stream
+shots.
 
 *Cheat keys (QA):* hold **I** for invincibility, hold **G** for all
 power-ups, press **K** to skip a zone.
