@@ -169,9 +169,13 @@ The 8×8 board is drawn as 2×2 character cells per square (128×128 px),
 with hand-designed **16×16 piece glyphs** ([pieces.py](pieces.py) turns
 ASCII art into the data). Because a ZX cell has a single ink + paper,
 solid white pieces would vanish on light squares; instead
-[pieces.py](pieces.py) emits two glyph sets — a **solid silhouette for
-Black** and a **hollow black-outline ("contour") for White** — both inked
-black, so pieces stay legible on every square colour.
+[pieces.py](pieces.py) emits two glyph sets — a **solid black silhouette
+for Black** and a **black outline for White** — both inked black. Black
+pieces sit on the square colour; white pieces are given a **white paper**,
+so the outline reads as a dark contour around a **white-filled** body
+(the square behind a white piece turns white too — the price of a black
+line + white fill + a coloured board in one single-ink cell). Either way
+pieces stay legible on every square colour.
 
 The board colour scheme is switchable in-game with **`C`** (shown on the
 panel as `C:<name>`): **Classic** (yellow/red, the default), **Meadow**
