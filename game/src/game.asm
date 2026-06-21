@@ -3787,18 +3787,20 @@ esh_row:
 
 ; worlds_tab entry: border, spawn-period, sky, mid, ground attributes
 ; (all attrs bright | paper | white ink; banded backdrop top->bottom)
-; entry: border, spawn-period, then 6 nebula band attributes (top->bottom).
-; attr = 0x40(bright) | paper<<3 | ink ; papers limited to black/blue/red/
-; magenta so bright sprite inks stay visible; ink tints each band's stars.
+; entry: border, spawn-period, then 6 band attributes (top->bottom).
+; attr = 0x40(bright) | paper<<3 | ink.  The backdrop paper stays BLACK in
+; every band (and the border too) so the screen is easy on the eyes and the
+; bright object inks pop; each zone's identity comes from its star ink, which
+; tints that band's stars (the only colour in the background).
 worlds_tab:
-        ; Zone 1  ORION DRIFT  (blue reflection nebula, magenta core)
-        db 1, 48, 0x45,0x4F,0x5E,0x5D,0x4F,0x46
-        ; Zone 2  CRIMSON VEIL  (red/magenta emission nebula)
-        db 2, 38, 0x46,0x57,0x5E,0x55,0x5F,0x45
-        ; Zone 3  SAPPHIRE EXPANSE  (deep blue with a magenta bloom)
-        db 1, 30, 0x47,0x4E,0x4D,0x5F,0x4E,0x45
-        ; Zone 4  MAGENTA STORM  (red/magenta turbulence)
-        db 3, 24, 0x45,0x5F,0x56,0x5E,0x57,0x5D
+        ; Zone 1  ORION DRIFT      black sky, cyan/white stars
+        db 0, 48, 0x45,0x47,0x45,0x47,0x45,0x47
+        ; Zone 2  CRIMSON VEIL     black sky, red/magenta stars
+        db 0, 38, 0x42,0x43,0x42,0x43,0x42,0x43
+        ; Zone 3  SAPPHIRE EXPANSE black sky, blue/cyan stars
+        db 0, 30, 0x41,0x45,0x41,0x45,0x41,0x45
+        ; Zone 4  MAGENTA STORM    black sky, magenta/white stars
+        db 0, 24, 0x43,0x47,0x43,0x47,0x43,0x47
 
 str_title:  db "STELLAR DRIFT",0
 str_fire:   db "PRESS FIRE",0

@@ -39,8 +39,9 @@ power-ups, press **K** to skip a zone.
   speed boost (shown as **T R S F** in the HUD).
 - Each zone ends with a **boss**; beat it for a bonus and a **BONUS STAGE**
   crystal run, then the next zone. Four named zones cycle (Orion Drift,
-  Crimson Veil, Sapphire Expanse, Magenta Storm), each with its own vivid
-  nebula palette and denser than the last.
+  Crimson Veil, Sapphire Expanse, Magenta Storm); each keeps a black backdrop
+  (so the objects stand out) with its own star/terrain colour, and gets
+  denser than the last.
 - **Extra life** every 1000 points. Make the **high-score table** and enter
   your initials.
 
