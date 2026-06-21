@@ -143,6 +143,7 @@ haveLast equ 0xE124      ; 1 once the engine has moved
 osKF     equ 0xE125      ; killer bump scratch
 osKT     equ 0xE126
 osKScore equ 0xE127
+gameUndoN equ 0xE128     ; plies on the take-back stack
 
 killerArr equ 0xD100     ; 4 bytes/ply: k1from,k1to,k2from,k2to
 
@@ -162,6 +163,7 @@ zobSide   equ 0xDB70     ; 2
 TT_BASE   equ 0x6000     ; 1024 entries * 8 bytes = 8 KB
 TT_MASK   equ 0x03FF
 gameKeys  equ 0x5B00     ; game position-key history (2 bytes/ply)
+gameUndo  equ 0x5D00     ; take-back stack: 48 plies * 16-byte undo records
 
 PHASE_EG equ 8           ; below this non-pawn phase, use endgame king PST
 DOUBLED  equ 12
@@ -217,6 +219,7 @@ aiTurn:
         call drawStatus
         call aiMove
 afterMove:
+        call pushGameUndo      ; save undo[0] for take-back
         call recordGameKey
         call updateTerminal
         call drawScreenFull
@@ -291,6 +294,7 @@ ngFile: ld a,(hl)
         call computeKey
         xor a
         ld (gameKeyN),a
+        ld (gameUndoN),a
         call recordGameKey     ; record the initial position
         call ttClear
         ret
@@ -846,8 +850,14 @@ sk_t:   ld bc,0xFBFE
 sk_v:   ld bc,0xFEFE           ; CAPS,Z,X,C,V
         in a,(c)
         bit 4,a                ; V = toggle two-player
-        jr nz,sk_a
+        jr nz,sk_z
         ld a,'V'
+        ret
+sk_z:   ld bc,0xFEFE
+        in a,(c)
+        bit 1,a                ; Z = take back
+        jr nz,sk_a
+        ld a,'Z'
         ret
 sk_a:   ld bc,0xFDFE           ; A,S,D,F,G
         in a,(c)
@@ -941,6 +951,8 @@ hmLoop: call readKeyDebounced
         jp z,hmPerft
         cp 'V'
         jp z,hmTwoP
+        cp 'Z'
+        jp z,hmTakeBack
         cp '1'
         jp c,hmLoop
         cp '6'
@@ -993,6 +1005,13 @@ hmTwoP:
         ld hl,msgTwoP
         call setMsg
         call drawStatus
+        jp hmLoop
+
+hmTakeBack:
+        call takeBack
+        ld hl,msgTaken
+        call setMsg
+        call drawScreenFull
         jp hmLoop
 
 hmSel:  ld a,(selSq)
@@ -1174,6 +1193,7 @@ msgDraw:     defb "Draw (50-move)          SPC=new",0
 msgMat:      defb "Draw - insufficient mtl SPC=new",0
 msgRep:      defb "Draw - repetition       SPC=new",0
 msgTwoP:     defb "Two-player mode toggled",0
+msgTaken:    defb "Take back done",0
 msgLevel:    defb "Level",0
 msg2pL:      defb "2-player",0
 msgMoveL:    defb "Move",0
