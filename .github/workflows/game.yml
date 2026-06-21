@@ -1,0 +1,198 @@
+# CI for the STELLAR DRIFT game: assemble it and run headless tests against
+# the emulator (build, screenshot, OCR gameplay assertions and WAV capture).
+name: game
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pasmo (Z80 assembler)
+        run: sudo apt-get update && sudo apt-get install -y pasmo
+
+      - name: Build the emulator
+        run: make
+
+      - name: Fetch ROMs (needed to run the emulator)
+        run: bash tools/get_roms.sh
+
+      - name: Build the game (.tap/.tzx + loading screen)
+        run: cd game && bash build.sh
+
+      - name: Check artefacts exist and are non-empty
+        run: |
+          test -s game/build/game.tap
+          test -s game/build/game.tzx
+          test -s game/build/game.bin
+
+      - name: Title screen shows the game name
+        run: |
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --frames 1800 --text game/build/game.tap | tee /tmp/title.txt
+          grep -q "STELLAR DRIFT" /tmp/title.txt
+
+      - name: Sprite depack is byte-identical to source
+        run: |
+          # boot, snapshot RAM, and prove the Z80 LZSS depacker reproduces the
+          # sprite bytes exactly at SPRBASE (guards the compression tooling)
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo \
+            --frames 1500 --save-sna /tmp/g.sna game/build/game.tap
+          python3 game/tools/check_unpack.py /tmp/g.sna
+
+      - name: Gameplay - boot, start and reach the first zone
+        run: |
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1800-2600:F" \
+            --frames 2600 --screenshot /tmp/play.png \
+            --save-scr /tmp/play.scr game/build/game.tap
+          test -s /tmp/play.png
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1800-2600:F" --frames 2600 --text \
+            game/build/game.tap | tee /tmp/screen.txt
+          # the in-game HUD must show the first zone's name
+          grep -q "ORION DRIFT" /tmp/screen.txt
+
+      - name: Gameplay regression - long run stays alive and on-HUD
+        run: |
+          # play ~6000 frames with fire held; the HUD (zone name) must still
+          # be present, proving the game did not crash back to the ROM.
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1800-7000:F" --frames 7000 --text \
+            game/build/game.tap | tee /tmp/long.txt
+          grep -Eq "DRIFT|VEIL|SAPPHIRE|MAGENTA|EMERALD|VOID|BONUS|GAME OVER" /tmp/long.txt
+
+      - name: Gameplay regression - terrain crash costs lives (game over)
+        run: |
+          # first FIRE opens the mission briefing, second FIRE launches, then
+          # holding UP flies into the cave ceiling repeatedly -> GAME OVER
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1790-1798:F" --joy "1800-13000:U" \
+            --frames 13000 --text game/build/game.tap | tee /tmp/crash.txt
+          grep -q "GAME OVER" /tmp/crash.txt
+          grep -q "RANK" /tmp/crash.txt   # end-of-run rank on the game-over screen
+
+      - name: 128K - boots and captures AY audio
+        run: |
+          ./build/hc91emu --machine hc128 --rom roms/hc-128.rom \
+            --rom1 roms/hc-128.rom --autoload --kempston \
+            --joy "1750-1770:F" --joy "1800-2600:F" --frames 2600 \
+            --wav /tmp/ay.wav game/build/game.tap
+          test -s /tmp/ay.wav
+
+      - name: Story - mission briefing shows on a new game
+        run: |
+          # the first FIRE opens the briefing; before launching, it must show
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --frames 1820 --text game/build/game.tap \
+            | tee /tmp/brief.txt
+          grep -q "MISSION BRIEFING" /tmp/brief.txt
+
+      - name: Story - zone card flavour shows on zone entry
+        run: |
+          # on zone entry a splash screen shows the zone name + story flavour
+          # on a still screen (paused ~1s) before play starts
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1800-1808:F" --frames 1840 --text \
+            game/build/game.tap | tee /tmp/card.txt
+          grep -q "WARSHIP" /tmp/card.txt
+
+      - name: Story - victory ending screen (VTEST fast-path build)
+        run: |
+          # a test-only build (VTEST=1) jumps straight to the ending so the
+          # victory screen + state-4 flow are exercised without a full
+          # playthrough; VSCORE seeds a final score so the rank path is
+          # exercised end to end (9999 -> top grade S, not the C fallback)
+          ( cd game && pasmo --equ VTEST=1 --equ BTEST=0 --equ VSCORE=9999 \
+            src/game.asm /tmp/vtest.bin \
+            && python3 tools/mktap.py /tmp/vtest.bin /tmp/vtest.tap 32768 stellar )
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1850-1858:F" --frames 1980 --text \
+            /tmp/vtest.tap | tee /tmp/vic.txt
+          grep -q "MISSION COMPLETE" /tmp/vic.txt
+          grep -q "ALL ZONES CLEARED" /tmp/vic.txt
+          grep -q "09999" /tmp/vic.txt
+          grep -q "RANK  S" /tmp/vic.txt
+
+      - name: Mastery - Veteran skill is gated, unlocks after winning
+        run: |
+          # before winning, cycling skill (key 3) caps at Cadet/Pilot/Ace:
+          # two presses from the default Pilot must land on Cadet, not Veteran
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo \
+            --keys "1410:3" --keys "1460:3" --frames 1468 --text \
+            game/build/game.tap | tee /tmp/gate.txt
+          grep -q "CADET" /tmp/gate.txt
+          ! grep -q "VETERAN" /tmp/gate.txt
+          # after winning (VTEST build), the title shows the unlock badge and
+          # cycling skill now reaches Veteran (two presses Pilot->Ace->Veteran)
+          ( cd game && pasmo --equ VTEST=1 --equ BTEST=0 --equ VSCORE=0 \
+            src/game.asm /tmp/vw.bin \
+            && python3 tools/mktap.py /tmp/vw.bin /tmp/vw.tap 32768 stellar )
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1850-1858:F" --joy "1950-1958:F" \
+            --keys "2050:3" --keys "2100:3" --frames 2110 --text /tmp/vw.tap \
+            | tee /tmp/vet.txt
+          grep -q "VETERAN UNLOCKED" /tmp/vet.txt
+          grep -q "VETERAN" /tmp/vet.txt
+
+      - name: Spectacle - persistent boss name on the HUD (BTEST build)
+        run: |
+          # a test-only build (BTEST=1) spawns the zone boss almost immediately;
+          # the HUD row 1 must name the war-machine (SENTINEL) during the fight
+          ( cd game && pasmo --equ VTEST=0 --equ BTEST=1 src/game.asm /tmp/bt.bin \
+            && python3 tools/mktap.py /tmp/bt.bin /tmp/bt.tap 32768 stellar )
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1810-1818:F" --frames 2000 --text \
+            /tmp/bt.tap | tee /tmp/boss.txt
+          grep -q "SENTINEL" /tmp/boss.txt
+
+      - name: Content - Boss Rush mode (key 7) spawns the boss at once
+        run: |
+          # pressing 7 on the title arms boss rush (shipping build, no flag)
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --keys "1410:7" \
+            --frames 1430 --text game/build/game.tap | tee /tmp/rusharm.txt
+          grep -q "BOSS RUSH ARMED" /tmp/rusharm.txt
+          # armed + launched, the first zone's boss appears immediately
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --keys "1410:7" --joy "1750-1758:F" --joy "1810-1818:F" \
+            --frames 2000 --text game/build/game.tap | tee /tmp/rush.txt
+          grep -q "SENTINEL" /tmp/rush.txt
+
+      - name: Skill - perfect-zone bonus when a boss falls untouched (BTEST)
+        run: |
+          ( cd game && pasmo --equ VTEST=0 --equ BTEST=1 src/game.asm /tmp/pf.bin \
+            && python3 tools/mktap.py /tmp/pf.bin /tmp/pf.tap 32768 stellar )
+          # rise to the boss's centre line, then hold fire to kill it without
+          # taking a hit -> PERFECT ZONE popup + bonus (the zone splash shifts
+          # the fight, so the ship tracks the boss for a reliable clean kill)
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1810-1818:F" --joy "1870-1910:U" \
+            --joy "1870-4000:F" --frames 2658 --text /tmp/pf.tap | tee /tmp/pf.txt
+          grep -q "PERFECT ZONE" /tmp/pf.txt
+
+      - name: Content - splitter zones stay stable (K-skip to zone 3+)
+        run: |
+          # skip to a splitter zone (3+) and keep firing; reaching MAGENTA STORM
+          # alive proves the splitter spawn/split path doesn't crash
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1810-1818:F" \
+            --keys "1900:K" --keys "2300:K" --keys "2700:K" \
+            --joy "3000-5000:F" --frames 4000 --text game/build/game.tap \
+            | tee /tmp/split.txt
+          grep -q "MAGENTA STORM" /tmp/split.txt
+
+      - name: Content - 7th zone (NEXUS CORE) is reachable and stable
+        run: |
+          # skip through to the final zone; it must render (the seven per-zone
+          # tables stay in sync and zone 6 is reachable without crashing)
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1810-1818:F" \
+            --keys "1900:K" --keys "2300:K" --keys "2700:K" \
+            --keys "3100:K" --keys "3500:K" --keys "3900:K" \
+            --joy "4000-9000:F" --frames 5300 --text game/build/game.tap \
+            | tee /tmp/z7.txt
+          grep -q "NEXUS CORE" /tmp/z7.txt
