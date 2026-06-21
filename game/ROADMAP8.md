@@ -59,12 +59,13 @@ ZX7-class Z80 depacker realistically lands ~55–60 %.
   `music_a` theme (16 B) and the orphaned `ceil_tiles`/`floor_tiles` tables
   (64 B) from the old tiled-terrain system (terrain is height-map based now).
   **−80 B.** _Done._
-- ✅ **Investigated runtime mask generation** — finding: masks are exactly
-  `~data` (`mksprites.py` emits `mask = (~d) & 0xFF`), so they are 100 %
-  derivable and the stored masks could be dropped to roughly halve the raw
-  sprite block. **Deferred**: it needs format + blitter changes
-  (`build_preshift`, `draw_sprite_ps`, ship/boss draw) for headroom that is
-  already met (~1.8 KB free) — risk not justified. _Resolved._
+- ✅ **Runtime mask generation** — masks are exactly `~data`, so the stored
+  masks were dropped: `mksprites.py` emits **data-only** sprites (raw 3360 →
+  1680, packed 1611 → 1044), `build_preshift` `cpl`s each data byte to rebuild
+  the mask, and the 24-wide ship/boss blitter was already a pure-OR draw (just
+  a +3-not-+6 row advance). **−569 B** (15389 → 14820; ~2.3 KB free). Proven
+  safe: the pre-shifted `psbuf` is **byte-identical** to the stored-mask build,
+  and ship/boss rendering verified by screenshot. _Done._
 
 ## D. Then spend the headroom
 
