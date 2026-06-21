@@ -354,6 +354,10 @@ show_title:
         ld b, 2
         ld c, 9
         call print_str_at
+        ld hl, str_tagline      ; story hint, low so it clears the ship preview
+        ld b, 21
+        ld c, 1
+        call print_str_at
         ld hl, str_hiscores
         ld b, 6
         ld c, 9
@@ -830,10 +834,61 @@ tp_press:
         ld a, (menu_lock)
         or a
         ret nz                  ; wait for a fresh press
+        call show_briefing      ; mission briefing (skippable, FIRE to launch)
         call init_game
         ld a, 1
         ld (state), a
         ld (menu_lock), a
+        ret
+
+; show_briefing: blocking mission-briefing screen; returns when FIRE pressed
+show_briefing:
+        call clear_screen
+        call draw_title_stars
+        ld hl, str_brf_hd
+        ld b, 2
+        ld c, 8
+        call print_str_at
+        ld hl, str_brf1
+        ld b, 6
+        ld c, 11
+        call print_str_at
+        ld hl, str_brf2
+        ld b, 8
+        ld c, 5
+        call print_str_at
+        ld hl, str_brf3
+        ld b, 9
+        ld c, 2
+        call print_str_at
+        ld hl, str_brf4
+        ld b, 10
+        ld c, 3
+        call print_str_at
+        ld hl, str_brf5
+        ld b, 13
+        ld c, 5
+        call print_str_at
+        ld hl, str_brf6
+        ld b, 14
+        ld c, 3
+        call print_str_at
+        ld hl, str_brf7
+        ld b, 15
+        ld c, 5
+        call print_str_at
+        ld hl, str_launch
+        ld b, 20
+        ld c, 9
+        call print_str_at
+sbf_rel:
+        halt                    ; wait for FIRE to be released first
+        call fire_down
+        jr z, sbf_rel
+sbf_wait:
+        halt                    ; then wait for a fresh FIRE to launch
+        call fire_down
+        jr nz, sbf_wait
         ret
 
 show_gameover:
@@ -6332,6 +6387,16 @@ str_ships:  db "SHIPS",0
 str_zone:   db "ZONE",0
 str_hiscores: db "HIGH SCORES",0
 str_ctrl:   db "QAOP/KEMPSTON   H-PAUSE",0
+str_tagline: db "SIX ZONES SEALED - STOP NEXUS",0
+str_brf_hd: db "MISSION BRIEFING",0
+str_brf1:   db "YEAR 2387.",0
+str_brf2:   db "THE ROGUE AI NEXUS HAS",0
+str_brf3:   db "SEALED THE SIX NEBULA ZONES",0
+str_brf4:   db "AND CUT OFF THE COLONIES.",0
+str_brf5:   db "FLY THE SCOUT DRIFTER",0
+str_brf6:   db "THROUGH EVERY ZONE TO THE",0
+str_brf7:   db "CORE - AND END NEXUS.",0
+str_launch: db "FIRE TO LAUNCH",0
 str_newhi:  db "NEW HIGH SCORE!",0
 str_entini: db "ENTER INITIALS - FIRE",0
 str_schopts: db "1-QAOP   2-CURSOR",0
