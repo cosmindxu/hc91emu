@@ -457,12 +457,12 @@ tp_opts:
         and 0x10                ; key 6 = bit4
         ld d, a                 ; D = 6 bit
         ld a, e
-        and 0x1C                ; bits 2,3,4 = keys 3,4,5
+        and 0x1C                ; bits 2,3,4 = keys 3,4,5 (active low)
         cp 0x1C
-        jr nz, tp_optpress
+        jr nz, tp_optpress      ; one of 3/4/5 pressed
         ld a, d
         or a
-        jr z, tp_optnone        ; 6 also up -> nothing pressed
+        jr nz, tp_optnone       ; key 6 also up -> nothing pressed
 tp_optpress:
         ld a, (opt_prev)
         or a
@@ -851,6 +851,7 @@ init_game:
         call clear_screen
         call zero_objects
         call init_stars
+        call init_cave
         ld a, (difficulty)      ; lives: Cadet 5, Pilot 3, Ace 2
         or a
         jr nz, ig_d1
@@ -988,6 +989,7 @@ play_frame:
         call uncolor_ship       ; clear old ship colour cells
         call erase_flame        ; clear last frame's exhaust
         call read_input
+        call cave_collide       ; crash if the ship flew into a wall
         call do_cheats
         call do_fire
         call do_bullets
@@ -3383,41 +3385,245 @@ ds_d1:
 ;  Character-cell scroll: every 4th frame shift each strip left one cell
 ;  and feed a fresh tile at the right.
 ; ============================================================================
+; ============================================================================
+;  CAVE  -  variable-height ceiling/floor heightmap (CMAX cells each side)
+;  Walls live in the outer cell rows (2..2+CMAX-1 and 24-CMAX..23); the open
+;  middle is where hazards spawn.  The ship may fly into a wall and crash.
+;  The map scrolls one cell every 4 frames; the walls are repainted each frame.
+; ============================================================================
+CMAX    equ 5
+
 scroll_terrain:
         ld a, (terr_div)
         inc a
         and 3
         ld (terr_div), a
-        ret nz
-        ld a, (terr_tile)
-        inc a
+        jr nz, draw_cave        ; only shift the map every 4th frame
+        ; shift ceil_h/floor_h left by one cell
+        ld hl, ceil_h+1
+        ld de, ceil_h
+        ld bc, 31
+        ldir
+        ld hl, floor_h+1
+        ld de, floor_h
+        ld bc, 31
+        ldir
+        ; generate a new right-most column via a bounded random walk
+        ld a, (world)           ; later zones allow taller (tighter) walls
+        add a, 2
+        cp CMAX
+        jr c, st_amp
+        ld a, CMAX
+st_amp:
+        ld (cave_amp), a
+        call rnd
         and 3
-        ld (terr_tile), a
-        ; ceiling at pixel row 16
+        sub 1                   ; -1..+2 step, biased to grow a little
+        ld hl, cave_ct
+        add a, (hl)
+        call clamp_wall
+        ld (cave_ct), a
+        ld (ceil_h+31), a
+        call rnd
+        and 3
+        sub 1
+        ld hl, cave_ft
+        add a, (hl)
+        call clamp_wall
+        ld (cave_ft), a
+        ld (floor_h+31), a
+        ; fall through to draw_cave
+
+; draw_cave: repaint both wall zones from the heightmap (called every frame)
+draw_cave:
+        xor a
+        ld (dc_c), a
+dc_colloop:
+        ld a, (dc_c)
+        ld c, a
+        ld b, 0
+        ld hl, ceil_h
+        add hl, bc
+        ld a, (hl)
+        ld (dc_ch), a
+        ld hl, floor_h
+        add hl, bc
+        ld a, (hl)
+        ld (dc_fh), a
+        ; ceiling zone: cell rows 2..2+CMAX-1
+        xor a
+        ld (dc_k), a
+dc_ceil:
+        ld a, (dc_ch)           ; solid while k < ceil_h
+        ld hl, dc_k
+        cp (hl)
+        ld a, 0xFF
+        jr z, dc_cclr
+        jr nc, dc_cdraw
+dc_cclr:
+        xor a
+dc_cdraw:
+        ld (dc_val), a
+        ld a, (dc_k)
+        add a, 2                ; cell row = 2 + k
+        ld b, a
+        ld a, (dc_c)
+        ld c, a
+        ld a, (dc_val)
+        call cell_fill
+        ld a, (dc_k)
+        inc a
+        ld (dc_k), a
+        cp CMAX
+        jr nz, dc_ceil
+        ; floor zone: cell rows 24-CMAX..23
+        xor a
+        ld (dc_k), a
+dc_floor:
+        ld a, (dc_fh)           ; solid while k < floor_h (from the bottom up)
+        ld hl, dc_k
+        cp (hl)
+        ld a, 0xFF
+        jr z, dc_fclr
+        jr nc, dc_fdraw
+dc_fclr:
+        xor a
+dc_fdraw:
+        ld (dc_val), a
+        ld a, 23                ; cell row = 23 - k
+        ld hl, dc_k
+        sub (hl)
+        ld b, a
+        ld a, (dc_c)
+        ld c, a
+        ld a, (dc_val)
+        call cell_fill
+        ld a, (dc_k)
+        inc a
+        ld (dc_k), a
+        cp CMAX
+        jr nz, dc_floor
+        ld a, (dc_c)
+        inc a
+        ld (dc_c), a
+        cp 32
+        jp nz, dc_colloop
+        ret
+
+; clamp_wall: clamp A to 1..cave_amp
+clamp_wall:
+        bit 7, a
+        jr z, cw_lo
+        ld a, 1
+cw_lo:
+        or a
+        jr nz, cw_n0
+        ld a, 1
+cw_n0:
+        ld b, a
+        ld a, (cave_amp)
+        cp b
+        ld a, b
+        ret nc
+        ld a, (cave_amp)
+        ret
+
+; cell_fill: A = byte value, B = cell row, C = column ; fill the 8 pixel rows
+cell_fill:
+        ld (cf_val), a
+        ld a, b
         add a, a
         add a, a
-        add a, a                ; tile*8
-        ld e, a
-        ld d, 0
-        ld hl, ceil_tiles
+        add a, a                ; pixel row = cellrow*8
+        ld (cf_pr), a
+        ld b, 8
+cf_lp:
+        push bc
+        ld a, (cf_pr)
+        ld l, a
+        ld h, 0
+        add hl, hl
+        ld de, addrtab
         add hl, de
-        ld (ss_tile), hl
-        ld a, 16
-        ld (ss_base), a
-        call scroll_strip
-        ; floor at pixel row 184
-        ld a, (terr_tile)
-        add a, a
-        add a, a
-        add a, a
-        ld e, a
-        ld d, 0
-        ld hl, floor_tiles
+        ld e, (hl)
+        inc hl
+        ld d, (hl)
+        ld a, c
+        ld l, a
+        ld h, 0
         add hl, de
-        ld (ss_tile), hl
-        ld a, 184
-        ld (ss_base), a
-        call scroll_strip
+        ld a, (cf_val)
+        ld (hl), a
+        ld a, (cf_pr)
+        inc a
+        ld (cf_pr), a
+        pop bc
+        djnz cf_lp
+        ret
+
+; cave_collide: crash if the ship overlaps a wall at its centre column
+cave_collide:
+        ld a, (invuln)
+        or a
+        ret nz
+        ld a, (ship_x)
+        add a, 11
+        srl a
+        srl a
+        srl a
+        ld c, a
+        ld b, 0
+        ld hl, ceil_h
+        add hl, bc
+        ld a, (hl)              ; ceil_h
+        add a, 2               ; ceiling bottom cell
+        add a, a
+        add a, a
+        add a, a               ; *8 -> pixel
+        ld b, a
+        ld a, (ship_y)
+        cp b
+        jr c, cave_hit         ; ship top above ceiling bottom -> in ceiling
+        ld a, (ship_x)
+        add a, 11
+        srl a
+        srl a
+        srl a
+        ld c, a
+        ld b, 0
+        ld hl, floor_h
+        add hl, bc
+        ld a, (hl)             ; floor_h
+        ld b, a
+        ld a, 24
+        sub b                  ; floor top cell
+        add a, a
+        add a, a
+        add a, a               ; *8
+        ld b, a
+        ld a, (ship_y)
+        add a, 16              ; ship bottom
+        cp b
+        ret c                  ; ship bottom above floor top -> safe
+cave_hit:
+        call ship_hit
+        ret
+
+; init_cave: flat, modest walls to start
+init_cave:
+        ld a, 2
+        ld (cave_ct), a
+        ld (cave_ft), a
+        ld hl, ceil_h
+        ld de, ceil_h+1
+        ld bc, 31
+        ld (hl), 2
+        ldir
+        ld hl, floor_h
+        ld de, floor_h+1
+        ld bc, 31
+        ld (hl), 2
+        ldir
         ret
 
 ; scroll_strip: (ss_base)=top pixel row, (ss_tile)->8 feed bytes
@@ -4898,6 +5104,18 @@ shake:        defb 0
 anim_ctr:     defb 0
 terr_div:     defb 0
 terr_tile:    defb 0
+ceil_h:       defs 32
+floor_h:      defs 32
+cave_ct:      defb 2
+cave_ft:      defb 2
+cave_amp:     defb 4
+dc_c:         defb 0
+dc_ch:        defb 0
+dc_fh:        defb 0
+dc_k:         defb 0
+dc_val:       defb 0
+cf_val:       defb 0
+cf_pr:        defb 0
 ss_base:      defb 0
 ss_row:       defb 0
 ss_tile:      defw 0
