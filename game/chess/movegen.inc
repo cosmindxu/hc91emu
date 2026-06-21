@@ -691,6 +691,10 @@ undoPtr:
         ret
 
 makeMove:
+        ld a,(castling)
+        ld (mkOldCastle),a
+        ld a,(epSquare)
+        ld (mkOldEp),a
         ld a,(mvFlag)
         ld b,a
         and 7
@@ -771,6 +775,12 @@ mkUndo:
         ld (hl),a
         inc hl
         ld a,(moveCount+1)
+        ld (hl),a
+        inc hl
+        ld a,(hashKey)           ; save key for unmake (undo +13/+14)
+        ld (hl),a
+        inc hl
+        ld a,(hashKey+1)
         ld (hl),a
         ; --- mutate board ---
         ld a,(mvFrom)
@@ -918,6 +928,7 @@ mkTog:
         ld a,(sideToMove)
         xor 8
         ld (sideToMove),a
+        call keyUpdate
         ret
 
 clrCastleSq:
@@ -986,6 +997,12 @@ unmakeMove:
         inc hl
         ld a,(hl)
         ld (moveCount+1),a
+        inc hl
+        ld a,(hl)                ; restore saved Zobrist key
+        ld (hashKey),a
+        inc hl
+        ld a,(hl)
+        ld (hashKey+1),a
         ; restore board: from = movedPiece
         ld a,(mvFrom)
         ld l,a
