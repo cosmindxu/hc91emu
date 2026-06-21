@@ -11,10 +11,20 @@
 ; ---- constants -------------------------------------------------------------
 SCR     equ 0x4000          ; pixel memory
 ATTR    equ 0x5800          ; attribute memory
-MAXOBJ  equ 8               ; rocks / enemies / crystals
-MAXBUL  equ 4               ; player bullets in flight
-NSTAR   equ 16              ; parallax stars
+MAXOBJ  equ 8               ; rocks / enemies / crystals / power-ups / boss
+OBJSZ   equ 8               ; bytes per object
+MAXBUL  equ 6               ; player bullets in flight
+MAXEB   equ 6               ; enemy bullets in flight
+MAXEXPL equ 4               ; simultaneous explosions
+NSTAR   equ 24              ; parallax stars (3 depth layers)
 FONT    equ 0x3C00          ; ROM font base (char*8 + FONT)
+
+; object types
+T_ROCK  equ 1
+T_ENEMY equ 2
+T_CRYS  equ 3
+T_POWER equ 4
+T_BOSS  equ 5
 
 ; ============================================================================
 ;  ENTRY
@@ -141,10 +151,21 @@ init_game:
         ld (ship_x), a
         ld a, 88
         ld (ship_y), a
+        ld a, 8
+        ld (vxb), a             ; rest velocity (biased)
+        ld (vyb), a
         xor a
         ld (invuln), a
         ld (fire_prev), a
         ld (fire_cd), a
+        ld (pw_twin), a
+        ld (pw_rapid), a
+        ld (pw_shield), a
+        ld (pw_speed), a
+        ld (pw_next), a
+        ld (boss_active), a
+        ld (boss_hp), a
+        ld (shake), a
         ld a, (spawn_period)
         ld (spawn_timer), a
         ld hl, 750
@@ -154,12 +175,17 @@ init_game:
 zero_objects:
         ld hl, objs
         ld de, objs+1
-        ld bc, MAXOBJ*6-1
+        ld bc, MAXOBJ*OBJSZ-1
         ld (hl), 0
         ldir
         ld hl, bullets
         ld de, bullets+1
         ld bc, MAXBUL*4-1
+        ld (hl), 0
+        ldir
+        ld hl, ebullets
+        ld de, ebullets+1
+        ld bc, MAXEB*6-1
         ld (hl), 0
         ldir
         ret
@@ -180,6 +206,8 @@ play_frame:
         call do_fire
         call do_bullets
         call do_objects
+        call do_ebullets
+        call do_explosions
         call do_spawn
         ; invulnerability countdown + blink
         ld a, (invuln)
@@ -198,23 +226,57 @@ pf_drawship:
         ld (spr_y), a
         call draw_ship
         ld a, 5                 ; bright cyan ship
+        ld hl, pw_shield
+        ld a, (hl)
+        or a
+        ld a, 5
+        jr z, pf_shipink
+        ld a, 7                 ; shielded: bright white
+pf_shipink:
         call color_ship
 pf_skipship:
+        call engine_drone
+        ; screen-shake / border-flash decay
+        call do_shake
+        ; zone timer: only counts down when no boss is active
+        ld a, (boss_active)
+        or a
+        jr nz, pf_hud
         ld hl, (world_timer)
         dec hl
         ld (world_timer), hl
         ld a, h
         or l
         jr nz, pf_hud
-        call next_world
+        call start_boss
 pf_hud:
         call show_hud
+        ret
+
+; brief border flash + ship jitter while shake>0
+do_shake:
+        ld a, (shake)
+        or a
+        ret z
+        dec a
+        ld (shake), a
+        and 1
+        jr z, ds_normal
+        ld a, 7                 ; white flash on alternate frames
+        out (254), a
+        ret
+ds_normal:
+        ld a, (cur_border)
+        out (254), a
         ret
 
 ; ============================================================================
 ;  INPUT  -  QAOP, plus Kempston joystick directions
 ; ============================================================================
 read_input:
+        xor a                   ; reset movement intents
+        ld (want_x), a
+        ld (want_y), a
         ld bc, 0xFBFE           ; Q row -> up
         in a, (c)
         bit 0, a
@@ -257,6 +319,7 @@ ri_kn_lf:
         jr z, ri_kn_rt
         call ship_right
 ri_kn_rt:
+        call apply_inertia
         ret
 
 ; read_joy: A = Kempston bits, or 0 if no interface (port floats with
@@ -273,33 +336,153 @@ rj_none:
         xor a
         ret
 
+; input handlers just record intent (-1 / +1); apply_inertia does the rest
 ship_up:
-        ld a, (ship_y)
-        cp 18
-        ret c
-        sub 2
-        ld (ship_y), a
+        ld a, 0xFF
+        ld (want_y), a
         ret
 ship_down:
-        ld a, (ship_y)
-        cp 176
-        ret nc
-        add a, 2
-        ld (ship_y), a
+        ld a, 1
+        ld (want_y), a
         ret
 ship_left:
-        ld a, (ship_x)
-        cp 2
-        ret c
-        sub 2
-        ld (ship_x), a
+        ld a, 0xFF
+        ld (want_x), a
         ret
 ship_right:
+        ld a, 1
+        ld (want_x), a
+        ret
+
+; apply_inertia: accelerate velocity toward intent (capped), else decay
+; toward rest, then move the ship.  Velocities are biased by +8 so all
+; the comparisons stay unsigned.
+apply_inertia:
+        ld a, (pw_speed)        ; max speed (2, or 3 with speed power-up)
+        or a
+        ld a, 2
+        jr z, ai_mv
+        ld a, 3
+ai_mv:
+        ld (ship_step), a
+        ; ----- horizontal -----
+        ld a, (want_x)
+        or a
+        jr z, ai_xdecay
+        bit 7, a
+        jr nz, ai_xleft
+        ld a, (ship_step)       ; right: vxb -> min(vxb+1, 8+max)
+        add a, 8
+        ld c, a
+        ld a, (vxb)
+        inc a
+        cp c
+        jr c, ai_xstore
+        ld a, c
+ai_xstore:
+        ld (vxb), a
+        jr ai_xmove
+ai_xleft:
+        ld a, 8                 ; left: vxb -> max(vxb-1, 8-max)
+        ld c, a
+        ld a, (ship_step)
+        ld b, a
+        ld a, c
+        sub b
+        ld c, a
+        ld a, (vxb)
+        dec a
+        cp c
+        jr nc, ai_xstore2
+        ld a, c
+ai_xstore2:
+        ld (vxb), a
+        jr ai_xmove
+ai_xdecay:
+        ld a, (vxb)
+        cp 8
+        jr z, ai_xmove
+        jr c, ai_xdec_up
+        dec a
+        ld (vxb), a
+        jr ai_xmove
+ai_xdec_up:
+        inc a
+        ld (vxb), a
+ai_xmove:
+        ld a, (vxb)
+        sub 8
+        ld b, a
         ld a, (ship_x)
-        cp 120
-        ret nc
-        add a, 2
+        add a, b
+        cp 4
+        jr nc, ai_xlo
+        ld a, 4
+ai_xlo:
+        cp 121
+        jr c, ai_xhi
+        ld a, 120
+ai_xhi:
         ld (ship_x), a
+        ; ----- vertical -----
+        ld a, (want_y)
+        or a
+        jr z, ai_ydecay
+        bit 7, a
+        jr nz, ai_yup
+        ld a, (ship_step)       ; down
+        add a, 8
+        ld c, a
+        ld a, (vyb)
+        inc a
+        cp c
+        jr c, ai_ystore
+        ld a, c
+ai_ystore:
+        ld (vyb), a
+        jr ai_ymove
+ai_yup:
+        ld a, 8                 ; up
+        ld c, a
+        ld a, (ship_step)
+        ld b, a
+        ld a, c
+        sub b
+        ld c, a
+        ld a, (vyb)
+        dec a
+        cp c
+        jr nc, ai_ystore2
+        ld a, c
+ai_ystore2:
+        ld (vyb), a
+        jr ai_ymove
+ai_ydecay:
+        ld a, (vyb)
+        cp 8
+        jr z, ai_ymove
+        jr c, ai_ydec_up
+        dec a
+        ld (vyb), a
+        jr ai_ymove
+ai_ydec_up:
+        inc a
+        ld (vyb), a
+ai_ymove:
+        ld a, (vyb)
+        sub 8
+        ld b, a
+        ld a, (ship_y)
+        add a, b
+        cp 20
+        jr nc, ai_ylo
+        ld a, 20
+ai_ylo:
+        cp 177
+        jr c, ai_yhi
+        ld a, 176
+ai_yhi:
+        ld (ship_y), a
         ret
 
 ; ============================================================================
@@ -324,34 +507,55 @@ df_pressed:
         ld a, (fire_cd)
         or a
         ret nz                  ; auto-repeat gated by cooldown
+        ld a, (pw_rapid)        ; cooldown depends on rapid-fire power-up
+        or a
         ld a, 8
+        jr z, df_setcd
+        ld a, 4
+df_setcd:
         ld (fire_cd), a
-        ; find a free bullet slot
+        ld a, 7                 ; primary shot (centre)
+        call spawn_bullet
+        ld a, (pw_twin)         ; spread shot?
+        or a
+        jr z, df_done
+        ld a, 1
+        call spawn_bullet
+        ld a, 13
+        call spawn_bullet
+df_done:
+        call sfx_shoot
+        ret
+
+; spawn_bullet: A = y-offset from the ship top; muzzle at the nose
+spawn_bullet:
+        ld (sb_yoff), a
         ld ix, bullets
         ld a, MAXBUL
         ld (bcount), a
-fb_find:
+sb_find:
         ld a, (ix+0)
         or a
-        jr z, fb_free
+        jr z, sb_free
         ld de, 4
         add ix, de
         ld a, (bcount)
         dec a
         ld (bcount), a
-        jr nz, fb_find
-        ret
-fb_free:
+        jr nz, sb_find
+        ret                     ; no free slot
+sb_free:
         ld a, 1
         ld (ix+0), a
         ld a, (ship_x)
-        add a, 22               ; muzzle at the rocket's nose
+        add a, 22
         ld (ix+1), a
         ld (ix+3), a            ; ox
         ld a, (ship_y)
-        add a, 7
+        ld b, a
+        ld a, (sb_yoff)
+        add a, b
         ld (ix+2), a
-        call sfx_shoot
         ret
 
 do_bullets:
@@ -386,8 +590,12 @@ db_objloop:
         ld a, (iy+0)
         or a
         jr z, db_objnext
-        cp 3
+        cp T_CRYS
         jr z, db_objnext        ; bullets pass through crystals
+        cp T_POWER
+        jr z, db_objnext        ; and power-ups
+        ld a, 13
+        ld (col_thr), a
         ld a, (ix+1)
         ld b, a
         ld a, (ix+2)
@@ -398,13 +606,17 @@ db_objloop:
         ld e, a
         call collide
         jr nz, db_objnext
-        ; hit: erase + free object, free bullet, score
+        ld a, (iy+0)
+        cp T_BOSS
+        jr z, db_hit_boss
+        ; normal target destroyed
         ld a, (iy+3)
         ld (spr_x), a
         ld a, (iy+4)
         ld (spr_y), a
         call erase_sprite
         call uncolor_obj
+        call spawn_explosion
         xor a
         ld (iy+0), a
         ld bc, 5
@@ -413,13 +625,29 @@ db_objloop:
         ld (ix+0), a
         call sfx_explode
         jp db_next
+db_hit_boss:
+        ld a, (boss_hp)
+        dec a
+        ld (boss_hp), a
+        xor a
+        ld (ix+0), a            ; consume bullet
+        ld bc, 2
+        call add_score
+        ld a, 3
+        ld (shake), a
+        call sfx_hit
+        ld a, (boss_hp)
+        or a
+        jp nz, db_next
+        call kill_boss
+        jp db_next
 db_objnext:
-        ld de, 6
+        ld de, OBJSZ
         add iy, de
         ld a, (ocount)
         dec a
         ld (ocount), a
-        jr nz, db_objloop
+        jp nz, db_objloop
         ; survived: draw bullet
         ld hl, spr_bullet
         ld (spr_ptr), hl
@@ -450,14 +678,18 @@ do_obj_loop:
         ld a, (ix+0)
         or a
         jp z, do_obj_next
-        ; erase at old
+        cp T_BOSS
+        jp z, do_obj_boss
+        ; --- erase at old position ---
         ld a, (ix+3)
         ld (spr_x), a
         ld a, (ix+4)
         ld (spr_y), a
         call erase_sprite
-        call uncolor_obj        ; clear old colour cells
-        ; move left
+        call uncolor_obj
+        ; --- advance phase ---
+        inc (ix+6)
+        ; --- horizontal move (left) ---
         ld a, (ix+1)
         sub (ix+5)
         jr nc, obj_alive
@@ -466,11 +698,38 @@ do_obj_loop:
         jp do_obj_next
 obj_alive:
         ld (ix+1), a
-        ; ship collision (unless invulnerable)
+        ; --- vertical pattern: enemies weave on a sine ---
+        ld a, (ix+0)
+        cp T_ENEMY
+        jr nz, obj_movey_done
+        ld a, (ix+6)
+        rra                     ; phase/2
+        and 0x1F                ; sine index 0..31
+        ld e, a
+        ld d, 0
+        ld hl, sintab
+        add hl, de
+        ld a, (ix+7)            ; ybase
+        add a, (hl)             ; + sine (0..24)
+        ld (ix+2), a
+        ; occasional aimed shot
+        ld a, (ix+6)
+        and 0x3F
+        cp 20
+        jr nz, obj_movey_done
+        ld a, (ix+1)
+        cp 150                  ; only fire once it's well on-screen
+        jr nc, obj_movey_done
+        call enemy_fire
+obj_movey_done:
+        ; --- ship collision (unless invulnerable) ---
         ld a, (invuln)
         or a
         jr nz, obj_draw
+        ld a, 9                 ; tight, fair hit-box
+        ld (col_thr), a
         ld a, (ship_x)
+        add a, 4
         ld b, a
         ld a, (ship_y)
         ld c, a
@@ -481,8 +740,16 @@ obj_alive:
         call collide
         jr nz, obj_draw
         ld a, (ix+0)
-        cp 3
+        cp T_CRYS
         jr z, obj_collect
+        cp T_POWER
+        jr z, obj_power
+        ; hazard hit
+        ld a, (ix+3)
+        ld (spr_x), a
+        ld a, (ix+4)
+        ld (spr_y), a
+        call spawn_explosion
         call ship_hit
         xor a
         ld (ix+0), a
@@ -494,47 +761,50 @@ obj_collect:
         ld (ix+0), a
         call sfx_pickup
         jp do_obj_next
+obj_power:
+        xor a
+        ld (ix+0), a
+        call grant_power
+        call sfx_power
+        jp do_obj_next
 obj_draw:
         ld a, (ix+0)
-        cp 3
+        cp T_CRYS
         jr z, obj_spr_c
-        cp 2
+        cp T_POWER
+        jr z, obj_spr_p
+        cp T_ENEMY
         jr z, obj_spr_e
         ld hl, spr_rock
+        ld a, 7                 ; rock: white
         jr obj_spr_set
 obj_spr_e:
         ld hl, spr_enemy
+        ld a, 4                 ; enemy: green
         jr obj_spr_set
 obj_spr_c:
         ld hl, spr_crystal
+        ld a, 6                 ; crystal: yellow
+        jr obj_spr_set
+obj_spr_p:
+        ld hl, spr_power
+        ld a, 2                 ; power-up: red
 obj_spr_set:
+        ld (obj_ink), a
         ld (spr_ptr), hl
         ld a, (ix+1)
         ld (spr_x), a
         ld a, (ix+2)
         ld (spr_y), a
         call draw_sprite
-        ; colour the cells by type
-        ld a, (ix+0)
-        cp 3
-        jr z, obj_col_c
-        cp 2
-        jr z, obj_col_e
-        ld a, 7                 ; rock: bright white
-        jr obj_col_set
-obj_col_e:
-        ld a, 4                 ; enemy: bright green
-        jr obj_col_set
-obj_col_c:
-        ld a, 6                 ; crystal: bright yellow
-obj_col_set:
+        ld a, (obj_ink)
         call color_obj
         ld a, (ix+1)
         ld (ix+3), a
         ld a, (ix+2)
         ld (ix+4), a
 do_obj_next:
-        ld de, 6
+        ld de, OBJSZ
         add ix, de
         ld a, (ocount)
         dec a
@@ -542,21 +812,108 @@ do_obj_next:
         jp nz, do_obj_loop
         ret
 
+; ---- boss handling within the object loop ----
+do_obj_boss:
+        ; erase old (wide)
+        ld a, (ix+3)
+        ld (spr_x), a
+        ld a, (ix+4)
+        ld (spr_y), a
+        call erase_ship
+        call uncolor_ship
+        inc (ix+6)
+        ; approach: move left until x <= 200, then hold
+        ld a, (ix+1)
+        cp 201
+        jr c, boss_hold
+        dec (ix+1)
+boss_hold:
+        ; vertical oscillation on the sine
+        ld a, (ix+6)
+        rra
+        and 0x1F
+        ld e, a
+        ld d, 0
+        ld hl, sintab
+        add hl, de
+        ld a, 60                ; centre
+        add a, (hl)
+        add a, (hl)             ; doubled amplitude
+        ld (ix+2), a
+        ; boss fire
+        ld a, (ix+6)
+        and 0x1F
+        jr nz, boss_nofire
+        call boss_fire
+boss_nofire:
+        ; ship collision with boss (medium box)
+        ld a, (invuln)
+        or a
+        jr nz, boss_draw
+        ld a, 14
+        ld (col_thr), a
+        ld a, (ship_x)
+        add a, 4
+        ld b, a
+        ld a, (ship_y)
+        ld c, a
+        ld a, (ix+1)
+        ld d, a
+        ld a, (ix+2)
+        ld e, a
+        call collide
+        jr nz, boss_draw
+        call ship_hit
+boss_draw:
+        ld hl, spr_boss
+        ld (spr_ptr), hl
+        ld a, (ix+1)
+        ld (spr_x), a
+        ld a, (ix+2)
+        ld (spr_y), a
+        call draw_ship
+        ld a, 3                 ; boss: magenta
+        call color_ship
+        ld a, (ix+1)
+        ld (ix+3), a
+        ld a, (ix+2)
+        ld (ix+4), a
+        jp do_obj_next
+
 ship_hit:
-        ; erase ship
+        ; shield absorbs the hit?
+        ld a, (pw_shield)
+        or a
+        jr z, sh_real
+        dec a
+        ld (pw_shield), a
+        ld a, 30
+        ld (invuln), a
+        ld a, 6
+        ld (shake), a
+        call sfx_hit
+        ret
+sh_real:
         ld a, (ship_x)
         ld (spr_x), a
         ld a, (ship_y)
         ld (spr_y), a
         call erase_ship
         call uncolor_ship
+        call spawn_explosion
         call sfx_explode
+        ld a, 10
+        ld (shake), a
         ld a, (lives)
         dec a
         ld (lives), a
         jr z, sh_dead
         ld a, 75
         ld (invuln), a
+        xor a                   ; lose volatile power-ups on death
+        ld (pw_twin), a
+        ld (pw_rapid), a
+        ld (pw_speed), a
         ld a, 24
         ld (ship_x), a
         ld a, 88
@@ -567,26 +924,359 @@ sh_dead:
         ld (state), a
         ret
 
-; collide: B=ax C=ay D=bx E=by ; Z set if their 16x16 boxes overlap
+; collide: B=ax C=ay D=bx E=by ; Z set if |dx|<col_thr and |dy|<col_thr
 collide:
         ld a, b
         sub d
         jr nc, c_dx
         neg
 c_dx:
-        cp 13
+        ld hl, col_thr
+        cp (hl)
         jr nc, c_none
         ld a, c
         sub e
         jr nc, c_dy
         neg
 c_dy:
-        cp 13
+        ld hl, col_thr
+        cp (hl)
         jr nc, c_none
         xor a
         ret
 c_none:
         or 1
+        ret
+
+; ============================================================================
+;  ENEMY BULLETS  -  active(+0) x(+1) y(+2) ox(+3) oy(+4) vy(+5, signed)
+; ============================================================================
+; enemy_fire: spawn a bullet from object IX, aimed roughly at the ship
+enemy_fire:
+        push ix
+        ld iy, ebullets
+        ld a, MAXEB
+        ld (ecount), a
+ef_find:
+        ld a, (iy+0)
+        or a
+        jr z, ef_free
+        ld de, 6
+        add iy, de
+        ld a, (ecount)
+        dec a
+        ld (ecount), a
+        jr nz, ef_find
+        pop ix
+        ret
+ef_free:
+        ld a, 1
+        ld (iy+0), a
+        ld a, (ix+1)            ; start at the enemy
+        ld (iy+1), a
+        ld (iy+3), a
+        ld a, (ix+2)
+        add a, 6
+        ld (iy+2), a
+        ld (iy+4), a
+        ; vy = sign(ship_y - enemy_y) * 2
+        ld a, (ship_y)
+        ld b, a
+        ld a, (iy+2)
+        ld c, a
+        ld a, b
+        sub c
+        jr nc, ef_down
+        ld a, -2                ; ship above -> go up
+        jr ef_setvy
+ef_down:
+        ld a, 2
+ef_setvy:
+        ld (iy+5), a
+        pop ix
+        call sfx_efire
+        ret
+
+; boss_fire: spread of three bullets straight left
+boss_fire:
+        push ix
+        ld a, 0
+        call boss_one
+        ld a, -3
+        call boss_one
+        ld a, 3
+        call boss_one
+        pop ix
+        ret
+; boss_one: A = vy ; spawn one boss bullet from current boss obj (IX)
+boss_one:
+        ld (eb_vy), a
+        ld iy, ebullets
+        ld a, MAXEB
+        ld (ecount), a
+bo_find:
+        ld a, (iy+0)
+        or a
+        jr z, bo_free
+        ld de, 6
+        add iy, de
+        ld a, (ecount)
+        dec a
+        ld (ecount), a
+        jr nz, bo_find
+        ret
+bo_free:
+        ld a, 1
+        ld (iy+0), a
+        ld a, (ix+1)
+        ld (iy+1), a
+        ld (iy+3), a
+        ld a, (ix+2)
+        add a, 6
+        ld (iy+2), a
+        ld (iy+4), a
+        ld a, (eb_vy)
+        ld (iy+5), a
+        ret
+
+do_ebullets:
+        ld ix, ebullets
+        ld a, MAXEB
+        ld (ecount), a
+deb_loop:
+        ld a, (ix+0)
+        or a
+        jp z, deb_next
+        ; erase old
+        ld a, (ix+3)
+        ld (spr_x), a
+        ld a, (ix+4)
+        ld (spr_y), a
+        call erase_sprite
+        ; move left and by vy
+        ld a, (ix+1)
+        sub 4
+        jr nc, deb_alive
+        xor a
+        ld (ix+0), a
+        jp deb_next
+deb_alive:
+        ld (ix+1), a
+        ld a, (ix+2)
+        add a, (ix+5)           ; + vy (signed)
+        ld (ix+2), a
+        ; off top/bottom?
+        cp 16
+        jr c, deb_kill
+        cp 184
+        jr nc, deb_kill
+        ; collide with ship?
+        ld a, (invuln)
+        or a
+        jr nz, deb_draw
+        ld a, 8
+        ld (col_thr), a
+        ld a, (ship_x)
+        add a, 4
+        ld b, a
+        ld a, (ship_y)
+        ld c, a
+        ld a, (ix+1)
+        ld d, a
+        ld a, (ix+2)
+        ld e, a
+        call collide
+        jr nz, deb_draw
+        call ship_hit
+        xor a
+        ld (ix+0), a
+        jp deb_next
+deb_kill:
+        xor a
+        ld (ix+0), a
+        jp deb_next
+deb_draw:
+        ld hl, spr_ebullet
+        ld (spr_ptr), hl
+        ld a, (ix+1)
+        ld (spr_x), a
+        ld a, (ix+2)
+        ld (spr_y), a
+        call draw_sprite
+        ld a, 6                 ; yellow tracer
+        call color_obj
+        ld a, (ix+1)
+        ld (ix+3), a
+        ld a, (ix+2)
+        ld (ix+4), a
+deb_next:
+        ld de, 6
+        add ix, de
+        ld a, (ecount)
+        dec a
+        ld (ecount), a
+        jp nz, deb_loop
+        ret
+
+; ============================================================================
+;  EXPLOSIONS  -  timer(+0) x(+1) y(+2)   (3 expanding frames)
+; ============================================================================
+; spawn_explosion: at spr_x,spr_y
+spawn_explosion:
+        ld ix, expls
+        ld a, MAXEXPL
+        ld (xcount), a
+se_find:
+        ld a, (ix+0)
+        or a
+        jr z, se_free
+        ld de, 3
+        add ix, de
+        ld a, (xcount)
+        dec a
+        ld (xcount), a
+        jr nz, se_find
+        ret
+se_free:
+        ld a, 6
+        ld (ix+0), a            ; timer
+        ld a, (spr_x)
+        ld (ix+1), a
+        ld a, (spr_y)
+        ld (ix+2), a
+        ret
+
+do_explosions:
+        ld ix, expls
+        ld a, MAXEXPL
+        ld (xcount), a
+dx_loop:
+        ld a, (ix+0)
+        or a
+        jr z, dx_next
+        ; erase box
+        ld a, (ix+1)
+        ld (spr_x), a
+        ld a, (ix+2)
+        ld (spr_y), a
+        call erase_sprite
+        ; tick
+        ld a, (ix+0)
+        dec a
+        ld (ix+0), a
+        jr z, dx_next           ; finished (left erased)
+        ; choose frame by timer (5,4=small 3,2=mid 1=big)
+        cp 4
+        jr nc, dx_f1
+        cp 2
+        jr nc, dx_f2
+        ld hl, spr_expl3
+        jr dx_setspr
+dx_f1:
+        ld hl, spr_expl1
+        jr dx_setspr
+dx_f2:
+        ld hl, spr_expl2
+dx_setspr:
+        ld (spr_ptr), hl
+        ld a, (ix+1)
+        ld (spr_x), a
+        ld a, (ix+2)
+        ld (spr_y), a
+        call draw_sprite
+        ld a, 6                 ; yellow blast
+        call color_obj
+dx_next:
+        ld de, 3
+        add ix, de
+        ld a, (xcount)
+        dec a
+        ld (xcount), a
+        jr nz, dx_loop
+        ret
+
+; ============================================================================
+;  BOSS  -  occupies an object slot of type T_BOSS
+; ============================================================================
+start_boss:
+        ld a, 1
+        ld (boss_active), a
+        ld a, (world)
+        add a, a
+        add a, a
+        add a, 16               ; hp = 16 + world*4
+        ld (boss_hp), a
+        ; find a free slot
+        ld ix, objs
+        ld a, MAXOBJ
+        ld (ocount), a
+sb2_find:
+        ld a, (ix+0)
+        or a
+        jr z, sb2_free
+        ld de, OBJSZ
+        add ix, de
+        ld a, (ocount)
+        dec a
+        ld (ocount), a
+        jr nz, sb2_find
+        ret                     ; (shouldn't happen)
+sb2_free:
+        ld a, T_BOSS
+        ld (ix+0), a
+        ld a, 232
+        ld (ix+1), a
+        ld (ix+3), a
+        ld a, 60
+        ld (ix+2), a
+        ld (ix+4), a
+        ld a, 0
+        ld (ix+6), a
+        call sfx_zone
+        ret
+
+kill_boss:
+        xor a
+        ld (boss_active), a
+        ld bc, 200              ; boss bonus
+        call add_score
+        ld a, 12
+        ld (shake), a
+        call sfx_explode
+        ; big explosion at boss position
+        call spawn_explosion
+        call next_world
+        ret
+
+; grant_power: hand out the next upgrade in sequence (twin/rapid/shield/speed)
+grant_power:
+        ld a, (pw_next)
+        and 3
+        ld c, a
+        ld a, (pw_next)
+        inc a
+        ld (pw_next), a
+        ld a, c
+        or a
+        jr nz, gp_n1
+        ld a, 1
+        ld (pw_twin), a
+        ret
+gp_n1:
+        cp 1
+        jr nz, gp_n2
+        ld a, 1
+        ld (pw_rapid), a
+        ret
+gp_n2:
+        cp 2
+        jr nz, gp_n3
+        ld a, 1
+        ld (pw_shield), a
+        ret
+gp_n3:
+        ld a, 1
+        ld (pw_speed), a
         ret
 
 ; ============================================================================
@@ -759,42 +1449,106 @@ sfx_z_lp:
         jr c, sfx_z_lp
         ret
 
+sfx_hit:                        ; short metallic tick (boss/shield)
+        ld c, 30
+        ld de, 8
+        call sfx_tone
+        ret
+
+sfx_efire:                      ; enemy shot: quick descending blip
+        ld c, 22
+        ld de, 8
+        call sfx_tone
+        ld c, 34
+        ld de, 8
+        call sfx_tone
+        ret
+
+sfx_power:                      ; power-up: bright rising arpeggio
+        ld c, 50
+        ld de, 12
+        call sfx_tone
+        ld c, 34
+        ld de, 12
+        call sfx_tone
+        ld c, 22
+        ld de, 12
+        call sfx_tone
+        ld c, 14
+        ld de, 16
+        call sfx_tone
+        ret
+
+; engine_drone: a subtle low pulse every 8th frame so play is never silent
+engine_drone:
+        ld a, (drone_ctr)
+        inc a
+        ld (drone_ctr), a
+        and 7
+        ret nz
+        ld c, 110
+        ld de, 4
+        call sfx_tone
+        ret
+
 ; ============================================================================
 ;  SPAWNING
 ; ============================================================================
 do_spawn:
+        ld a, (boss_active)     ; no normal spawns during a boss fight
+        or a
+        ret nz
         ld a, (spawn_timer)
         dec a
         ld (spawn_timer), a
         ret nz
         ld a, (spawn_period)
         ld (spawn_timer), a
+        ; difficulty ramp: tighten the period every few spawns (floor 14)
+        ld a, (spawn_count)
+        inc a
+        and 3
+        ld (spawn_count), a
+        jr nz, sp_noramp
+        ld a, (spawn_period)
+        cp 15
+        jr c, sp_noramp
+        dec a
+        ld (spawn_period), a
+sp_noramp:
         ld ix, objs
         ld b, MAXOBJ
 sp_find:
         ld a, (ix+0)
         or a
         jr z, sp_free
-        ld de, 6
+        ld de, OBJSZ
         add ix, de
         djnz sp_find
         ret
 sp_free:
+        ; choose a type
+        call rnd
+        cp 16                   ; ~6% power-up
+        jr nc, sp_normal
+        ld a, T_POWER
+        ld c, 1
+        jr sp_settype
+sp_normal:
         call rnd
         and 3
-        cp 0
         jr nz, sp_t1
-        ld a, 3                 ; crystal
+        ld a, T_CRYS
         ld c, 1
         jr sp_settype
 sp_t1:
         cp 1
         jr nz, sp_rock
-        ld a, 2                 ; enemy
+        ld a, T_ENEMY
         ld c, 2
         jr sp_settype
 sp_rock:
-        ld a, 1                 ; rock
+        ld a, T_ROCK
         ld c, 1
 sp_settype:
         ld (ix+0), a
@@ -807,6 +1561,9 @@ sp_settype:
         add a, 24
         ld (ix+2), a
         ld (ix+4), a
+        ld (ix+7), a            ; ybase (for the sine weave)
+        xor a
+        ld (ix+6), a            ; phase
         ret
 
 ; ============================================================================
@@ -1521,6 +2278,34 @@ sab_attr:     defb 0
 sab_w:        defb 3
 shbuf2:       defb 0,0,0,0,0,0,0,0
 
+; gameplay state added for the roadmap
+ecount:       defb 0
+xcount:       defb 0
+eb_vy:        defb 0
+sb_yoff:      defb 0
+obj_ink:      defb 0
+col_thr:      defb 13
+ship_step:    defb 2
+want_x:       defb 0
+want_y:       defb 0
+vxb:          defb 8
+vyb:          defb 8
+spawn_count:  defb 0
+drone_ctr:    defb 0
+pw_twin:      defb 0
+pw_rapid:     defb 0
+pw_shield:    defb 0
+pw_speed:     defb 0
+pw_next:      defb 0
+boss_active:  defb 0
+boss_hp:      defb 0
+shake:        defb 0
+
+; sine table: 32 entries, 0..24 (centre 12), one full period
+sintab:
+        db 12,14,17,19,21,22,23,24,24,24,23,22,21,19,17,14
+        db 12,10, 7, 5, 3, 2, 1, 0, 0, 0, 1, 2, 3, 5, 7,10
+
 ship_x:   defb 0
 ship_y:   defb 0
 spr_ptr:  defw 0
@@ -1532,8 +2317,10 @@ row_y:    defb 0
 scr_addr: defw 0
 shbuf:    defb 0,0,0,0,0,0
 
-objs:     defs MAXOBJ*6
+objs:     defs MAXOBJ*OBJSZ
 bullets:  defs MAXBUL*4
+ebullets: defs MAXEB*6
+expls:    defs MAXEXPL*3
 stars:    defs NSTAR*4
 
 addrtab:  defs 384
