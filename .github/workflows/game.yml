@@ -94,9 +94,10 @@ jobs:
 
       - name: Story - zone card flavour shows on zone entry
         run: |
-          # after launching, the first zone shows its story line under the banner
+          # on zone entry a splash screen shows the zone name + story flavour
+          # on a still screen (paused ~1s) before play starts
           ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
-            --joy "1750-1758:F" --joy "1800-1808:F" --frames 1850 --text \
+            --joy "1750-1758:F" --joy "1800-1808:F" --frames 1840 --text \
             game/build/game.tap | tee /tmp/card.txt
           grep -q "WARSHIP" /tmp/card.txt
 
@@ -165,10 +166,12 @@ jobs:
         run: |
           ( cd game && pasmo --equ VTEST=0 --equ BTEST=1 src/game.asm /tmp/pf.bin \
             && python3 tools/mktap.py /tmp/pf.bin /tmp/pf.tap 32768 stellar )
-          # kill the first boss without taking a hit -> PERFECT ZONE popup + bonus
+          # rise to the boss's centre line, then hold fire to kill it without
+          # taking a hit -> PERFECT ZONE popup + bonus (the zone splash shifts
+          # the fight, so the ship tracks the boss for a reliable clean kill)
           ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
-            --joy "1750-1758:F" --joy "1810-1818:F" --joy "1830-3000:F" \
-            --frames 2160 --text /tmp/pf.tap | tee /tmp/pf.txt
+            --joy "1750-1758:F" --joy "1810-1818:F" --joy "1870-1910:U" \
+            --joy "1870-4000:F" --frames 2658 --text /tmp/pf.tap | tee /tmp/pf.txt
           grep -q "PERFECT ZONE" /tmp/pf.txt
 
       - name: Content - splitter zones stay stable (K-skip to zone 3+)
