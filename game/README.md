@@ -27,7 +27,11 @@ Press **M** to choose your **ship** from six designs (A–F; A is the default),
 music, the screen-flash (photosensitivity) and a slow practice mode. **S**/
 **L** save/load the high-score table to tape. **H** pauses. Press **Fire**
 to start and to continue after **GAME OVER**; hold Fire to stream shots (and
-to charge a piercing bolt). Press **B** for a screen-clearing **smart-bomb**.
+to charge a piercing bolt). Press **B** for a screen-clearing **smart-bomb**,
+and **V** to unleash **overdrive** once its meter is full (a burst of rapid
+fire + invulnerability). Re-collecting the spread/rapid pods **levels them up**
+(shown as `T2`/`R3`). After **GAME OVER** you get one **CONTINUE?** at the
+zone you fell on.
 
 If left idle, the title runs an **attract-mode demo**.
 
