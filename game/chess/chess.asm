@@ -229,6 +229,7 @@ aiTurn:
         call drawStatus
         call aiMove
 afterMove:
+        call moveSound
         call pushGameUndo      ; save undo[0] for take-back
         call recordGameKey
         call updateTerminal
@@ -1162,6 +1163,23 @@ mfqYes: ld a,(mvFlag)
 seedRng:
         ld hl,0xA55A
         ld (rngState),hl
+        ret
+
+; moveSound — a short beeper click on the 48K speaker (port 0xFE bit 4).
+; On the 128K family this is where an AY blip would go.
+moveSound:
+        ld b,90                 ; half-periods (duration)
+        ld a,0x17               ; border 7 + speaker bit set
+msLoop:
+        out (0xFE),a
+        xor 0x10                ; toggle speaker
+        ld c,45                 ; pitch delay
+msDelay:
+        dec c
+        jr nz,msDelay
+        djnz msLoop
+        ld a,7
+        out (0xFE),a            ; restore border
         ret
 
 ; 16-bit xorshift-ish PRNG -> A
