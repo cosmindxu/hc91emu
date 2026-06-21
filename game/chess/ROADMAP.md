@@ -91,11 +91,13 @@ perft + Zobrist-key self-test) or by a documented manual check.
   re-search on a fail-high/low. ✅
 - **Null-move pruning** (depth≥3, not in check, phase-guarded). ✅
 - **Reverse-futility pruning** at shallow depth. ✅
+- **Late move reductions**: late quiet moves searched a ply shallower,
+  re-searched at full depth on a fail-high. ✅
 - **Transposition table**: 8 KB / 1024 buckets keyed by the 16-bit
   Zobrist hash; depth-bounded exact/lower/upper cutoffs and a stored
   best move fed (per-ply) to the move ordering. ✅
-- *Remaining:* late-move reductions, incremental (make/unmake)
-  evaluation, and using the 128K models' extra banks for a larger TT.
+- *Remaining:* incremental (make/unmake) evaluation, and using the 128K
+  models' extra banks for a larger TT.
 
 ---
 

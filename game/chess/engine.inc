@@ -368,6 +368,7 @@ evPnext:
         ld a,c
         cp 8
         jp nz,evPf
+        call passedPawns
         ; --- king safety (pawn shield), middlegame only ---
         ld a,(gamePhase)
         cp 10
@@ -392,6 +393,145 @@ evKsDone:
         ret
 evWhiteRet:
         ld hl,(evalAcc)
+        ret
+
+; passedPawns — bonus for pawns with no enemy pawns on their file or the
+; adjacent files (a safe subset of "passed"), scaled by advancement.
+PASSED equ 8
+passedPawns:
+        ld c,0                  ; square
+ppLoop:
+        ld a,c
+        and 0x88
+        jr nz,ppNext
+        ld h,0xE0
+        ld l,c
+        ld a,(hl)
+        ld b,a                  ; piece
+        and 7
+        cp 1
+        jr nz,ppNext            ; not a pawn
+        ld a,b
+        and 8
+        jr nz,ppBlack
+        ; white pawn: clear if no black pawns on f-1,f,f+1
+        ld a,c
+        and 7
+        call adjBlackPawns
+        or a
+        jr nz,ppNext
+        ; bonus = PASSED * rank
+        ld a,c
+        rrca
+        rrca
+        rrca
+        rrca
+        and 7                   ; rank
+        call ppMul
+        ld hl,(evalAcc)
+        add hl,de
+        ld (evalAcc),hl
+        jr ppNext
+ppBlack:
+        ld a,c
+        and 7
+        call adjWhitePawns
+        or a
+        jr nz,ppNext
+        ld a,c
+        rrca
+        rrca
+        rrca
+        rrca
+        and 7
+        ld e,a
+        ld a,7
+        sub e                   ; (7-rank): black advances downward
+        call ppMul
+        ld hl,(evalAcc)
+        or a
+        sbc hl,de
+        ld (evalAcc),hl
+ppNext:
+        inc c
+        ld a,c
+        cp 0x78
+        jr nz,ppLoop
+        ret
+; ppMul(A=rank) -> DE = PASSED*rank
+ppMul:
+        ld e,a
+        ld d,0
+        ld hl,0
+        ld b,PASSED
+        or a
+        ret z
+ppMulL: add hl,de
+        djnz ppMulL
+        ex de,hl
+        ret
+; adjBlackPawns(A=file) -> A=1 if any black pawn on file-1,file,file+1
+adjBlackPawns:
+        ld c,a
+        ld hl,bpFile
+        ld d,0
+        ld e,a
+        add hl,de
+        ld a,(hl)
+        or a
+        jr nz,apYes
+        ld a,c
+        or a
+        jr z,apbR
+        dec hl
+        ld a,(hl)
+        or a
+        jr nz,apYes
+apbR:
+        ld a,c
+        cp 7
+        jr z,apNo
+        ld hl,bpFile
+        ld d,0
+        ld e,c
+        add hl,de
+        inc hl
+        ld a,(hl)
+        or a
+        jr nz,apYes
+apNo:   xor a
+        ret
+apYes:  ld a,1
+        ret
+adjWhitePawns:
+        ld c,a
+        ld hl,wpFile
+        ld d,0
+        ld e,a
+        add hl,de
+        ld a,(hl)
+        or a
+        jr nz,apYes
+        ld a,c
+        or a
+        jr z,apwR
+        dec hl
+        ld a,(hl)
+        or a
+        jr nz,apYes
+apwR:
+        ld a,c
+        cp 7
+        jr z,apwN
+        ld hl,wpFile
+        ld d,0
+        ld e,c
+        add hl,de
+        inc hl
+        ld a,(hl)
+        or a
+        jr nz,apYes
+apwN:   xor a
         ret
 
 ; shieldMissing(A=kingSq, C=friendly pawn code) -> A = missing pawns in
