@@ -2180,6 +2180,8 @@ nmItalian:   defb "Italian Game",0
 nmQG:        defb "Queen's Gambit",0
 nmQP:        defb "Queen's Pawn",0
 nmQGD:       defb "QGD",0
+nmScotch:    defb "Scotch",0
+nmLondon:    defb "London",0
 nmSchClassic: defb "Classic",0
 nmSchMeadow:  defb "Meadow ",0
 nmSchClean:   defb "Clean  ",0
