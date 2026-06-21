@@ -357,7 +357,234 @@ SPRITES = {
     "....XX..................",
     "........................",
 ],
+# Boss 2: angular dreadnought
+"spr_boss1": [
+    "........................",
+    "..XXXXXX................",
+    "..XXXXXXXXX.............",
+    ".XXXXXXXXXXXXX..........",
+    ".XXXX..XXXXXXXXXXX......",
+    "XXXXX..XXXXXXXXXXXXXX...",
+    "XXXX....XXXXXXXXXXXXXXX.",
+    "XXX......XXXXXXXXXXXXXXX",
+    "XXX......XXXXXXXXXXXXXXX",
+    "XXXX....XXXXXXXXXXXXXXX.",
+    "XXXXX..XXXXXXXXXXXXXX...",
+    ".XXXX..XXXXXXXXXXX......",
+    ".XXXXXXXXXXXXX..........",
+    "..XXXXXXXXX.............",
+    "..XXXXXX................",
+    "........................",
+],
+# Boss 3: round battle-saucer
+"spr_boss2": [
+    "..........XXXX..........",
+    ".......XXXXXXXXXX.......",
+    ".....XXXXXXXXXXXXXX.....",
+    "...XXXXXXXXXXXXXXXXXX...",
+    "..XXXXXXXXXXXXXXXXXXXX..",
+    ".XXXXX..XXXXXXXX..XXXXX.",
+    "XXXXX....XXXXXX....XXXXX",
+    "XXXX......XXXX......XXXX",
+    "XXXX......XXXX......XXXX",
+    "XXXXX....XXXXXX....XXXXX",
+    ".XXXXX..XXXXXXXX..XXXXX.",
+    "..XXXXXXXXXXXXXXXXXXXX..",
+    "...XXXXXXXXXXXXXXXXXX...",
+    ".....XXXXXXXXXXXXXX.....",
+    ".......XXXXXXXXXX.......",
+    "..........XXXX..........",
+],
+# Boss 4: spiked warlord
+"spr_boss3": [
+    "....X.......X.......X...",
+    "..XXXXX...XXXXX...XXXX..",
+    ".XXXXXXXXXXXXXXXXXXXXX..",
+    "XXXXXXXXXXXXXXXXXXXXXXX.",
+    "XXXX..XXXXXXXXXXX..XXXXX",
+    "XXX....XXXXXXXXX....XXXX",
+    "XXX....XXXXXXXXX....XXXX",
+    "XXXX..XXXXXXXXXXX..XXXXX",
+    "XXXXXXXXXXXXXXXXXXXXXXX.",
+    "XXXX..XXXXXXXXXXX..XXXXX",
+    "XXX....XXXXXXXXX....XXXX",
+    "XXX....XXXXXXXXX....XXXX",
+    "XXXX..XXXXXXXXXXX..XXXXX",
+    "XXXXXXXXXXXXXXXXXXXXXXX.",
+    ".XXXXXXXXXXXXXXXXXXXXX..",
+    "..XXXXX...XXXXX...XXXX..",
+],
+# Diver enemy: a swept attacker that swoops at the ship
+"spr_diver": [
+    "................",
+    "XX..............",
+    "XXXX............",
+    ".XXXXX..........",
+    "..XXXXXX........",
+    "...XXXXXXX......",
+    "....XXXXXXXX....",
+    ".....XXXXXXXXX..",
+    "......XXXXXXXXX.",
+    "....XXXXXXXXXXX.",
+    "..XXXXXXXXXXX...",
+    ".XXXXXXXX.......",
+    "XXXXXX.........",
+    "XXXX...........",
+    "XX.............",
+    "................",
+],
+# Turret: a domed wall-gun (sits on ceiling/floor)
+"spr_turret": [
+    "................",
+    "................",
+    ".....XXXX.......",
+    "....XXXXXX......",
+    "...XXXXXXXX.....",
+    "..XXXXXXXXXX....",
+    "..XX.XXXX.XX....",
+    "..XXXXXXXXXX....",
+    ".XXXXXXXXXXXX...",
+    ".XX.XX..XX.XX...",
+    ".XXXXXXXXXXXX...",
+    "XXXXXXXXXXXXXX..",
+    "XXXXXXXXXXXXXX..",
+    "XXX.XX..XX.XXX..",
+    "XXXXXXXXXXXXXX..",
+    "................",
+],
+# Mine: a spiked drifting ball
+"spr_mine": [
+    "................",
+    ".......XX.......",
+    "...X...XX...X...",
+    "...XX..XX..XX...",
+    "....XX.XX.XX....",
+    "XX...XXXXXX...XX",
+    ".XXX.XXXXXX.XXX.",
+    "...XXXXXXXXXX...",
+    "...XXXXXXXXXX...",
+    ".XXX.XXXXXX.XXX.",
+    "XX...XXXXXX...XX",
+    "....XX.XX.XX....",
+    "...XX..XX..XX...",
+    "...X...XX...X...",
+    ".......XX.......",
+    "................",
+],
+# Homing drone: small, compact craft
+"spr_drone": [
+    "................",
+    "................",
+    "....XX..XX......",
+    "...XXX..XXX.....",
+    "....XXXXXX......",
+    "..XXXXXXXXXX....",
+    ".XXXX.XX.XXXX...",
+    ".XXXXXXXXXXXX...",
+    ".XXXXXXXXXXXX...",
+    ".XXXX.XX.XXXX...",
+    "..XXXXXXXXXX....",
+    "....XXXXXX......",
+    "...XXX..XXX.....",
+    "....XX..XX......",
+    "................",
+    "................",
+],
+# Distant planet (drifts in the far background, dim ink on black)
+"spr_planet": [
+    ".....XXXXXX.....",
+    "...XXXXXXXXXX...",
+    "..XXXXXXX.XXXX..",
+    ".XXXXXXXXXXXXXX.",
+    ".XXX.XXXXXXXXXX.",
+    "XXXXXXXXXXX.XXXX",
+    "XXXXXX.XXXXXXXXX",
+    "XXXXXXXXXXXXXXXX",
+    "XXXXXXXXX.XXXXXX",
+    "XXXX.XXXXXXXXXXX",
+    ".XXXXXXXXXX.XXX.",
+    ".XXXXXX.XXXXXXX.",
+    "..XXXXXXXXXXXX..",
+    "...XXXXXXXXXX...",
+    ".....XXXXXX.....",
+    "................",
+],
+# Exhaust flame frame 1 (short), pointing left from the ship tail
+"spr_flame1": [
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    ".....XXXX.......",
+    "...XXXXXXX......",
+    "...XXXXXXX......",
+    ".....XXXX.......",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+],
+# Exhaust flame frame 2 (long flare)
+"spr_flame2": [
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    "......XXX.......",
+    "..XXXXXXXX......",
+    "XXXXXXXXXXX.....",
+    "XXXXXXXXXXX.....",
+    "..XXXXXXXX......",
+    "......XXX.......",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+],
+# Smart-bomb / debris spark (tiny)
+"spr_spark": [
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    ".......XX.......",
+    ".......XX.......",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+],
 }
+
+
+def shear(art, direction):
+    """Vertical shear of a 24-wide ship for a banking look.
+    direction +1 = climb (nose up), -1 = dive (nose down)."""
+    w = max(len(r) for r in art)
+    h = len(art)
+    grid = [[(art[y][x] if x < len(art[y]) else '.') for x in range(w)]
+            for y in range(h)]
+    out = [['.'] * w for _ in range(h)]
+    cx = (w - 1) / 2.0
+    for x in range(w):
+        vs = int(round((x - cx) / 7.0)) * (-direction)  # nose leads the bank
+        for y in range(h):
+            ny = y + vs
+            if 0 <= ny < h and grid[y][x] in "X#":
+                out[ny][x] = 'X'
+    return ["".join(r) for r in out]
 
 
 def row_bytes(line, w):
@@ -375,6 +602,11 @@ def row_bytes(line, w):
 
 
 def main():
+    # generate climb/dive banking variants for each player ship (0..5)
+    for i in range(6):
+        base = SPRITES["spr_ship%d" % i]
+        SPRITES["spr_ship%d_up" % i] = shear(base, +1)
+        SPRITES["spr_ship%d_dn" % i] = shear(base, -1)
     out = ["; Generated by tools/mksprites.py - do not edit by hand.",
            "; Per row: width/8 data bytes, then width/8 mask bytes.", ""]
     for name, art in SPRITES.items():

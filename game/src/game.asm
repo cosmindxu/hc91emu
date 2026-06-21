@@ -16,6 +16,7 @@ OBJSZ   equ 8               ; bytes per object
 MAXBUL  equ 6               ; player bullets in flight
 MAXEB   equ 4               ; enemy bullets in flight
 MAXEXPL equ 3               ; simultaneous explosions
+DEB     equ 6               ; debris sparks
 NSTAR   equ 18              ; parallax stars (3 depth layers)
 FONT    equ 0x3C00          ; ROM font base (char*8 + FONT)
 
@@ -27,7 +28,7 @@ T_POWER equ 4
 T_BOSS  equ 5
 
 ; pre-shifted 16x16 sprite indices (into sprtab / psbuf)
-NSPR    equ 11
+NSPR    equ 19
 SI_ROCK equ 0
 SI_ROCK2 equ 1
 SI_ENEMY equ 2
@@ -39,6 +40,14 @@ SI_EBUL equ 7
 SI_EX1  equ 8
 SI_EX2  equ 9
 SI_EX3  equ 10
+SI_DIVER equ 11
+SI_TURRET equ 12
+SI_MINE equ 13
+SI_DRONE equ 14
+SI_PLANET equ 15
+SI_SPARK equ 16
+SI_FLAME1 equ 17
+SI_FLAME2 equ 18
 
 ; ============================================================================
 ;  ENTRY
@@ -161,6 +170,7 @@ show_title:
         call draw_hstable
         call draw_scheme
         call draw_shipsel
+        call draw_opts
         ld hl, str_fire
         ld b, 20
         ld c, 11
@@ -171,10 +181,42 @@ show_title:
         call print_str_at
         ret
 
-; set_ship_ptr: spr_ptr = ship_tab[ship_choice]
+; draw_opts: difficulty + option toggles on the title (rows 13,18)
+draw_opts:
+        ld hl, str_diff
+        ld b, 13
+        ld c, 4
+        call print_str_at
+        ld a, (difficulty)
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, diff_tab
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
+        ld b, 13
+        ld c, 12
+        call print_str_at
+        ld hl, str_opts1
+        ld b, 18
+        ld c, 5
+        call print_str_at
+        ret
+
+; set_ship_ptr: spr_ptr = ship_tab[ship_choice*3 + ship_bank]
+; ship_bank: 0 level, 1 climb, 2 dive (from vertical intent)
 set_ship_ptr:
         ld a, (ship_choice)
+        ld b, a
         add a, a
+        add a, b                ; choice*3
+        ld b, a
+        ld a, (ship_bank)
+        add a, b                ; + bank
+        add a, a                ; *2 (word table)
         ld e, a
         ld d, 0
         ld hl, ship_tab
@@ -394,11 +436,67 @@ tp_scheme:
         ret
 tp_n1:
         bit 1, a
-        jr nz, tp_n2
+        jr nz, tp_opts
         ld a, 1
         ld (ctrl_scheme), a
         call draw_scheme
         ret
+; ---- option keys 3/4/5/6 (edge-latched so one press = one change) ----
+tp_opts:
+        ld bc, 0xF7FE           ; 1-5 half-row
+        in a, (c)
+        ld e, a                 ; E = 1-5 row
+        ld bc, 0xEFFE           ; 6-0 half-row
+        in a, (c)
+        and 0x10                ; key 6 = bit4
+        ld d, a                 ; D = 6 bit
+        ld a, e
+        and 0x1C                ; bits 2,3,4 = keys 3,4,5
+        cp 0x1C
+        jr nz, tp_optpress
+        ld a, d
+        or a
+        jr z, tp_optnone        ; 6 also up -> nothing pressed
+tp_optpress:
+        ld a, (opt_prev)
+        or a
+        jr nz, tp_n2            ; latched: wait for release
+        ld a, 1
+        ld (opt_prev), a
+        bit 2, e
+        jr nz, tp_o4
+        ld a, (difficulty)      ; key 3: cycle skill
+        inc a
+        cp 3
+        jr c, tp_dset
+        xor a
+tp_dset:
+        ld (difficulty), a
+        jr tp_optredraw
+tp_o4:
+        bit 3, e
+        jr nz, tp_o5
+        ld a, (opt_music)       ; key 4: music
+        xor 1
+        ld (opt_music), a
+        jr tp_optredraw
+tp_o5:
+        bit 4, e
+        jr nz, tp_o6
+        ld a, (opt_shake)       ; key 5: flash
+        xor 1
+        ld (opt_shake), a
+        jr tp_optredraw
+tp_o6:
+        ld a, (opt_practice)    ; key 6: safe/practice
+        xor 1
+        ld (opt_practice), a
+tp_optredraw:
+        call draw_opts
+        ret
+tp_optnone:
+        xor a
+        ld (opt_prev), a
 tp_n2:
         call fire_down
         jr z, tp_press
@@ -747,8 +845,42 @@ init_game:
         call clear_screen
         call zero_objects
         call init_stars
+        ld a, (difficulty)      ; lives: Cadet 5, Pilot 3, Ace 2
+        or a
+        jr nz, ig_d1
+        ld a, 5
+        jr ig_setlives
+ig_d1:
+        cp 1
+        jr nz, ig_d2
         ld a, 3
+        jr ig_setlives
+ig_d2:
+        ld a, 2
+ig_setlives:
         ld (lives), a
+        xor a
+        ld (combo), a
+        ld (combo_timer), a
+        ld (charge), a
+        ld (fire_held), a
+        ld (bomb_prev), a
+        ld hl, 0
+        ld (kill_acc), hl
+        ld a, 1
+        ld (combo_mult), a
+        ld (bullet_type), a
+        ld a, 3
+        ld (bombs), a
+        ld a, 0xFF
+        ld (hud_combo), a
+        ld (hud_bombs), a
+        ld a, 180               ; planet starts off to the right
+        ld (planet_x), a
+        ld (planet_ox), a
+        ld a, 50
+        ld (planet_y), a
+        ld (planet_oy), a
         ld hl, 0
         ld (score), hl
         xor a
@@ -820,6 +952,11 @@ zero_objects:
         ld bc, MAXEXPL*3-1
         ld (hl), 0
         ldir
+        ld hl, debris
+        ld de, debris+1
+        ld bc, DEB*5-1
+        ld (hl), 0
+        ldir
         ret
 
 ; ============================================================================
@@ -829,6 +966,7 @@ play_frame:
         ld a, (anim_ctr)
         inc a
         ld (anim_ctr), a
+        call do_planet          ; far background layer (drawn first)
         call do_stars
         call scroll_terrain
         ; erase ship at old position
@@ -838,6 +976,7 @@ play_frame:
         ld (spr_y), a
         call erase_ship
         call uncolor_ship       ; clear old ship colour cells
+        call erase_flame        ; clear last frame's exhaust
         call read_input
         call do_cheats
         call do_fire
@@ -845,32 +984,52 @@ play_frame:
         call do_objects
         call do_ebullets
         call do_explosions
+        call do_debris
+        call tick_combo
+        call do_bomb
         call do_spawn
-        ; invulnerability countdown + blink
+        ; invulnerability countdown + blink / colour-pulse
         ld a, (invuln)
         or a
         jr z, pf_drawship
         dec a
         ld (invuln), a
+        ld a, (opt_softblink)
+        or a
+        jr nz, pf_drawship      ; soft mode: always draw, pulse colour below
+        ld a, (invuln)
         and 4
-        jr nz, pf_skipship
+        jr nz, pf_skipship      ; classic mode: hide on alternate phases
 pf_drawship:
+        call draw_flame         ; animated exhaust behind the ship
         call set_ship_ptr       ; spr_ptr = the chosen ship design
         ld a, (ship_x)
         ld (spr_x), a
         ld a, (ship_y)
         ld (spr_y), a
         call draw_ship
-        ld a, 5                 ; bright cyan ship
-        ld hl, pw_shield
+        ld hl, pw_shield        ; ink: shield=white, else cyan (pulse if invuln)
         ld a, (hl)
         or a
+        jr z, pf_ink_inv
+        ld a, 7
+        jr pf_shipink
+pf_ink_inv:
+        ld a, (invuln)
+        or a
+        jr z, pf_ink_cyan
+        and 4                   ; pulse cyan<->white while invulnerable
+        jr z, pf_ink_cyan
+        ld a, 7
+        jr pf_shipink
+pf_ink_cyan:
         ld a, 5
-        jr z, pf_shipink
-        ld a, 7                 ; shielded: bright white
 pf_shipink:
         call color_ship
+        jr pf_aftership
 pf_skipship:
+        call erase_flame        ; keep the exhaust from lingering when hidden
+pf_aftership:
         ld hl, (bonus_timer)    ; bonus-stage countdown
         ld a, h
         or l
@@ -897,6 +1056,45 @@ pf_hud:
         call show_hud
         ret
 
+; draw_flame: animated exhaust just behind the ship's tail
+draw_flame:
+        ld a, (anim_ctr)
+        and 4
+        ld a, SI_FLAME1
+        jr z, fl_set
+        ld a, SI_FLAME2
+fl_set:
+        ld (spr_idx), a
+        ld a, (ship_x)
+        sub 8                   ; tail is to the left (travel is rightward)
+        jr nc, fl_xok
+        xor a
+fl_xok:
+        ld (spr_x), a
+        ld (flame_ox), a
+        ld a, (ship_y)
+        ld (spr_y), a
+        ld (flame_oy), a
+        call draw_sprite_ps
+        ld a, 6                 ; yellow/orange flare
+        ld hl, anim_ctr
+        bit 1, (hl)
+        jr z, fl_ink
+        ld a, 2                 ; flicker to red
+fl_ink:
+        call color_obj
+        ret
+
+; erase_flame: clear last frame's exhaust at flame_ox/oy
+erase_flame:
+        ld a, (flame_ox)
+        ld (spr_x), a
+        ld a, (flame_oy)
+        ld (spr_y), a
+        call erase_sprite
+        call uncolor_obj
+        ret
+
 ; brief border flash + ship jitter while shake>0
 do_shake:
         ld a, (shake)
@@ -904,6 +1102,11 @@ do_shake:
         ret z
         dec a
         ld (shake), a
+        ld b, a
+        ld a, (opt_shake)       ; photosensitivity: skip the border flash
+        or a
+        jr z, ds_normal
+        ld a, b
         and 1
         jr z, ds_normal
         ld a, 7                 ; white flash on alternate frames
@@ -1188,6 +1391,21 @@ ai_ylo:
         ld a, 160
 ai_yhi:
         ld (ship_y), a
+        ; ----- banking frame from vertical intent -----
+        ld a, (want_y)
+        or a
+        jr z, ai_banklevel
+        bit 7, a
+        jr nz, ai_bankup
+        ld a, 2                 ; down -> dive frame
+        jr ai_bankset
+ai_bankup:
+        ld a, 1                 ; up -> climb frame
+        jr ai_bankset
+ai_banklevel:
+        xor a
+ai_bankset:
+        ld (ship_bank), a
         ret
 
 ; ============================================================================
@@ -1207,8 +1425,19 @@ df_cdok:
         call read_joy           ; Kempston fire
         bit 4, a
         jr nz, df_pressed
+        xor a                   ; released: reset hold + charge
+        ld (fire_held), a
+        ld (charge), a
         ret
 df_pressed:
+        ld a, 1
+        ld (fire_held), a
+        ld a, (charge)          ; build charge while held (capped)
+        cp 30
+        jr nc, df_chgok
+        inc a
+        ld (charge), a
+df_chgok:
         ld a, (fire_cd)
         or a
         ret nz                  ; auto-repeat gated by cooldown
@@ -1219,6 +1448,20 @@ df_pressed:
         ld a, 4
 df_setcd:
         ld (fire_cd), a
+        ld a, (charge)          ; fully charged -> piercing bolt
+        cp 30
+        jr c, df_normal
+        xor a
+        ld (charge), a
+        ld a, 2
+        ld (bullet_type), a
+        ld a, 7
+        call spawn_bullet
+        call sfx_power
+        ret
+df_normal:
+        ld a, 1
+        ld (bullet_type), a
         ld a, 7                 ; primary shot (centre)
         call spawn_bullet
         ld a, (pw_twin)         ; spread shot?
@@ -1250,7 +1493,7 @@ sb_find:
         jr nz, sb_find
         ret                     ; no free slot
 sb_free:
-        ld a, 1
+        ld a, (bullet_type)
         ld (ix+0), a
         ld a, (ship_x)
         add a, 22
@@ -1294,11 +1537,11 @@ db_onscr:
 db_objloop:
         ld a, (iy+0)
         or a
-        jr z, db_objnext
+        jp z, db_objnext
         cp T_CRYS
-        jr z, db_objnext        ; bullets pass through crystals
+        jp z, db_objnext        ; bullets pass through crystals
         cp T_POWER
-        jr z, db_objnext        ; and power-ups
+        jp z, db_objnext        ; and power-ups
         ld a, 13
         ld (col_thr), a
         ld a, (ix+1)
@@ -1322,22 +1565,40 @@ db_objloop:
         call erase_sprite
         call uncolor_obj
         call spawn_explosion
+        call spawn_debris       ; a few sparks fly out
         xor a
         ld (iy+0), a
         ld bc, 5
-        call add_score
+        call add_kill_score
         ld hl, str_p5
         call set_popup
+        call sfx_explode
+        ld a, (ix+0)            ; piercing bolt keeps going
+        cp 2
+        jr z, db_objnext
         xor a
         ld (ix+0), a
-        call sfx_explode
         jp db_next
 db_hit_boss:
+        ld a, (ix+0)            ; charged bolt does extra boss damage
+        cp 2
+        jr z, dhb_charged
         ld a, (boss_hp)
         dec a
-        ld (boss_hp), a
+        jr dhb_store
+dhb_charged:
+        ld a, (boss_hp)
+        sub 3
+        jr nc, dhb_store
         xor a
-        ld (ix+0), a            ; consume bullet
+dhb_store:
+        ld (boss_hp), a
+        ld a, (ix+0)            ; charged pierces; normal is consumed
+        cp 2
+        jr z, dhb_keep
+        xor a
+        ld (ix+0), a
+dhb_keep:
         ld bc, 2
         call add_score
         ld a, 3
@@ -1355,7 +1616,10 @@ db_objnext:
         dec a
         ld (ocount), a
         jp nz, db_objloop
-        ; survived: draw bullet
+        ; survived: draw bullet (charged bolt is a round magenta tracer)
+        ld a, (ix+0)
+        cp 2
+        jr z, db_drawch
         ld a, SI_BULLET
         ld (spr_idx), a
         ld a, (ix+1)
@@ -1363,6 +1627,18 @@ db_objnext:
         ld a, (ix+2)
         ld (spr_y), a
         call draw_sprite_ps
+        jr db_storeox
+db_drawch:
+        ld a, SI_EBUL
+        ld (spr_idx), a
+        ld a, (ix+1)
+        ld (spr_x), a
+        ld a, (ix+2)
+        ld (spr_y), a
+        call draw_sprite_ps
+        ld a, 3                 ; magenta charged bolt
+        call color_obj
+db_storeox:
         ld a, (ix+1)
         ld (ix+3), a
 db_next:
@@ -1619,6 +1895,18 @@ boss_draw:
         jp do_obj_next
 
 ship_hit:
+        call reset_combo        ; any hit breaks the chain
+        ; practice mode: a tap, brief invuln, but no life lost
+        ld a, (opt_practice)
+        or a
+        jr z, sh_noprac
+        ld a, 40
+        ld (invuln), a
+        ld a, 6
+        ld (shake), a
+        call sfx_hit
+        ret
+sh_noprac:
         ; shield absorbs the hit?
         ld a, (pw_shield)
         or a
@@ -1932,6 +2220,229 @@ dx_next:
         dec a
         ld (xcount), a
         jr nz, dx_loop
+        ret
+
+; ============================================================================
+;  DEBRIS / SPARKS  -  life(+0) x(+1) y(+2) vx(+3,signed) vy(+4,signed)
+; ============================================================================
+; spawn_debris: scatter a few sparks from spr_x,spr_y
+spawn_debris:
+        ld b, 4                 ; try to seed up to 4 sparks
+        ld ix, debris
+sd_loop:
+        push bc
+        ld a, (ix+0)
+        or a
+        jr nz, sd_skip
+        ld a, 8
+        ld (ix+0), a            ; life
+        ld a, (spr_x)
+        add a, 6
+        ld (ix+1), a
+        ld a, (spr_y)
+        add a, 6
+        ld (ix+2), a
+        call rnd
+        and 7
+        sub 3                   ; vx in -3..+4
+        ld (ix+3), a
+        call rnd
+        and 7
+        sub 3
+        ld (ix+4), a
+sd_skip:
+        ld de, 5
+        add ix, de
+        pop bc
+        djnz sd_loop
+        ret
+
+do_debris:
+        ld ix, debris
+        ld b, DEB
+dd_loop:
+        push bc
+        ld a, (ix+0)
+        or a
+        jr z, dd_next
+        ld a, (ix+1)            ; erase old pixel
+        ld (px_x), a
+        ld a, (ix+2)
+        ld (px_y), a
+        xor a
+        ld (px_set), a
+        call plot_px
+        dec (ix+0)
+        jr z, dd_next           ; expired (erased)
+        ld a, (ix+1)            ; move
+        add a, (ix+3)
+        ld (ix+1), a
+        ld (px_x), a
+        ld a, (ix+2)
+        add a, (ix+4)
+        ld (ix+2), a
+        ld (px_y), a
+        ld a, 1                 ; draw new pixel (white)
+        ld (px_set), a
+        call plot_px
+dd_next:
+        ld de, 5
+        add ix, de
+        pop bc
+        djnz dd_loop
+        ret
+
+; plot_px: set/clear one pixel.  px_x,px_y position, px_set (1 set / 0 clear)
+plot_px:
+        ld a, (px_y)
+        cp 192
+        ret nc
+        ld l, a
+        ld h, 0
+        add hl, hl
+        ld de, addrtab
+        add hl, de
+        ld e, (hl)
+        inc hl
+        ld d, (hl)              ; DE = row base address
+        ld a, (px_x)
+        ld b, a
+        rrca
+        rrca
+        rrca
+        and 0x1F
+        ld l, a
+        ld h, 0
+        add hl, de              ; HL = byte address
+        ld a, b
+        and 7
+        ld b, a
+        ld c, 0x80
+pp_sh:
+        xor a
+        cp b
+        jr z, pp_have
+        srl c
+        dec b
+        jr pp_sh
+pp_have:
+        ld a, (px_set)
+        or a
+        jr z, pp_clear
+        ld a, (hl)
+        or c
+        ld (hl), a
+        ret
+pp_clear:
+        ld a, c
+        cpl
+        ld c, a
+        ld a, (hl)
+        and c
+        ld (hl), a
+        ret
+
+; ============================================================================
+;  SMART-BOMB  -  'B' clears every hazard on screen for points
+; ============================================================================
+do_bomb:
+        ld bc, 0x7FFE           ; B is bit4 of the SPACE half-row
+        in a, (c)
+        bit 4, a
+        jr nz, db_brel
+        ld a, (bomb_prev)
+        or a
+        jr nz, db_bdone         ; held: ignore until released
+        ld a, 1
+        ld (bomb_prev), a
+        ld a, (bombs)
+        or a
+        ret z                   ; none left
+        dec a
+        ld (bombs), a
+        ld a, 12
+        ld (shake), a           ; flash
+        call detonate_bomb
+        ret
+db_brel:
+        xor a
+        ld (bomb_prev), a
+db_bdone:
+        ret
+
+; detonate_bomb: explode all hazard objects (rocks/enemies), award points
+detonate_bomb:
+        ld ix, objs
+        ld a, MAXOBJ
+        ld (ocount), a
+det_loop:
+        ld a, (ix+0)
+        or a
+        jr z, det_next
+        cp T_CRYS
+        jr z, det_next
+        cp T_POWER
+        jr z, det_next
+        cp T_BOSS
+        jr z, det_next          ; bomb spares the boss
+        ld a, (ix+3)
+        ld (spr_x), a
+        ld a, (ix+4)
+        ld (spr_y), a
+        call erase_sprite
+        call uncolor_obj
+        call spawn_explosion
+        xor a
+        ld (ix+0), a
+        ld bc, 5
+        call add_score
+det_next:
+        ld de, OBJSZ
+        add ix, de
+        ld a, (ocount)
+        dec a
+        ld (ocount), a
+        jr nz, det_loop
+        call sfx_explode
+        ret
+
+; ============================================================================
+;  BACKGROUND PLANET  -  a dim sprite drifting slowly in the far distance
+; ============================================================================
+do_planet:
+        ld a, (anim_ctr)        ; drift one pixel left every 4th frame
+        and 3
+        jr nz, dp_draw
+        ld a, (planet_x)
+        dec a
+        cp 240                  ; wrapped past 0 -> respawn at the right
+        jr c, dp_xok
+        ld a, 200
+        ld (planet_x), a
+        call rnd
+        and 0x3F
+        add a, 40
+        ld (planet_y), a
+        jr dp_draw
+dp_xok:
+        ld (planet_x), a
+dp_draw:
+        ld a, (planet_ox)       ; erase old
+        ld (spr_x), a
+        ld a, (planet_oy)
+        ld (spr_y), a
+        call erase_sprite
+        ld a, SI_PLANET
+        ld (spr_idx), a
+        ld a, (planet_x)
+        ld (spr_x), a
+        ld (planet_ox), a
+        ld a, (planet_y)
+        ld (spr_y), a
+        ld (planet_oy), a
+        call draw_sprite_ps
+        ld a, 1                 ; dim blue, on black
+        call color_obj
         ret
 
 ; ============================================================================
@@ -2318,6 +2829,13 @@ do_music:
         ld e, 0
         call ay_w
 dm_lead:
+        ld a, (opt_music)       ; melody disabled?
+        or a
+        jr nz, dm_on
+        ld d, 8                 ; silence channel A volume
+        ld e, 0
+        jp ay_w
+dm_on:
         ld a, (mus_div)
         inc a
         ld (mus_div), a
@@ -2740,6 +3258,46 @@ show_hud:
         call draw_distbar       ; distance-to-boss bar, row0
         call draw_zonename      ; zone name, row1 left
         call draw_powers        ; active power-ups, row1 mid
+        call draw_combo         ; combo multiplier, row1 right
+        call draw_bombs         ; smart-bomb count, row1 right
+        ret
+
+; draw_combo: "x<n>" at row1 col22 (only when a chain is active)
+draw_combo:
+        ld a, (combo_mult)
+        ld hl, hud_combo
+        cp (hl)
+        ret z
+        ld (hl), a
+        ld b, 1
+        ld c, 22
+        ld a, 'x'
+        push bc
+        call print_char
+        pop bc
+        inc c
+        ld a, (combo_mult)
+        add a, '0'
+        call print_char
+        ret
+
+; draw_bombs: "B<n>" at row1 col25
+draw_bombs:
+        ld a, (bombs)
+        ld hl, hud_bombs
+        cp (hl)
+        ret z
+        ld (hl), a
+        ld b, 1
+        ld c, 25
+        ld a, 'B'
+        push bc
+        call print_char
+        pop bc
+        inc c
+        ld a, (bombs)
+        add a, '0'
+        call print_char
         ret
 
 ; ---- HUD helpers ----
@@ -3094,6 +3652,80 @@ sc_d_done:
         ld (ix+0), a
         inc ix
         ret
+
+; add_kill_score: BC = base points; multiplied by the current combo
+; multiplier, then a hit extends the chain.
+add_kill_score:
+        push bc
+        call bump_combo
+        pop bc
+        ld a, (combo_mult)
+ks_loop:
+        dec a
+        jr z, ks_done
+        push af
+        ld hl, (kill_acc)
+        add hl, bc
+        ld (kill_acc), hl       ; accumulate (mult-1) extra copies
+        pop af
+        jr ks_loop
+ks_done:
+        ld hl, (kill_acc)
+        add hl, bc              ; base copy
+        ld b, h
+        ld c, l
+        ld hl, 0
+        ld (kill_acc), hl
+        jr add_score
+
+; bump_combo: extend the chain, refresh its timer, recompute the multiplier
+bump_combo:
+        ld a, (combo)
+        cp 60
+        jr nc, bc_cap
+        inc a
+        ld (combo), a
+bc_cap:
+        ld a, 100
+        ld (combo_timer), a
+        ld a, (combo)           ; mult = 1 + combo/3, capped at 6
+        ld b, 1                 ; B = multiplier accumulator
+bc_m:
+        cp 3
+        jr c, bc_store
+        sub 3
+        inc b
+        ld c, a                 ; preserve remaining count
+        ld a, b
+        cp 6
+        jr nc, bc_capmult
+        ld a, c
+        jr bc_m
+bc_capmult:
+        ld b, 6
+bc_store:
+        ld a, b
+        ld (combo_mult), a
+        ret
+
+; reset_combo: drop the chain (called on a ship hit)
+reset_combo:
+        xor a
+        ld (combo), a
+        ld (combo_timer), a
+        ld a, 1
+        ld (combo_mult), a
+        ret
+
+; tick_combo: per-frame chain decay
+tick_combo:
+        ld a, (combo_timer)
+        or a
+        ret z
+        dec a
+        ld (combo_timer), a
+        ret nz
+        jp reset_combo
 
 add_score:
         ld hl, (score)
@@ -3816,6 +4448,14 @@ str_schopts: db "1-QAOP   2-CURSOR",0
 str_qaop:   db "USING QAOP  ",0
 str_cursor: db "USING CURSOR",0
 str_shipsel: db "M-SHIP",0
+str_diff:    db "3-SKILL:",0
+str_d0:      db "CADET ",0
+str_d1:      db "PILOT ",0
+str_d2:      db "ACE   ",0
+str_opts1:   db "4-MUSIC 5-FLASH 6-SAFE",0
+str_on:      db "ON ",0
+str_off:     db "OFF",0
+diff_tab:    dw str_d0, str_d1, str_d2
 credits_msg: db "STELLAR DRIFT - A CAVE FLYER FOR THE HC-91 - DODGE, "
              db "SHOOT, COLLECT - BEAT THE ZONE BOSSES - GOOD LUCK PILOT     ",0
 
@@ -3908,13 +4548,51 @@ hud_pow:      defb 0xFF
 paused:       defb 0
 pause_prev:   defb 0
 ctrl_scheme:  defb 0
+; ---- options & Phase-2 state ----
+opt_softblink: defb 1         ; 1 = pulse ship colour while invuln; 0 = hide
+opt_music:    defb 1          ; 1 = AY melody on
+opt_shake:    defb 1          ; 1 = full border flash; 0 = soft (photosensitive)
+opt_practice: defb 0          ; 1 = practice mode (no life loss)
+difficulty:   defb 1          ; 0 Cadet, 1 Pilot, 2 Ace
+combo:        defb 0          ; current chain length
+combo_mult:   defb 1          ; score multiplier (1..)
+combo_timer:  defb 0          ; frames left before the chain resets
+kill_acc:     defw 0          ; scratch accumulator for add_kill_score
+hud_combo:    defb 0xFF
+bombs:        defb 3          ; smart-bombs in reserve
+hud_bombs:    defb 0xFF
+bomb_prev:    defb 0
+bomb_flash:   defb 0
+charge:       defb 0          ; fire-charge counter while held
+fire_held:    defb 0
+bullet_type:  defb 1          ; 1 normal, 2 charged/piercing
+graze_prev:   defb 0
+flame_ox:     defb 0
+flame_oy:     defb 0
+planet_x:     defb 0
+planet_y:     defb 0
+planet_ox:    defb 0
+planet_oy:    defb 0
+opt_prev:     defb 0
+demo_active:  defb 0
+demo_idx:     defw 0
+demo_timer:   defb 0
+idle_ctr:     defw 0
+intro_done:   defb 0
 ship_choice:  defb 0
 m_prev:       defb 0
 tctr:         defb 0
 credit_idx:   defb 0
 
+; 6 designs x 3 banks (level, climb, dive)
 ship_tab:
-        dw spr_ship0, spr_ship1, spr_ship2, spr_ship3, spr_ship4, spr_ship5
+        dw spr_ship0, spr_ship0_up, spr_ship0_dn
+        dw spr_ship1, spr_ship1_up, spr_ship1_dn
+        dw spr_ship2, spr_ship2_up, spr_ship2_dn
+        dw spr_ship3, spr_ship3_up, spr_ship3_dn
+        dw spr_ship4, spr_ship4_up, spr_ship4_dn
+        dw spr_ship5, spr_ship5_up, spr_ship5_dn
+ship_bank:    defb 0
 wave_ptr:     defw 0
 wave_delay:   defb 1
 sp_type:      defb 0
@@ -3977,6 +4655,8 @@ shbuf:    defb 0,0,0,0,0,0
 sprtab:
         dw spr_rock, spr_rock2, spr_enemy, spr_crystal, spr_crystal2
         dw spr_power, spr_bullet, spr_ebullet, spr_expl1, spr_expl2, spr_expl3
+        dw spr_diver, spr_turret, spr_mine, spr_drone, spr_planet, spr_spark
+        dw spr_flame1, spr_flame2
 
 spr_idx:  defb 0
 ps_dst:   defw 0
@@ -3989,7 +4669,11 @@ objs:     defs MAXOBJ*OBJSZ
 bullets:  defs MAXBUL*4
 ebullets: defs MAXEB*6
 expls:    defs MAXEXPL*3
+debris:   defs DEB*5
 stars:    defs NSTAR*4
+px_x:     defb 0
+px_y:     defb 0
+px_set:   defb 0
 
 addrtab:  defs 384
 psbuf:    defs NSPR*768
