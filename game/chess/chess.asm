@@ -165,6 +165,17 @@ pdTmp    equ 0xE141      ; (2)
 pdRookFrom equ 0xE143
 pdRookTo equ 0xE144
 ckSavePst equ 0xE145     ; (2) perft self-test: saved pstScore
+wClock   equ 0xE147      ; (2) white time remaining, in 50 Hz frames
+bClock   equ 0xE149      ; (2) black time remaining, in 50 Hz frames
+clkTurnStart equ 0xE14B  ; (2) FRAMES snapshot at the start of this turn
+clkTurnSide equ 0xE14D    ; side that owns the current turn (0/8)
+clkDispW equ 0xE14E      ; (2) white time to display (stored - live elapsed)
+clkDispB equ 0xE150      ; (2) black time to display
+clkLastSec equ 0xE152    ; throttle: last to-move whole-second drawn
+clkBuf   equ 0xE153      ; (5) "M:SS",0 formatting buffer
+
+FRAMES   equ 0x5C78      ; ROM 50 Hz frame counter (3 bytes), low 16 used
+INITCLK  equ 15000       ; starting time per side: 5:00 at 50 Hz
 
 killerArr equ 0xD100     ; 4 bytes/ply: k1from,k1to,k2from,k2to
 inChkArr  equ 0xD140     ; 1/ply: side-to-move in check at this node
@@ -216,6 +227,9 @@ SP_EP     equ 4
 start:
         di
         ld sp,0xFFF0
+        ld iy,0x5C3A           ; ROM sysvar base, for the IM1 keyboard/FRAMES ISR
+        im 1
+        ei                     ; let the ROM tick FRAMES (0x5C78) at 50 Hz
         call seedRng
         call zobInit
         call newGame
@@ -224,6 +238,7 @@ mainLoop:
         ld a,(gameState)
         or a
         jp nz,gameOverLoop
+        call clkStartTurn      ; begin charging time to the side to move
         ld a,(twoPlayer)
         or a
         jr nz,humanTurn        ; both sides human
@@ -247,6 +262,7 @@ afterMove:
         call pushGameUndo      ; save undo[0] for take-back
         call recordGameKey
         call updateTerminal
+        call clkCommit         ; charge the finished turn; may flag-fall
         call drawScreenFull
         jp mainLoop
 
@@ -327,6 +343,7 @@ ngFile: ld a,(hl)
         call recordGameKey     ; record the initial position
         call ttClear
         call clearHistory
+        call clkInit
         ret
 
 startPos:
@@ -802,6 +819,7 @@ diNo2p:
         ld c,20
         call printStr
 diNoName:
+        call drawClocks        ; per-side time, rows 13/14
         ; material balance (pawns) - always shown
         ld hl,msgMatl
         ld b,9
@@ -1073,7 +1091,7 @@ rkdP:   call scanKeys
 ; =====================================================================
 humanMove:
         call drawScreenFull
-hmLoop: call readKeyDebounced
+hmLoop: call clkWaitKey        ; like readKeyDebounced, but ticks the clock
         cp 'Q'
         jp z,hmUp
         cp 'A'
@@ -1340,6 +1358,7 @@ resetGameState:
         call recordGameKey
         call ttClear
         call clearHistory
+        call clkInit
         ret
 
 ; KRK endgame demo: white Ke1 (lone), black Ke8 + Ra8, black (engine) to move
@@ -1602,6 +1621,210 @@ rng:
         ret
 
 ; =====================================================================
+;  CHESS CLOCKS — per-side countdown driven by the 50 Hz ROM FRAMES
+;  counter (enabled by IM1/EI in `start`).  Each turn's full elapsed
+;  time (human thinking or AI searching) is charged to the side to move
+;  when the move completes; the human's clock also ticks live while the
+;  player thinks.  Running out of time is a loss on the clock.
+; =====================================================================
+clkInit:
+        ld hl,INITCLK
+        ld (wClock),hl
+        ld (bClock),hl
+        call clkStartTurn
+        ld a,0xFF
+        ld (clkLastSec),a      ; force the next live draw
+        ret
+
+clkStartTurn:
+        ld hl,(FRAMES)
+        ld (clkTurnStart),hl
+        ld a,(sideToMove)
+        ld (clkTurnSide),a
+        ret
+
+; clkElapsed -> HL = FRAMES - clkTurnStart (frames used so far this turn)
+clkElapsed:
+        ld hl,(FRAMES)
+        ld de,(clkTurnStart)
+        or a
+        sbc hl,de
+        ret
+
+; clkCommit — subtract this turn's elapsed time from the mover's clock,
+; clamping at zero; a zero clock is a flag-fall loss (unless the position
+; is already terminal, in which case that result stands).
+clkCommit:
+        call clkElapsed
+        ex de,hl               ; de = elapsed
+        ld a,(clkTurnSide)
+        or a
+        jr nz,ccB
+        ld hl,(wClock)
+        or a
+        sbc hl,de
+        jr nc,ccWok
+        ld hl,0
+ccWok:  ld (wClock),hl
+        jr ccFlag
+ccB:    ld hl,(bClock)
+        or a
+        sbc hl,de
+        jr nc,ccBok
+        ld hl,0
+ccBok:  ld (bClock),hl
+ccFlag:
+        ld a,h
+        or l
+        ret nz                 ; time remains
+        ld a,(gameState)
+        or a
+        ret nz                 ; checkmate/draw already decided
+        ld a,(clkTurnSide)
+        or a
+        ld hl,msgWflag         ; white's flag fell -> Black wins
+        jr z,ccSet
+        ld hl,msgBflag
+ccSet:  call setMsg
+        ld a,5
+        ld (gameState),a
+        ret
+
+; clkComputeDisp — fill clkDispW/clkDispB with the values to show; for the
+; side to move (while play is live) subtract the in-progress elapsed time.
+; Returns A = that side's whole-seconds low byte (throttle key).
+clkComputeDisp:
+        ld hl,(wClock)
+        ld (clkDispW),hl
+        ld hl,(bClock)
+        ld (clkDispB),hl
+        ld a,(gameState)
+        or a
+        jr nz,ccdStatic        ; game over: freeze at stored values
+        call clkElapsed
+        ex de,hl               ; de = elapsed
+        ld a,(clkTurnSide)
+        or a
+        jr nz,ccdB
+        ld hl,(clkDispW)
+        or a
+        sbc hl,de
+        jr nc,ccdWok
+        ld hl,0
+ccdWok: ld (clkDispW),hl
+        jr ccdSec
+ccdB:   ld hl,(clkDispB)
+        or a
+        sbc hl,de
+        jr nc,ccdBok
+        ld hl,0
+ccdBok: ld (clkDispB),hl
+        jr ccdSec
+ccdStatic:
+ccdSec:
+        ld a,(clkTurnSide)
+        or a
+        ld hl,(clkDispW)
+        jr z,ccdDiv
+        ld hl,(clkDispB)
+ccdDiv: ld c,50
+        call divHLbyC          ; HL = seconds
+        ld a,l
+        ret
+
+; clkLive — redraw the clocks at most once per second while the human is
+; thinking (no full-screen redraw, just the two clock cells).
+clkLive:
+        ld a,(gameState)
+        or a
+        ret nz
+        call clkComputeDisp
+        ld hl,clkLastSec
+        cp (hl)
+        ret z
+        ld (hl),a
+        jp drawClocksRaw
+
+; clkWaitKey — wait for a key (release then press) like readKeyDebounced,
+; ticking the live clock during the press wait.
+clkWaitKey:
+        call scanKeys
+        or a
+        jr nz,clkWaitKey       ; wait release
+cwkP:   call clkLive
+        call scanKeys
+        or a
+        jr z,cwkP              ; wait press
+        ret
+
+; drawClocks — recompute then draw (used by drawInfo / full redraws).
+drawClocks:
+        call clkComputeDisp
+drawClocksRaw:
+        ld hl,msgWclk
+        ld b,13
+        ld c,20
+        call printStr
+        ld hl,(clkDispW)
+        call fmtClk
+        ld hl,clkBuf
+        ld b,13
+        ld c,22
+        call printStr
+        ld hl,msgBclk
+        ld b,14
+        ld c,20
+        call printStr
+        ld hl,(clkDispB)
+        call fmtClk
+        ld hl,clkBuf
+        ld b,14
+        ld c,22
+        call printStr
+        ret
+
+; fmtClk(HL=frames) -> clkBuf = "M:SS",0
+fmtClk:
+        ld c,50
+        call divHLbyC          ; HL = total seconds, A = leftover frames
+        ld c,60
+        call divHLbyC          ; HL = minutes, A = seconds remainder
+        ld b,a                 ; b = seconds (0..59)
+        ld a,l
+        add a,'0'
+        ld (clkBuf),a          ; minutes digit
+        ld a,':'
+        ld (clkBuf+1),a
+        ld a,b
+        ld d,'0'
+fcT:    cp 10
+        jr c,fcU
+        sub 10
+        inc d
+        jr fcT
+fcU:    add a,'0'
+        ld (clkBuf+3),a        ; seconds units
+        ld a,d
+        ld (clkBuf+2),a        ; seconds tens
+        xor a
+        ld (clkBuf+4),a
+        ret
+
+; divHLbyC — HL / C -> HL = quotient, A = remainder (C <= 60 here)
+divHLbyC:
+        xor a
+        ld b,16
+dhcL:   add hl,hl
+        rla
+        cp c
+        jr c,dhcSkip
+        sub c
+        inc l
+dhcSkip:
+        djnz dhcL
+        ret
+
+; =====================================================================
 ;  STRINGS
 ; =====================================================================
 msgTitle:    defb "ZX-CHESS  HC-91",0
@@ -1631,6 +1854,10 @@ msgTwoP:     defb "Two-player mode toggled",0
 msgTaken:    defb "Take back done",0
 msgPromote:  defb "Promote: Q=Queen R B N",0
 msgSetup:    defb "SET-UP QAOP SPC=cyc W=side ENT",0
+msgWclk:     defb "W",0
+msgBclk:     defb "B",0
+msgWflag:    defb "Flag! Black wins (time) SPC=new",0
+msgBflag:    defb "Flag! White wins (time) SPC=new",0
 msgLevel:    defb "Level",0
 msg2pL:      defb "2-player",0
 msgMoveL:    defb "Move",0
