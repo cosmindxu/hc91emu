@@ -1005,8 +1005,14 @@ sk_a:   ld bc,0xFDFE           ; A,S,D,F,G
 sk_f:   ld bc,0xFDFE
         in a,(c)
         bit 3,a
-        jr nz,sk_op
+        jr nz,sk_s
         ld a,'F'
+        ret
+sk_s:   ld bc,0xFDFE
+        in a,(c)
+        bit 1,a                ; S = set-up position editor
+        jr nz,sk_op
+        ld a,'S'
         ret
 sk_op:  ld bc,0xDFFE           ; P,O,I,U,Y
         in a,(c)
@@ -1092,6 +1098,8 @@ hmLoop: call readKeyDebounced
         jp z,hmTakeBack
         cp 'E'
         jp z,hmEndgame
+        cp 'S'
+        jp z,hmSetup
         cp '1'
         jp c,hmLoop
         cp '6'
@@ -1159,9 +1167,167 @@ hmEndgame:
         ld sp,0xFFF0           ; unwind back to a clean main loop
         jp mainLoop
 
+hmSetup:
+        call setupEditor       ; never returns (jp mainLoop inside)
+
+; setupEditor — place pieces with the cursor, then start a game from the
+; resulting position.  SPACE cycles the square's piece, W toggles the side
+; to move, C clears, ENTER plays.
+setupEditor:
+        xor a
+        ld (castling),a        ; editor positions: no castling rights
+        ld a,0xFF
+        ld (epSquare),a
+seLoop:
+        call drawScreenFull
+        ld hl,msgSetup
+        ld b,21
+        ld c,0
+        call clearRow
+        ld b,21
+        ld c,0
+        call printStr
+        call seScan
+        or a
+        jr z,seLoop
+seWait:                        ; (debounce: wait for release)
+        push af
+sePoll: call seScan
+        or a
+        jr nz,sePoll
+        pop af
+        cp 'Q'
+        jr z,seUp
+        cp 'A'
+        jr z,seDown
+        cp 'O'
+        jr z,seLeft
+        cp 'P'
+        jr z,seRight
+        cp ' '
+        jr z,seCycle
+        cp 'W'
+        jr z,seSide
+        cp 'C'
+        jr z,seClear
+        cp 13
+        jr z,seDone
+        jr seLoop
+seUp:   ld d,16
+        jr seMove
+seDown: ld d,-16
+        jr seMove
+seLeft: ld d,-1
+        jr seMove
+seRight: ld d,1
+seMove: ld a,(cursorSq)
+        add a,d
+        ld e,a
+        and 0x88
+        jp nz,seLoop
+        ld a,e
+        ld (cursorSq),a
+        jp seLoop
+seCycle:
+        ld a,(cursorSq)
+        ld l,a
+        ld h,0xE0
+        ld a,(hl)
+        call nextPiece
+        ld (hl),a
+        jp seLoop
+seSide: ld a,(sideToMove)
+        xor 8
+        ld (sideToMove),a
+        jp seLoop
+seClear:
+        ld hl,board
+        ld de,board+1
+        ld bc,127
+        ld (hl),0
+        ldir
+        jp seLoop
+seDone:
+        call finalizePosition
+        call resetGameState
+        ld sp,0xFFF0
+        jp mainLoop
+
+; nextPiece(A) -> next in the cycle empty,WP..WK,BP..BK,empty
+nextPiece:
+        or a
+        jr nz,np1
+        ld a,WP
+        ret
+np1:    cp WK
+        jr nz,np2
+        ld a,BP
+        ret
+np2:    cp BK
+        jr nz,np3
+        xor a
+        ret
+np3:    inc a
+        ret
+
+; seScan — editor keys: Q/A/O/P cursor, SPACE cycle, W side, C clear, ENTER
+seScan:
+        ld bc,0xFBFE
+        in a,(c)
+        bit 0,a
+        jr nz,ses1
+        ld a,'Q'
+        ret
+ses1:   ld bc,0xFBFE
+        in a,(c)
+        bit 1,a                ; W
+        jr nz,ses2
+        ld a,'W'
+        ret
+ses2:   ld bc,0xFDFE
+        in a,(c)
+        bit 0,a
+        jr nz,ses3
+        ld a,'A'
+        ret
+ses3:   ld bc,0xDFFE
+        in a,(c)
+        bit 0,a
+        jr nz,ses4
+        ld a,'P'
+        ret
+ses4:   ld bc,0xDFFE
+        in a,(c)
+        bit 1,a
+        jr nz,ses5
+        ld a,'O'
+        ret
+ses5:   ld bc,0x7FFE
+        in a,(c)
+        bit 0,a
+        jr nz,ses6
+        ld a,' '
+        ret
+ses6:   ld bc,0xFEFE
+        in a,(c)
+        bit 3,a                ; C
+        jr nz,ses7
+        ld a,'C'
+        ret
+ses7:   ld bc,0xBFFE
+        in a,(c)
+        bit 0,a                ; ENTER
+        jr nz,ses8
+        ld a,13
+        ret
+ses8:   xor a
+        ret
+
 ; loadGamePos(HL=ptr) — set up an arbitrary position and reset game state
 loadGamePos:
         call setupBoard        ; board, side, castling, ep, kings, key
+        ; fall through to resetGameState
+resetGameState:
         xor a
         ld (gameState),a
         ld (haveLast),a
@@ -1464,6 +1630,7 @@ msgRep:      defb "Draw - repetition       SPC=new",0
 msgTwoP:     defb "Two-player mode toggled",0
 msgTaken:    defb "Take back done",0
 msgPromote:  defb "Promote: Q=Queen R B N",0
+msgSetup:    defb "SET-UP QAOP SPC=cyc W=side ENT",0
 msgLevel:    defb "Level",0
 msg2pL:      defb "2-player",0
 msgMoveL:    defb "Move",0
