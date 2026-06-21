@@ -1274,6 +1274,81 @@ recordGameKey:
         ld (gameKeyN),a
         ret
 
+; pushGameUndo — copy undo[0] (the move just made) onto the take-back stack
+pushGameUndo:
+        ld a,(gameUndoN)
+        cp 48
+        ret nc
+        ld l,a
+        ld h,0
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        add hl,hl                ; n*16
+        ld de,gameUndo
+        add hl,de
+        ex de,hl                 ; DE = dest
+        ld hl,undoBase
+        ld bc,16
+        ldir
+        ld a,(gameUndoN)
+        inc a
+        ld (gameUndoN),a
+        ret
+
+; popUnmake — pop one ply off the take-back stack and unmake it
+popUnmake:
+        ld a,(gameUndoN)
+        or a
+        ret z
+        dec a
+        ld (gameUndoN),a
+        ld l,a
+        ld h,0
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        ld de,gameUndo
+        add hl,de                ; HL = source
+        ld de,undoBase
+        ld bc,16
+        ldir
+        xor a
+        ld (searchPly),a
+        call unmakeMove
+        ld a,(gameKeyN)
+        or a
+        ret z
+        dec a
+        ld (gameKeyN),a
+        ret
+
+; takeBack — undo to the previous position where the human is to move
+takeBack:
+        ld a,(gameUndoN)
+        or a
+        ret z
+        call popUnmake
+        ld a,(twoPlayer)
+        or a
+        jr nz,tbDone
+        ld a,(sideToMove)
+        ld hl,humanSide
+        cp (hl)
+        jr z,tbDone
+        ld a,(gameUndoN)
+        or a
+        jr z,tbDone
+        call popUnmake
+tbDone:
+        xor a
+        ld (gameState),a
+        ld (haveLast),a          ; clear the stale last-move readout
+        ld a,0xFF
+        ld (selSq),a
+        ret
+
 ; countReps -> A = how many times hashKey appears in the game history
 countReps:
         ld a,(gameKeyN)
