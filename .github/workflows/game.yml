@@ -181,3 +181,15 @@ jobs:
             --joy "3000-5000:F" --frames 4000 --text game/build/game.tap \
             | tee /tmp/split.txt
           grep -q "MAGENTA STORM" /tmp/split.txt
+
+      - name: Content - 7th zone (NEXUS CORE) is reachable and stable
+        run: |
+          # skip through to the final zone; it must render (the seven per-zone
+          # tables stay in sync and zone 6 is reachable without crashing)
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1810-1818:F" \
+            --keys "1900:K" --keys "2300:K" --keys "2700:K" \
+            --keys "3100:K" --keys "3500:K" --keys "3900:K" \
+            --joy "4000-9000:F" --frames 5300 --text game/build/game.tap \
+            | tee /tmp/z7.txt
+          grep -q "NEXUS CORE" /tmp/z7.txt

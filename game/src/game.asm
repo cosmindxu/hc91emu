@@ -49,7 +49,7 @@ T_ARMOR equ 11              ; armoured enemy (multi-hit, hp in +7)
 T_FORMV equ 12              ; wave marker: spawn a V-formation of enemies
 T_GATE  equ 13              ; pulsing laser-gate barrier
 T_SPLIT equ 14              ; splitter rock: breaks into 2 fast shards when shot
-NZONES  equ 6               ; number of named zones in the cycle
+NZONES  equ 7               ; number of named zones in the cycle
 
 ; Sprite pixel data (data only - masks are ~data, regenerated at runtime) is
 ; stored LZSS-packed (sprpack.inc) and depacked at boot into this fixed low-RAM
@@ -3889,9 +3889,9 @@ sb2_hp:
         ld l, a
         ld (boss_spr), hl
         ld a, (world)           ; per-zone boss taunt (announces the machine)
-        cp 6
+        cp 7
         jr c, sb_taunt_ok
-        ld a, 5
+        ld a, 6
 sb_taunt_ok:
         add a, a
         ld e, a
@@ -4744,7 +4744,7 @@ sp_setpos:
 ; designed wave formations (type, y, frames-to-next); 0xFF = loop
 ; per-zone wave scripts (type, y, frames-to-next); 0xFF loops the zone
 wave_tab:
-        dw wave0, wave1, wave2, wave3, wave4, wave5
+        dw wave0, wave1, wave2, wave3, wave4, wave5, wave6
 ; Zone 1 - gentle: rocks, a few weavers, a power-up
 wave0:
         db T_ROCK,  40, 26
@@ -4822,6 +4822,20 @@ wave5:
         db T_DRONE, 54, 14
         db T_TURRET,150,18
         db T_POWER, 60, 36
+        db 0xFF
+; Zone 7 - NEXUS CORE: relentless mix, mid-bosses, tight power-up spacing
+wave6:
+        db T_MIDBOSS,60, 44
+        db T_DIVER, 30, 12
+        db T_DRONE, 90, 12
+        db T_TURRET,28, 16
+        db T_ENEMY, 60, 12
+        db T_MINE,  110,14
+        db T_ARMOR, 50, 40
+        db T_DRONE, 40, 12
+        db T_DIVER, 120,12
+        db T_TURRET,150,16
+        db T_POWER, 60, 30
         db 0xFF
 
 ; ============================================================================
@@ -5355,9 +5369,9 @@ nw_nobest:
 ; set_zone_wave: point wave_base/wave_ptr at the current zone's script
 set_zone_wave:
         ld a, (world)
-        cp 6
+        cp 7
         jr c, szw_ok
-        ld a, 5
+        ld a, 6
 szw_ok:
         add a, a
         ld e, a
@@ -5499,9 +5513,9 @@ dc_bl:
 ; set_zone_card: pick the current zone's flavour line and show it
 set_zone_card:
         ld a, (world)
-        cp 6
+        cp 7
         jr c, szc_ok
-        ld a, 5
+        ld a, 6
 szc_ok:
         add a, a
         ld e, a
@@ -5806,9 +5820,9 @@ dz_notbonus:
         or a
         jr z, dz_zone
         ld a, (world)
-        cp 6
+        cp 7
         jr c, dz_bok
-        ld a, 5
+        ld a, 6
 dz_bok:
         add a, a
         ld e, a
@@ -6807,6 +6821,8 @@ worlds_tab:
         db 0, 22, 0x44,0x46,0x44,0x46,0x44,0x46
         ; Zone 6  VOID NEXUS       black sky, mixed bright stars
         db 0, 20, 0x47,0x45,0x43,0x46,0x42,0x47
+        ; Zone 7  NEXUS CORE       hot white/red core, fastest spawns
+        db 0, 18, 0x47,0x42,0x47,0x42,0x47,0x42
 
 str_title:  db "STELLAR DRIFT",0
 str_fire:   db "PRESS FIRE",0
@@ -7048,35 +7064,39 @@ is128k:       defb 0
 tick:         defb 0
 cheat_kprev:  defb 0
 
-zone_names:   dw zn0, zn1, zn2, zn3, zn4, zn5
+zone_names:   dw zn0, zn1, zn2, zn3, zn4, zn5, zn6
 zn0:          db "ORION DRIFT",0
 zn1:          db "CRIMSON VEIL",0
 zn2:          db "SAPPHIRE EXPANSE",0
 zn3:          db "MAGENTA STORM",0
 zn4:          db "EMERALD RIFT",0
 zn5:          db "VOID NEXUS",0
-zone_cards:   dw zc0, zc1, zc2, zc3, zc4, zc5
+zn6:          db "NEXUS CORE",0
+zone_cards:   dw zc0, zc1, zc2, zc3, zc4, zc5, zc6
 zc0:          db "EMISSION CLOUDS HIDE A WARSHIP",0
 zc1:          db "IONISED DUST - WATCH THE WALLS",0
 zc2:          db "OPEN VOID - LONG SIGHT LINES",0
 zc3:          db "STORM CELLS SCRAMBLE SENSORS",0
 zc4:          db "THE RIFT NARROWS - FLY TIGHT",0
-zc5:          db "THE CORE - END NEXUS HERE",0
-boss_taunts:  dw bt0, bt1, bt2, bt3, bt4, bt5
+zc5:          db "THE OUTER CORE - PUSH ON",0
+zc6:          db "THE HEART OF NEXUS - END IT",0
+boss_taunts:  dw bt0, bt1, bt2, bt3, bt4, bt5, bt6
 bt0:          db "SENTINEL: YOU GO NO FURTHER",0
 bt1:          db "REAVER: TURN BACK, SCOUT",0
 bt2:          db "LEVIATHAN STIRS",0
 bt3:          db "WIDOW: YOU ARE PREY NOW",0
 bt4:          db "HYDRA: CUT ONE, FACE TWO",0
 bt5:          db "NEXUS: I AM EVERYWHERE",0
+bt6:          db "NEXUS CORE: WITNESS THE END",0
 ; short machine names for the persistent boss-fight HUD label (row 1)
-boss_names:   dw bn0, bn1, bn2, bn3, bn4, bn5
+boss_names:   dw bn0, bn1, bn2, bn3, bn4, bn5, bn6
 bn0:          db "SENTINEL",0
 bn1:          db "REAVER",0
 bn2:          db "LEVIATHAN",0
 bn3:          db "WIDOW",0
 bn4:          db "HYDRA",0
 bn5:          db "NEXUS",0
+bn6:          db "NEXUS CORE",0
 str_boss:     db "BOSS!!",0
 str_pause:    db "PAUSED",0
 str_pm1:      db "H = RESUME   R = RESTART",0
