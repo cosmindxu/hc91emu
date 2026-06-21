@@ -579,10 +579,12 @@ schemeTable:
         defb 0x78,0x68,0x60,0x58   ; 2 Clean:   white  / cyan  (green, magenta)
 ; Fill mode: mid-tone squares where a solid white AND a solid black piece
 ; both read on every square (no near-white or near-black squares).
+; Cursor is blue: it's not a square colour in any fill scheme and contrasts
+; with every mid-tone (a green/cyan cursor blended into cyan/green squares).
 schemeTableFill:
-        defb 0x60,0x50,0x68,0x58   ; 0 Holly:  green / red    (cyan, magenta)
-        defb 0x60,0x58,0x68,0x50   ; 1 Orchid: green / magenta(cyan, red)
-        defb 0x50,0x68,0x60,0x58   ; 2 Coral:  red   / cyan   (green, magenta)
+        defb 0x60,0x50,0x48,0x58   ; 0 Holly:  green / red     (blue, magenta)
+        defb 0x60,0x58,0x48,0x50   ; 1 Orchid: green / magenta (blue, red)
+        defb 0x50,0x68,0x48,0x58   ; 2 Coral:  red   / cyan    (blue, magenta)
 schemeNames:
         defw nmSchClassic
         defw nmSchMeadow
