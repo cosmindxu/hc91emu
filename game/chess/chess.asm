@@ -114,6 +114,17 @@ pvFrom   equ 0xE0F1      ; root PV move hint for ordering
 pvTo     equ 0xE0F2
 twoPlayer equ 0xE0F3     ; 1 = human vs human
 aidIter  equ 0xE0F4      ; current iterative-deepening depth
+wpFile   equ 0xE0F5      ; white pawns per file (8)
+bpFile   equ 0xE0FD      ; black pawns per file (8)
+wBish    equ 0xE105
+bBish    equ 0xE106
+gamePhase equ 0xE107
+matVal   equ 0xE108      ; (2)
+
+PHASE_EG equ 8           ; below this non-pawn phase, use endgame king PST
+DOUBLED  equ 12
+ISOLATED equ 14
+BISHOP_PAIR equ 30
 
 ; per-ply move buffers: base + ply*512 (128 moves * 4 bytes)
 moveBufBase equ 0xB000   ; 0xB000..0xD000 = 16 plies
