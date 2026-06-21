@@ -432,6 +432,85 @@ negamax:
         ld b,a
         call ptrDepth
         ld (hl),b
+        ; --- null-move pruning (depth>=3, not in check, has pieces) ---
+        ld a,b
+        cp 3
+        jp c,noNull
+        ld a,(sideToMove)
+        call inCheckSide
+        or a
+        jp nz,noNull
+        call computePhase
+        ld a,(gamePhase)
+        cp 3
+        jp c,noNull
+        ld a,(epSquare)
+        ld (nullEp),a
+        ld a,0xFF
+        ld (epSquare),a
+        ld a,(sideToMove)
+        xor 8
+        ld (sideToMove),a
+        call ptrBeta
+        ld c,(hl)
+        inc hl
+        ld b,(hl)                ; BC = beta
+        ld hl,0
+        or a
+        sbc hl,bc                ; -beta
+        push hl                  ; childAlpha
+        inc hl                   ; -beta+1
+        push hl                  ; childBeta
+        call ptrDepth
+        ld a,(hl)
+        sub 3                    ; depth-1-R, R=2
+        ld (nmCd),a
+        ld a,(searchPly)
+        inc a
+        ld (searchPly),a
+        pop de
+        call ptrBeta
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        pop de
+        call ptrAlpha
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        ld a,(nmCd)
+        call negamax
+        ex de,hl
+        ld hl,0
+        or a
+        sbc hl,de
+        ld (nmScore),hl
+        ld a,(searchPly)
+        dec a
+        ld (searchPly),a
+        ld a,(sideToMove)
+        xor 8
+        ld (sideToMove),a
+        ld a,(nullEp)
+        ld (epSquare),a
+        ld de,(nmScore)
+        call ptrBeta
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        push bc
+        push de
+        pop bc                   ; BC = score
+        pop de                   ; DE = beta
+        call cmpDEgtBC           ; beta > score ?
+        jr c,noNull
+        call ptrBeta             ; score >= beta -> fail-high, return beta
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        ex de,hl
+        ret
+noNull:
         ld bc,-INF
         call ptrBest
         ld (hl),c
