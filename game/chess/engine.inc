@@ -145,6 +145,10 @@ eval:
         xor a
         ld (wBish),a
         ld (bBish),a
+        ld (wAny),a
+        ld (bAny),a
+        ld (wHeavy),a
+        ld (bHeavy),a
         ld hl,wpFile
         ld b,16
 ezf:    ld (hl),0
@@ -194,6 +198,33 @@ evBp:   ld hl,bpFile
         add hl,de
         inc (hl)
 evStat:
+        ; --- track lone-king material flags (for mating drive) ---
+        ld a,b
+        and 7
+        cp 6
+        jr z,evMatDone           ; king
+        ld a,b
+        and 8
+        jr nz,evMatB
+        ld a,1
+        ld (wAny),a
+        ld a,b
+        and 7
+        cp 4
+        jr c,evMatDone
+        ld a,1
+        ld (wHeavy),a            ; rook or queen
+        jr evMatDone
+evMatB:
+        ld a,1
+        ld (bAny),a
+        ld a,b
+        and 7
+        cp 4
+        jr c,evMatDone
+        ld a,1
+        ld (bHeavy),a
+evMatDone:
         ; --- material ---
         ld a,b
         and 7
@@ -382,6 +413,7 @@ evPnext:
         call shieldMissing
         call ksPenaltyB          ; evalAcc += A*KSHIELD (penalise black)
 evKsDone:
+        call matingEval
         ; --- side relative ---
         ld a,(sideToMove)
         or a
@@ -393,6 +425,123 @@ evKsDone:
         ret
 evWhiteRet:
         ld hl,(evalAcc)
+        ret
+
+; matingEval — when one side is a lone king and the other has a rook or
+; queen, drive the lone king to a corner and the attacker's king toward
+; it (so the search converts KQK / KRK / KQRK etc. cleanly).
+matingEval:
+        ld a,(bAny)
+        or a
+        jr nz,meTryW
+        ld a,(wHeavy)
+        or a
+        ret z
+        ; black lone king, white winning -> bonus for white
+        ld a,(bking)
+        call centerDist          ; A = 0..6 (push black king out)
+        add a,a
+        add a,a
+        add a,a
+        add a,a                  ; *16
+        ld c,a
+        call kingProx            ; A = 0..7 (white king closer = bigger)
+        add a,a
+        add a,a                  ; *4
+        add a,c
+        ld e,a
+        ld d,0
+        ld hl,(evalAcc)
+        add hl,de
+        ld (evalAcc),hl
+        ret
+meTryW:
+        ld a,(wAny)
+        or a
+        ret nz
+        ld a,(bHeavy)
+        or a
+        ret z
+        ld a,(wking)
+        call centerDist
+        add a,a
+        add a,a
+        add a,a
+        add a,a
+        ld c,a
+        call kingProx
+        add a,a
+        add a,a
+        add a,c
+        ld e,a
+        ld d,0
+        ld hl,(evalAcc)
+        or a
+        sbc hl,de
+        ld (evalAcc),hl
+        ret
+
+; centerDist(A=square) -> A = distance from the centre (0 centre .. 6 corner)
+centerDist:
+        ld c,a
+        and 7                    ; file
+        cp 4
+        jr nc,cdFhi
+        ld b,a
+        ld a,3
+        sub b                    ; 3-file
+        jr cdFok
+cdFhi:  sub 4                    ; file-4
+cdFok:  ld b,a                   ; file distance
+        ld a,c
+        rrca
+        rrca
+        rrca
+        rrca
+        and 7                    ; rank
+        cp 4
+        jr nc,cdRhi
+        ld c,a
+        ld a,3
+        sub c
+        jr cdRok
+cdRhi:  sub 4
+cdRok:  add a,b
+        ret
+
+; kingProx -> A = 7 - Chebyshev(wking,bking)  (closer kings -> larger)
+kingProx:
+        ld a,(wking)
+        and 7
+        ld b,a
+        ld a,(bking)
+        and 7
+        sub b
+        jr nc,kpF
+        neg
+kpF:    ld c,a                   ; |file diff|
+        ld a,(wking)
+        rrca
+        rrca
+        rrca
+        rrca
+        and 7
+        ld b,a
+        ld a,(bking)
+        rrca
+        rrca
+        rrca
+        rrca
+        and 7
+        sub b
+        jr nc,kpR
+        neg
+kpR:    cp c
+        jr nc,kpMax
+        ld a,c                   ; max(|df|,|dr|)
+kpMax:  ld b,a
+        ld a,7
+        sub b
         ret
 
 ; passedPawns — bonus for pawns with no enemy pawns on their file or the
