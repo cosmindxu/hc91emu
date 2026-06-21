@@ -432,6 +432,24 @@ negamax:
         ld b,a
         call ptrDepth
         ld (hl),b
+        ; --- transposition table probe ---
+        ld a,b
+        call ttProbe
+        or a
+        jr z,ttpNoCut
+        ret                      ; usable bound -> HL = score
+ttpNoCut:
+        ; stash this node's TT move per-ply (recursion clobbers ttFrom)
+        ld a,(ttFrom)
+        ld c,a
+        ld a,(ttTo)
+        ld b,a
+        call ptrTtMvFrom
+        ld (hl),c
+        call ptrTtMvTo
+        ld (hl),b
+        ld a,(ttCurDepth)
+        ld b,a                   ; restore B = depth (ttProbe clobbered it)
         ; --- null-move pruning (depth>=3, not in check, has pieces) ---
         ld a,b
         cp 3
@@ -527,6 +545,15 @@ noNull:
         call curMoveBuf
         ex de,hl
         call ptrMptr
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        ; save original alpha (for the TT bound flag)
+        call ptrAlpha
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        call ptrOrigAlpha
         ld (hl),e
         inc hl
         ld (hl),d
@@ -633,6 +660,13 @@ nmLegal:
         ld (hl),e
         inc hl
         ld (hl),d
+        ; record this node's best move (mvFrom/mvTo restored by unmakeMove)
+        call ptrNbFrom
+        ld a,(mvFrom)
+        ld (hl),a
+        call ptrNbTo
+        ld a,(mvTo)
+        ld (hl),a
         ld a,(searchPly)
         or a
         jr nz,nmTryA
@@ -690,11 +724,39 @@ nmStale:
         ld hl,0
         ret
 nmRetBest:
+        ; --- store this node in the TT ---
         call ptrBest
         ld e,(hl)
         inc hl
         ld d,(hl)
-        ex de,hl
+        ld (bestScoreTmp),de     ; DE = best
+        call ptrBeta
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        push bc
+        push de
+        pop bc                   ; BC = best
+        pop de                   ; DE = beta
+        call cmpDEgtBC           ; beta > best ?
+        jr c,ttfNL
+        ld a,1                   ; best >= beta -> lower bound
+        jr ttfStore
+ttfNL:
+        ld de,(bestScoreTmp)
+        call ptrOrigAlpha
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        call cmpDEgtBC           ; best > origAlpha ?
+        jr c,ttfEx
+        ld a,2                   ; fail-low -> upper bound
+        jr ttfStore
+ttfEx:
+        xor a                    ; exact
+ttfStore:
+        call ttStore
+        ld hl,(bestScoreTmp)
         ret
 
 ; =====================================================================
@@ -705,6 +767,8 @@ quiesce:
         ld a,(searchPly)
         cp MAXPLY
         jp nc,eval               ; too deep -> static eval
+        call ptrTtMvFrom         ; no TT move in quiescence
+        ld (hl),0xFF
         call eval
         ld (qStand),hl
         ; if stand >= beta -> return beta
@@ -995,6 +1059,36 @@ osPvN2: inc hl
         inc hl
         djnz osPvL
 osNoPv:
+        ; TT-move bump (any ply): give the stored best move a high score
+        call ptrTtMvFrom
+        ld a,(hl)
+        ld (osTtF),a
+        call ptrTtMvTo
+        ld a,(hl)
+        ld (osTtT),a
+        ld a,(osTtF)
+        cp 0xFF
+        jr z,osNoTt
+        call curMoveBuf
+        ld a,(genCount)
+        ld b,a
+osTtL:  ld a,(osTtF)
+        cp (hl)
+        jr nz,osTtN
+        inc hl
+        ld a,(osTtT)
+        cp (hl)
+        jr nz,osTtN2
+        inc hl
+        inc hl
+        ld (hl),0xFE
+        jr osNoTt
+osTtN:  inc hl
+osTtN2: inc hl
+        inc hl
+        inc hl
+        djnz osTtL
+osNoTt:
         call curMoveBuf
         ld (osIPtr),hl
         ld a,(genCount)

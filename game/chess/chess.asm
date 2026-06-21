@@ -129,13 +129,27 @@ ttTo     equ 0xE111
 keyMismatch equ 0xE112   ; perft key self-test flag
 gameKeyN equ 0xE113      ; plies recorded in the game key history
 ckSave   equ 0xE115      ; (2) saved key during the consistency check
+ttCurDepth equ 0xE117    ; TT probe: current search depth
+ttEntDepth equ 0xE118
+ttEntFlag equ 0xE119
+ttEntScore equ 0xE11A    ; (2)
+bestScoreTmp equ 0xE11C  ; (2) score to store in the TT
+osTtF    equ 0xE11E      ; orderMoves TT-move scratch
+osTtT    equ 0xE11F
+
+; per-ply search arrays (continued, page 0xD4/0xD5)
+origAlphaArr equ 0xD4F0  ; 16 * 2 = original alpha for TT bound flags
+nbFromArr equ 0xD510     ; 16   node best-move from
+nbToArr   equ 0xD518     ; 16   node best-move to
+ttMvFromArr equ 0xD520   ; 16   per-ply TT move (survives recursion)
+ttMvToArr equ 0xD530     ; 16
 
 ; Zobrist random tables (filled at start) and the transposition table,
 ; both in otherwise-unused RAM.
-zobPiece  equ 0xD500     ; 12 pieces * 64 squares * 2 bytes = 1536
-zobCastle equ 0xDB00     ; 16 * 2
-zobEp     equ 0xDB20     ; 8 * 2
-zobSide   equ 0xDB30     ; 2
+zobPiece  equ 0xD540     ; 12 pieces * 64 squares * 2 bytes = 1536
+zobCastle equ 0xDB40     ; 16 * 2
+zobEp     equ 0xDB60     ; 8 * 2
+zobSide   equ 0xDB70     ; 2
 TT_BASE   equ 0x6000     ; 1024 entries * 8 bytes = 8 KB
 TT_MASK   equ 0x03FF
 gameKeys  equ 0x5B00     ; game position-key history (2 bytes/ply)
@@ -261,6 +275,7 @@ ngFile: ld a,(hl)
         call computeKey
         xor a
         ld (gameKeyN),a
+        call ttClear
         ret
 
 startPos:
@@ -986,6 +1001,7 @@ mfqYes: ld a,(mvFlag)
         include "engine.inc"
         include "perft.inc"
         include "zobrist.inc"
+        include "tt.inc"
 
 ; =====================================================================
 ;  MISC
