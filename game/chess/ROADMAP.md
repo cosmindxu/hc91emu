@@ -75,8 +75,10 @@ perft + Zobrist-key self-test) or by a documented manual check.
   game phase (king centralises in the endgame); **bishop-pair bonus**;
   **doubled/isolated pawn** penalties; **king-safety pawn shield**. ✅
 - **Difficulty levels** 1–5 (search depth, `1`–`5` keys). ✅
-- *Remaining:* history heuristic, opening book, mobility / passed-pawn
-  terms, explicit beginner weakening (depth already differentiates).
+- **Opening book** (compact): instant, sound replies to the common first
+  moves. ✅
+- *Remaining:* history heuristic, mobility / passed-pawn terms, a deeper
+  book, explicit beginner weakening (depth already differentiates).
 
 ---
 
