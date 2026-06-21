@@ -112,6 +112,20 @@ ckKeep:
 ckPhKeep:
         ld a,(ckSavePhase)
         ld (gamePhase),a
+        ; --- material + PST score ---
+        ld hl,(pstScore)
+        ld (ckSavePst),hl
+        call computePstScore
+        ld hl,(ckSavePst)
+        ld de,(pstScore)
+        or a
+        sbc hl,de
+        jr z,ckPstKeep
+        ld a,0xFF
+        ld (keyMismatch),a
+ckPstKeep:
+        ld hl,(ckSavePst)
+        ld (pstScore),hl
         ret
 
 perftLeaf:
@@ -410,6 +424,7 @@ sbKn:   inc c
         ld (moveCount),hl
         call computeKey
         call computePhase
+        call computePstScore
         ret
 
 ; --- test positions (64 board bytes a1..h8, then side, castling, ep) ---
