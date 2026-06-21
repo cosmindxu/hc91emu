@@ -1673,7 +1673,26 @@ smv1:
         srl a
         srl a                    ; /4 -> 0..63
         jr smvStore
-smvCap:
+smvCap:                          ; b=victim type, c=promo flag, d=to, e=from
+        ; SEE-lite: is this a losing capture (heavier piece takes lighter on
+        ; a defended square)?  Compute it now, before the registers are reused.
+        push hl
+        ld h,0xE0
+        ld l,e
+        ld a,(hl)                ; piece on `from`
+        and 7
+        pop hl
+        push bc                  ; save victim(b) + promo(c)
+        push de                  ; save to(d) + from(e)
+        ld c,a                   ; C = attacker type, B = victim type
+        call seeIsBadCapture     ; CF=1 if it loses material on a defended sq
+        ld a,0
+        jr nc,smvSeeOk
+        inc a
+smvSeeOk:
+        ld (seeBad),a
+        pop de
+        pop bc
         ld a,b
         add a,a
         add a,a
@@ -1688,13 +1707,20 @@ smvCap:
         pop hl
         ld d,a                   ; attacker type
         ld a,b
-        sub d                    ; victim-weighted minus attacker
+        sub d                    ; victim*8 + 0x80 - attacker
         ld d,a
         ld a,c
         or a
         ld a,d
-        jr z,smvStore
+        jr z,smvCapP
         add a,8                  ; promotion bonus
+smvCapP:
+        ld c,a
+        ld a,(seeBad)
+        or a
+        ld a,c
+        jr z,smvStore
+        sub 0x80                 ; losing capture: drop below the good captures
 smvStore:
         pop hl
         push hl
@@ -1703,6 +1729,53 @@ smvStore:
         inc hl
         ld (hl),a
         pop hl
+        ret
+
+; seeIsBadCapture(B=victim type, C=attacker type, D=to) -> CF=1 if
+; materialTbl[attacker] > materialTbl[victim] AND `to` is defended by the
+; side not to move (a likely material-losing capture).  Clobbers all regs.
+seeIsBadCapture:
+        ld a,d
+        ld (seeTo),a
+        ; HL = materialTbl[attacker]
+        ld a,c
+        add a,a
+        ld l,a
+        ld h,0
+        ld de,materialTbl
+        add hl,de
+        ld a,(hl)
+        inc hl
+        ld h,(hl)
+        ld l,a                   ; HL = attacker value
+        push hl
+        ; DE = materialTbl[victim]
+        ld a,b
+        add a,a
+        ld l,a
+        ld h,0
+        ld de,materialTbl
+        add hl,de
+        ld a,(hl)
+        inc hl
+        ld d,(hl)
+        ld e,a                   ; DE = victim value
+        pop hl                   ; HL = attacker value
+        or a
+        sbc hl,de                ; attacker - victim
+        jr z,sicNo               ; equal trade -> fine
+        jr c,sicNo               ; attacker cheaper -> winning capture, fine
+        ; trading down: is `to` defended by the opponent?
+        ld a,(sideToMove)
+        xor 8
+        ld (atkSide),a
+        ld a,(seeTo)
+        call isAttacked          ; A=1 if defended
+        or a
+        jr z,sicNo
+        scf
+        ret
+sicNo:  or a
         ret
 
 orderMoves:
@@ -2090,7 +2163,16 @@ aspOk:
         ld a,(aidIter)
         ld hl,aiDepth
         cp (hl)
-        jr nc,aidDone            ; aidIter >= aiDepth -> stop
+        jr nc,aidDone            ; aidIter >= aiDepth -> stop (depth cap)
+        ; clock-aware stop: once we've already spent the move's time budget,
+        ; don't start another (deeper, much slower) iteration.  Always allow
+        ; at least depth 2 so play stays sensible when very low on time.
+        ld a,(aidIter)
+        cp 2
+        jr c,aidNext
+        call clkBudgetExceeded
+        jr c,aidDone
+aidNext:
         ld a,(aidIter)
         inc a
         ld (aidIter),a
@@ -2231,40 +2313,85 @@ blNo:
 bookTable:
         defw 0xD7A4
         defb 0x64,0x44
-        defw nmOpen         ; 1.e4 e5
+        defw nmOpen     ; Open game
         defw 0xFD7F
         defb 0x71,0x52
-        defw nmKK           ; 1.e4 e5 2.Nf3 Nc6
+        defw nmKK       ; King's Knight
         defw 0x48E7
         defb 0x60,0x50
-        defw nmRuy          ; 3.Bb5 a6
+        defw nmRuy      ; Ruy Lopez
         defw 0x9C49
         defb 0x76,0x55
-        defw nmRuy          ; 4.Ba4 Nf6
+        defw nmRuy      ; Ruy Lopez
         defw 0x2983
         defb 0x75,0x42
-        defw nmItalian      ; 3.Bc4 Bc5
+        defw nmItalian  ; Italian Game
+        defw 0x2A60
+        defb 0x76,0x55
+        defw nmItalian  ; Italian Game
+        defw 0x0D8F
+        defb 0x63,0x53
+        defw nmItalian  ; Italian Game
+        defw 0x4C18
+        defb 0x44,0x33
+        defw nmScotch   ; Scotch
+        defw 0xA523
+        defb 0x76,0x55
+        defw nmKK       ; King's Knight
+        defw 0x73DD
+        defb 0x76,0x55
+        defw nmOpen     ; Open game
+        defw 0xFF7D
+        defb 0x76,0x55
+        defw nmOpen     ; Open game
+        defw 0x1646
+        defb 0x44,0x33
+        defw nmOpen     ; Open game
         defw 0xAD47
         defb 0x63,0x43
-        defw nmClosed       ; 1.d4 d5
+        defw nmClosed   ; Closed game
         defw 0x1DFD
         defb 0x64,0x54
-        defw nmQG           ; 2.c4 e6
+        defw nmQG       ; Queen's Gambit
         defw 0xFDA2
         defb 0x76,0x55
-        defw nmQP           ; 2.Nf3 Nf6
+        defw nmQP       ; Queen's Pawn
         defw 0x4EE5
         defb 0x76,0x55
-        defw nmQGD          ; 3.Nc3 Nf6
+        defw nmQGD      ; QGD
+        defw 0x4CE7
+        defb 0x76,0x55
+        defw nmQGD      ; QGD
+        defw 0x318B
+        defb 0x76,0x55
+        defw nmLondon   ; London
+        defw 0x978A
+        defb 0x76,0x55
+        defw nmClosed   ; Closed game
         defw 0x467E
         defb 0x76,0x55
-        defw nmReti         ; 1.Nf3 Nf6
+        defw nmReti     ; Reti
+        defw 0xE8C4
+        defb 0x64,0x54
+        defw nmReti     ; Reti
+        defw 0x671A
+        defb 0x63,0x43
+        defw nmReti     ; Reti
         defw 0xA621
         defb 0x64,0x44
-        defw nmEnglish      ; 1.c4 e5
+        defw nmEnglish  ; English
+        defw 0x2D2E
+        defb 0x76,0x55
+        defw nmEnglish  ; English
         defw 0x82FA
         defb 0x63,0x43
-        defw nmBird         ; 1.f4 d5
+        defw nmBird     ; Bird
+        defw 0x29FF
+        defb 0x63,0x43
+        defw nmClosed   ; Closed game
+        defw 0x7AD7
+        defb 0x64,0x44
+        defw nmOpen     ; Open game
         defw 0xFFFF
 
 ; =====================================================================
