@@ -139,9 +139,10 @@ screens.
 ### Phase A — feasible *and* verifiable here
 
 Roughly in value-per-risk order. Each line is *what it is — why it brings
-value — how it would be proven.*
+value — how it would be proven.* Items marked ✅ are now implemented and
+verified.
 
-1. **Incremental evaluation.** *What:* keep the material + piece-square
+1. **Incremental evaluation.** ✅ *What:* keep the material + piece-square
    score up to date inside make/unmake (add the moved piece on its new
    square, subtract its old one, handle captures/promotions/castling)
    instead of re-scanning all 64 squares at every leaf. *Value:*
@@ -151,7 +152,10 @@ value — how it would be proven.*
    *Verify:* compare the incremental score against a from-scratch
    recompute at every node of the perft tree — the exact technique that
    already proved the Zobrist key — so a refactor this large stays
-   low-risk.
+   low-risk. *Done:* `pstScore` and `gamePhase` are maintained in
+   make/unmake and the `T` self-test now also recomputes both from scratch
+   at every node; depth-4 search dropped from ~18000 to ~14000 frames with
+   identical play.
 
 2. **Mobility term.** *What:* a small bonus per legal move available to a
    side. *Value:* mobility is one of the cheapest positional signals that
@@ -168,12 +172,16 @@ value — how it would be proven.*
    its cloud opening database. *Verify:* pure data; play the lines and
    check the booked replies appear.
 
-4. **AY voices on the 128K family.** *What:* drive the AY-3-8912 (ports
+4. **AY voices on the 128K family.** ✅ *What:* drive the AY-3-8912 (ports
    `0xFFFD`/`0xBFFD`) for distinct move / capture / check / mate cues and
    simple jingles. *Value:* far richer feedback than the 1-bit beeper,
    using the genuine sound chip of the HC-128 / HC-2000. *Verify:* run
    `--machine hc128` and inspect the recorded `--wav` for the expected
-   tones (the emulator mixes the PSG into the audio path).
+   tones (the emulator mixes the PSG into the audio path). *Done:*
+   `moveSound` now plays a tone-A blip on the AY (via an `ayWrite`
+   register helper) alongside the beeper click; verified on `--machine
+   hc128` by the AY raising the recorded waveform's peak (12000→14432, 189
+   samples above +13000 versus none on 48k).
 
 5. **128K-banked transposition table.** *What:* on 128K machines, page
    the spare 16 KB RAM banks through port `0x7FFD` to host a much larger
@@ -182,13 +190,19 @@ value — how it would be proven.*
    deeper search on the same clock. *Verify:* run on `--machine hc128`;
    perft / play confirm correctness and the hit-rate confirms the gain.
 
-6. **FEN / set-up position screen.** *What:* enter an arbitrary position,
+6. **FEN / set-up position screen.** ✅ *What:* enter an arbitrary position,
    either with a cursor-driven board editor or by typing a FEN string, on
    top of the existing `setupBoard` / `loadGamePos`. *Value:* lets you
    analyse real games, compose puzzles, or resume a position — table
    stakes for chess *software* rather than just an engine. *Verify:*
    drive the editor with `--keys`, or type a FEN with `--type`, then
-   screenshot the resulting board.
+   screenshot the resulting board. *Done:* the `S` key opens a
+   cursor-driven board editor (`Q`/`A`/`O`/`P` move, `SPACE` cycles the
+   square through empty → white → black pieces, `W` toggles side, `C`
+   clears, `ENTER` plays). On `ENTER` it re-runs `finalizePosition` so the
+   kings, hash key, phase and evaluation accumulators are rebuilt; verified
+   with `--keys` by cycling a pawn to a knight and reading the updated
+   material display.
 
 7. **Chess clocks.** *What:* per-side countdown timers with flag-fall,
    driven by enabling the 50 Hz frame interrupt (the one subsystem

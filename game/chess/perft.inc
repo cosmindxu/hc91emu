@@ -394,7 +394,12 @@ sbFile: ld a,(hl)
         inc hl
         ld a,(hl)
         ld (epSquare),a
-        ; locate kings
+        call finalizePosition
+        ret
+
+; finalizePosition — derive state from board[]+side+castling+ep: locate the
+; kings, reset clocks, and (re)compute the Zobrist key, phase and pstScore.
+finalizePosition:
         ld c,0
 sbK:    ld a,c
         and 0x88

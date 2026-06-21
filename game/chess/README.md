@@ -81,9 +81,17 @@ ROM character set, so it is fully 48K-compatible.
 | `E` | load a K+R vs K endgame demo |
 | `F` | flip the board |
 | `N` | new game |
+| `S` | open the set-up board editor |
 | `T` | run the perft + Zobrist self-test |
 
 On a pawn promotion the game prompts for the piece (`Q`/`R`/`B`/`N`).
+
+In the **set-up editor**, `Q`/`A`/`O`/`P` move the cursor, `SPACE` cycles the
+square through *empty → white pieces → black pieces*, `W` toggles the side to
+move, `C` clears the board, and `ENTER` starts a game from the position you
+built (kings, hash key, game phase and evaluation accumulators are all
+recomputed from scratch). Castling rights and the en-passant square are
+cleared for hand-placed positions.
 
 You play White (bottom). Select your piece, move the cursor to the
 destination and confirm. Promotions auto-queen for now (a Q/R/B/N chooser
