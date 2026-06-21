@@ -160,3 +160,13 @@ jobs:
             --keys "1410:7" --joy "1750-1758:F" --joy "1810-1818:F" \
             --frames 2000 --text game/build/game.tap | tee /tmp/rush.txt
           grep -q "SENTINEL" /tmp/rush.txt
+
+      - name: Skill - perfect-zone bonus when a boss falls untouched (BTEST)
+        run: |
+          ( cd game && pasmo --equ VTEST=0 --equ BTEST=1 src/game.asm /tmp/pf.bin \
+            && python3 tools/mktap.py /tmp/pf.bin /tmp/pf.tap 32768 stellar )
+          # kill the first boss without taking a hit -> PERFECT ZONE popup + bonus
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1810-1818:F" --joy "1830-3000:F" \
+            --frames 2160 --text /tmp/pf.tap | tee /tmp/pf.txt
+          grep -q "PERFECT ZONE" /tmp/pf.txt

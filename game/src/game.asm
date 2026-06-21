@@ -1522,6 +1522,7 @@ ig_setlives:
         ld (vyb), a
         xor a
         ld (invuln), a
+        ld (zone_hit), a        ; start zone 0 perfect-eligible
         ld (fire_prev), a
         ld (fire_cd), a
         ld (pw_twin), a
@@ -3172,6 +3173,10 @@ sh_real:
         ld a, (lives)
         dec a
         ld (lives), a
+        push af                 ; keep the lives==0 flag across the store
+        ld a, 1
+        ld (zone_hit), a        ; a life lost -> no perfect-zone bonus
+        pop af
         jr z, sh_dead
         ld a, 75
         ld (invuln), a
@@ -3857,6 +3862,12 @@ kill_boss:
         ld (boss_active), a
         ld bc, 200              ; boss bonus
         call add_score
+        ld a, (zone_hit)        ; perfect-zone bonus (no life lost this zone)
+        or a
+        jr nz, kb_noperf
+        ld bc, 500
+        call add_score
+kb_noperf:
         ld a, 12
         ld (shake), a
         ld a, 24
@@ -3869,6 +3880,11 @@ kill_boss:
         cp NZONES-1
         jr z, kb_won
         ld hl, str_zclr         ; ZONE CLEAR! flourish (the +200 still scores)
+        ld a, (zone_hit)
+        or a
+        jr nz, kb_pop
+        ld hl, str_perfect      ; no life lost -> PERFECT ZONE +500
+kb_pop:
         call set_popup
         call next_world
         ret
@@ -5242,6 +5258,8 @@ nw_nobest:
         xor a
         ld (midboss_flag), a
         call set_zone_wave      ; fresh per-zone formations
+        xor a
+        ld (zone_hit), a        ; new zone -> perfect-eligible again
         ld hl, 300              ; short bonus stage between zones
         ld (bonus_timer), hl
         ld hl, 480
@@ -6869,6 +6887,7 @@ opt_music:    defb 1          ; 1 = AY melody on
 opt_shake:    defb 1          ; 1 = full border flash; 0 = soft (photosensitive)
 opt_practice: defb 0          ; 1 = practice mode (no life loss)
 bossrush:     defb 0          ; 1 = boss-rush mode (zone boss spawns at once)
+zone_hit:     defb 0          ; 1 = lost a life this zone (clears the perfect bonus)
 difficulty:   defb 1          ; 0 Cadet, 1 Pilot, 2 Ace
 combo:        defb 0          ; current chain length
 combo_mult:   defb 1          ; score multiplier (1..)
@@ -6989,6 +7008,7 @@ str_p10:      db "+10",0
 str_p5:       db "+5",0
 str_p50:      db "+50",0
 str_zclr:     db "ZONE CLEAR!",0
+str_perfect:  db "PERFECT ZONE +500",0
 str_demo:     db "DEMO",0
 str_graze:    db "GRZ",0
 str_meteor:   db "METEORS!",0
