@@ -18,6 +18,8 @@ MAXEB   equ 4               ; enemy bullets in flight
 MAXEXPL equ 3               ; simultaneous explosions
 DEB     equ 6               ; debris sparks
 NSTAR   equ 18              ; parallax stars (3 depth layers)
+OD_MAX  equ 20              ; kills to fill the overdrive meter
+OD_TIME equ 90              ; overdrive duration (frames)
 FONT    equ 0x3C00          ; ROM font base (char*8 + FONT)
 
 ; object types
@@ -1242,9 +1244,14 @@ ig_setlives:
         ld (bullet_type), a
         ld a, 3
         ld (bombs), a
+        xor a
+        ld (overdrive), a
+        ld (od_active), a
         ld a, 0xFF
         ld (hud_combo), a
         ld (hud_bombs), a
+        ld a, 0xFE
+        ld (hud_od), a
         ld a, 180               ; planet starts off to the right
         ld (planet_x), a
         ld (planet_ox), a
@@ -1384,6 +1391,7 @@ pf_inputdone:
         call do_debris
         call tick_combo
         call do_bomb
+        call do_overdrive
         call do_spawn
         ; invulnerability countdown + blink / colour-pulse
         ld a, (invuln)
@@ -2013,11 +2021,18 @@ df_chgok:
         ld a, (fire_cd)
         or a
         ret nz                  ; auto-repeat gated by cooldown
-        ld a, (pw_rapid)        ; cooldown depends on rapid-fire power-up
+        ld a, (od_active)       ; overdrive -> max rate
         or a
+        ld a, 2
+        jr nz, df_setcd
+        ld a, (pw_rapid)        ; else 8 - 2*rapid-level, floored at 2
+        add a, a
+        ld b, a
         ld a, 8
-        jr z, df_setcd
-        ld a, 4
+        sub b
+        cp 2
+        jr nc, df_setcd
+        ld a, 2
 df_setcd:
         ld (fire_cd), a
         ld a, (charge)          ; fully charged -> piercing bolt
@@ -2037,12 +2052,24 @@ df_normal:
         ld (bullet_type), a
         ld a, 7                 ; primary shot (centre)
         call spawn_bullet
-        ld a, (pw_twin)         ; spread shot?
+        ld a, (pw_twin)         ; spread level -> wider fan
         or a
         jr z, df_done
-        ld a, 1
+        ld a, 1                 ; level >=1: 3-way
         call spawn_bullet
         ld a, 13
+        call spawn_bullet
+        ld a, (pw_twin)
+        cp 2
+        jr c, df_done
+        ld a, 4                 ; level >=2: 5-way
+        call spawn_bullet
+        ld a, 10
+        call spawn_bullet
+        ld a, (pw_twin)
+        cp 3
+        jr c, df_done
+        ld a, 16                ; level 3: 6th wide shot
         call spawn_bullet
 df_done:
         call muzzle_flash
@@ -3144,6 +3171,33 @@ pp_clear:
 ; ============================================================================
 ;  SMART-BOMB  -  'B' clears every hazard on screen for points
 ; ============================================================================
+; do_overdrive: 'V' unleashes the full meter for OD_TIME frames of rapid fire
+; + rolling invulnerability; the meter charges from kills (bump_combo).
+do_overdrive:
+        ld a, (od_active)
+        or a
+        jr z, od_idle
+        ld a, 4                 ; rolling invuln (pulses the ship)
+        ld (invuln), a
+        ld a, (od_active)
+        dec a
+        ld (od_active), a
+        ret
+od_idle:
+        ld a, (overdrive)
+        cp OD_MAX
+        ret c                   ; meter not full
+        ld bc, 0xFEFE           ; CAPS,Z,X,C,V row; V = bit4
+        in a, (c)
+        bit 4, a
+        ret nz
+        ld a, OD_TIME
+        ld (od_active), a
+        xor a
+        ld (overdrive), a
+        call sfx_power
+        ret
+
 do_bomb:
         ld bc, 0x7FFE           ; B is bit4 of the SPACE half-row
         in a, (c)
@@ -3316,24 +3370,33 @@ kill_boss:
         call next_world
         ret
 
-; grant_power: hand out the next upgrade in sequence (twin/rapid/shield/speed)
+; grant_power: hand out the next upgrade in the cycle
+;   twin / rapid (level up, cap 3) · shield · speed · bomb
 grant_power:
         ld a, (pw_next)
-        and 3
-        ld c, a
-        ld a, (pw_next)
+        ld c, a                 ; current slot 0..4
         inc a
+        cp 5
+        jr c, gp_store
+        xor a
+gp_store:
         ld (pw_next), a
         ld a, c
         or a
         jr nz, gp_n1
-        ld a, 1
+        ld a, (pw_twin)         ; spread: level up (cap 3)
+        cp 3
+        ret nc
+        inc a
         ld (pw_twin), a
         ret
 gp_n1:
         cp 1
         jr nz, gp_n2
-        ld a, 1
+        ld a, (pw_rapid)        ; rapid: level up (cap 3)
+        cp 3
+        ret nc
+        inc a
         ld (pw_rapid), a
         ret
 gp_n2:
@@ -3343,8 +3406,17 @@ gp_n2:
         ld (pw_shield), a
         ret
 gp_n3:
+        cp 3
+        jr nz, gp_bomb
         ld a, 1
         ld (pw_speed), a
+        ret
+gp_bomb:
+        ld a, (bombs)           ; bomb pickup (cap 6)
+        cp 6
+        ret nc
+        inc a
+        ld (bombs), a
         ret
 
 ; ============================================================================
@@ -4519,6 +4591,7 @@ show_hud:
         call draw_popup         ; "+N" gain by the score
         call draw_lives         ; ship icons, row0 right
         call draw_distbar       ; distance-to-boss bar, row0
+        call draw_overdrive     ; overdrive meter, row0 mid
         call draw_zonename      ; zone name, row1 left
         call draw_powers        ; active power-ups, row1 mid
         call draw_combo         ; combo multiplier, row1 right
@@ -4762,6 +4835,63 @@ db_put:
         jr nz, db_cell
         ret
 
+; draw_overdrive: 3-cell meter at row0 cols 17-19; full bar while active
+draw_overdrive:
+        ld a, (od_active)
+        or a
+        jr z, dod_calc
+        ld a, 0xFF
+        jr dod_cmp
+dod_calc:
+        ld a, (overdrive)       ; filled = overdrive*3 / OD_MAX
+        ld b, a
+        add a, a
+        add a, b
+        ld c, a
+        ld b, 0
+dod_div:
+        ld a, c
+        sub OD_MAX
+        jr c, dod_dz
+        ld c, a
+        inc b
+        jr dod_div
+dod_dz:
+        ld a, b
+dod_cmp:
+        ld hl, hud_od
+        cp (hl)
+        ret z
+        ld (hl), a
+        cp 0xFF
+        jr nz, dod_bar
+        ld a, 3                 ; active -> full bar
+dod_bar:
+        ld d, a
+        ld e, 3
+        ld c, 17
+dod_cell:
+        ld a, d
+        or a
+        jr z, dod_empty
+        dec d
+        ld hl, bar_full
+        jr dod_put
+dod_empty:
+        ld hl, bar_empty
+dod_put:
+        ld (dg_ptr), hl
+        ld b, 0
+        push de
+        push bc
+        call draw_glyph
+        pop bc
+        pop de
+        inc c
+        dec e
+        jr nz, dod_cell
+        ret
+
 draw_zonename:
         ld hl, (bonus_timer)    ; signature: 0xFF in bonus, else world
         ld a, h
@@ -4815,26 +4945,22 @@ dz_zone:
 ; show one power-up letter if its flag is set, advancing the column
 ; (helper used by draw_powers): A=flag value, used with (dp_col),(dp_chr)
 draw_powers:
-        ld c, 0                 ; build a signature of active power-ups
-        ld a, (pw_twin)
-        or a
-        jr z, dpw1
-        set 0, c
-dpw1:
+        ld a, (pw_twin)         ; level-aware signature so HUD redraws on level-up
+        ld c, a
         ld a, (pw_rapid)
-        or a
-        jr z, dpw2
-        set 1, c
-dpw2:
+        add a, a
+        add a, a
+        or c
+        ld c, a
         ld a, (pw_speed)
         or a
         jr z, dpw3
-        set 2, c
+        set 4, c
 dpw3:
         ld a, (pw_shield)
         or a
         jr z, dpw4
-        set 3, c
+        set 5, c
 dpw4:
         ld a, c
         ld hl, hud_pow
@@ -4859,11 +4985,17 @@ dp_blank:
         jr z, dp_r
         ld a, 'T'
         call dp_emit
+        ld a, (pw_twin)
+        add a, '0'
+        call dp_emit
 dp_r:
         ld a, (pw_rapid)
         or a
         jr z, dp_f
         ld a, 'R'
+        call dp_emit
+        ld a, (pw_rapid)
+        add a, '0'
         call dp_emit
 dp_f:
         ld a, (pw_speed)
@@ -5038,6 +5170,12 @@ ks_done:
 
 ; bump_combo: extend the chain, refresh its timer, recompute the multiplier
 bump_combo:
+        ld a, (overdrive)       ; each kill charges the overdrive meter
+        cp OD_MAX
+        jr nc, bc_odfull
+        inc a
+        ld (overdrive), a
+bc_odfull:
         ld a, (combo)
         cp 60
         jr nc, bc_cap
@@ -5933,6 +6071,9 @@ kill_acc:     defw 0          ; scratch accumulator for add_kill_score
 hud_combo:    defb 0xFF
 bombs:        defb 3          ; smart-bombs in reserve
 hud_bombs:    defb 0xFF
+overdrive:    defb 0          ; overdrive charge (0..OD_MAX)
+od_active:    defb 0          ; overdrive frames remaining
+hud_od:       defb 0xFE
 bomb_prev:    defb 0
 bomb_flash:   defb 0
 charge:       defb 0          ; fire-charge counter while held
