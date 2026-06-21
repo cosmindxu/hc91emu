@@ -62,7 +62,7 @@ jobs:
         run: |
           # holding UP flies into the cave ceiling repeatedly -> GAME OVER
           ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
-            --joy "1750-1758:F" --joy "1800-9000:U" --frames 9000 --text \
+            --joy "1750-1758:F" --joy "1800-13000:U" --frames 13000 --text \
             game/build/game.tap | tee /tmp/crash.txt
           grep -q "GAME OVER" /tmp/crash.txt
 

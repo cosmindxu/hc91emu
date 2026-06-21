@@ -750,8 +750,58 @@ tp_press:
         ret
 
 show_gameover:
+        call clear_screen
         ld hl, str_over
-        ld b, 10
+        ld b, 7
+        ld c, 11
+        call print_str_at
+        ld hl, str_score        ; SCORE nnnnn
+        ld b, 11
+        ld c, 8
+        call print_str_at
+        ld ix, decbuf
+        ld hl, (score)
+        ld de, 10000
+        call sc_digit
+        ld de, 1000
+        call sc_digit
+        ld de, 100
+        call sc_digit
+        ld de, 10
+        call sc_digit
+        ld a, l
+        add a, '0'
+        ld (ix+0), a
+        ld hl, decbuf
+        ld b, 11
+        ld c, 14
+        call print_str_n5
+        ld hl, str_zone         ; ZONE <name>
+        ld b, 13
+        ld c, 5
+        call print_str_at
+        ld a, (world)
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, zone_names
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
+        ld b, 13
+        ld c, 10
+        call print_str_at
+        call hs_qualify         ; new high score?
+        jr nc, go_fire
+        ld hl, str_newhi
+        ld b, 16
+        ld c, 8
+        call print_str_at
+go_fire:
+        ld hl, str_fire
+        ld b, 20
         ld c, 11
         call print_str_at
         ret
@@ -1169,7 +1219,7 @@ ig_setlives:
         ld (bonus_timer), hl
         ld hl, 1000
         ld (next_life), hl
-        ld hl, 750
+        ld hl, 480
         ld (world_timer), hl
         ret
 
@@ -1304,6 +1354,7 @@ pf_aftership:
 pf_nobonus:
         call do_music
         call engine_drone
+        call low_health         ; last-life alert
         ; screen-shake / border-flash decay
         call do_shake
         ; zone timer: only counts down when no boss is active
@@ -1370,6 +1421,26 @@ erase_flame:
         ld (spr_y), a
         call erase_sprite
         call uncolor_obj
+        ret
+
+; low_health: at the last life, a periodic heartbeat beep + (if effects are
+; on) a brief border pulse via the shake mechanism.
+low_health:
+        ld a, (lives)
+        cp 1
+        ret nz
+        ld a, (anim_ctr)
+        and 0x3F
+        ret nz                  ; ~every 64 frames
+        call sfx_heart
+        ld a, (opt_shake)
+        or a
+        ret z
+        ld a, (shake)
+        or a
+        ret nz                  ; don't fight an active hit-shake
+        ld a, 2
+        ld (shake), a
         ret
 
 ; brief border flash + ship jitter while shake>0
@@ -3095,6 +3166,24 @@ dp_draw:
 ;  BOSS  -  occupies an object slot of type T_BOSS
 ; ============================================================================
 start_boss:
+        ; find a free slot first; if none, retry shortly (don't lock the zone)
+        ld ix, objs
+        ld a, MAXOBJ
+        ld (ocount), a
+sb2_find:
+        ld a, (ix+0)
+        or a
+        jr z, sb2_free
+        ld de, OBJSZ
+        add ix, de
+        ld a, (ocount)
+        dec a
+        ld (ocount), a
+        jr nz, sb2_find
+        ld hl, 30               ; all slots busy -> try again in 30 frames
+        ld (world_timer), hl
+        ret
+sb2_free:
         ld a, 1
         ld (boss_active), a
         ld a, (world)
@@ -3117,22 +3206,6 @@ start_boss:
         ld (boss_spr), hl
         ld hl, str_boss
         call set_popup
-        ; find a free slot
-        ld ix, objs
-        ld a, MAXOBJ
-        ld (ocount), a
-sb2_find:
-        ld a, (ix+0)
-        or a
-        jr z, sb2_free
-        ld de, OBJSZ
-        add ix, de
-        ld a, (ocount)
-        dec a
-        ld (ocount), a
-        jr nz, sb2_find
-        ret                     ; (shouldn't happen)
-sb2_free:
         ld a, T_BOSS
         ld (ix+0), a
         ld a, 232
@@ -3156,7 +3229,7 @@ kill_boss:
         call sfx_explode
         ; big explosion at boss position
         call spawn_explosion
-        ld hl, str_p200
+        ld hl, str_zclr         ; ZONE CLEAR! flourish (the +200 still scores)
         call set_popup
         call next_world
         ret
@@ -3929,9 +4002,9 @@ CMAX    equ 5
 scroll_terrain:
         ld a, (terr_div)
         inc a
-        and 1
+        and 3
         ld (terr_div), a
-        jr nz, draw_cave        ; shift the map every 2nd frame (smoother)
+        ret nz                  ; cave changes/repaints once every 4th frame
         ; shift ceil_h/floor_h left by one cell
         ld hl, ceil_h+1
         ld de, ceil_h
@@ -4104,41 +4177,36 @@ cf_lp:
         djnz cf_lp
         ret
 
-; cell_tile: copy the 8-byte pattern at (cf_ptr) into cell B=row, C=col
+; cell_tile: copy the 8-byte pattern at (cf_ptr) into cell B=row, C=col.
+; The 8 pixel lines of a character cell are 256 bytes apart, so we find the
+; top line's address once and step with `inc d` (fast - no per-row lookup).
 cell_tile:
         ld a, b
         add a, a
         add a, a
         add a, a                ; pixel row = cellrow*8
-        ld (cf_pr), a
-        ld hl, (cf_ptr)
-        ld (cf_src), hl
-        ld b, 8
-ctl_lp:
-        push bc
-        ld a, (cf_pr)
         ld l, a
         ld h, 0
-        add hl, hl
+        add hl, hl              ; *2 for the word table (kept in HL, no overflow)
         ld de, addrtab
         add hl, de
         ld e, (hl)
         inc hl
-        ld d, (hl)
+        ld d, (hl)              ; DE = top pixel-line address of the cell
         ld a, c
-        ld l, a
-        ld h, 0
-        add hl, de              ; HL = screen byte
-        ld de, (cf_src)
-        ld a, (de)
-        ld (hl), a
-        inc de
-        ld (cf_src), de
-        ld a, (cf_pr)
-        inc a
-        ld (cf_pr), a
-        pop bc
-        djnz ctl_lp
+        add a, e
+        ld e, a
+        jr nc, ct_nc
+        inc d                   ; DE = cell's top byte (row base + col)
+ct_nc:
+        ld hl, (cf_ptr)         ; HL = tile source
+        ld b, 8
+ct_lp:
+        ld a, (hl)
+        ld (de), a
+        inc hl
+        inc d                   ; +256 -> next pixel line in this char cell
+        djnz ct_lp
         ret
 
 ; cave wall tiles (8 rows). Subtle rock texture + serrated inner-edge lips.
@@ -4330,7 +4398,7 @@ nw_set:
         call set_zone_wave      ; fresh per-zone formations
         ld hl, 300              ; short bonus stage between zones
         ld (bonus_timer), hl
-        ld hl, 750
+        ld hl, 480
         ld (world_timer), hl
         ld a, 1                 ; show a ZONE CLEAR / intro flash
         ld (zone_msg), a
@@ -4539,11 +4607,40 @@ dl_icon:
         ret
 
 draw_distbar:
-        ld a, (boss_active)     ; compute a one-byte signature
+        ld a, (boss_active)
         or a
         jr z, db_calc
-        ld a, 0xFF              ; boss marker
-        jr db_cmp
+        ; boss HP bar: filled = boss_hp * 6 / boss_hp_max
+        ld a, (boss_hp)
+        ld b, a
+        add a, a
+        add a, b
+        add a, a                ; hp*6
+        ld c, a
+        ld a, (boss_hp_max)
+        ld e, a
+        ld b, 0
+db_hpd:
+        ld a, c
+        sub e
+        jr c, db_hpdz
+        ld c, a
+        inc b
+        jr db_hpd
+db_hpdz:
+        ld a, b
+        cp 7
+        jr c, db_hpok
+        ld a, 6
+db_hpok:
+        ld d, a                 ; filled cells
+        or 0x80                 ; signature: boss marker bit
+        ld hl, hud_bar
+        cp (hl)
+        ret z
+        ld (hl), a
+        ld a, d
+        jr db_bar
 db_calc:
         ld hl, (world_timer)
         add hl, hl
@@ -4556,13 +4653,6 @@ db_cmp:
         cp (hl)
         ret z
         ld (hl), a
-        cp 0xFF
-        jr nz, db_bar
-        ld hl, str_boss
-        ld b, 0
-        ld c, 20
-        call print_str_at
-        ret
 db_bar:
         ld d, a                 ; filled cells
         ld e, 6                 ; total
@@ -4781,7 +4871,7 @@ dpop_b:
         pop bc
         inc c
         ld a, c
-        cp 11
+        cp 17
         jr nz, dpop_b
         ret
 
@@ -5221,35 +5311,42 @@ erase_sprite:
         and 0x1F
         ld (xc_tmp), a
         ld a, (spr_y)
-        ld (row_y), a
-        ld b, 16
-es_row:
-        push bc
-        ld a, (row_y)
+        ld c, a                 ; C = current pixel row
+        ld b, 16                ; B = rows remaining
+es_loop:
+        ld a, c                 ; at a cell boundary? (re)compute the row base
+        and 7
+        jr nz, es_have
+        ld a, c
         ld l, a
         ld h, 0
         add hl, hl
+        push bc
         ld de, addrtab
         add hl, de
         ld e, (hl)
         inc hl
         ld d, (hl)
         ld a, (xc_tmp)
-        ld l, a
-        ld h, 0
-        add hl, de
+        add a, e
+        ld e, a
+        jr nc, es_nc
+        inc d
+es_nc:
+        pop bc                  ; DE = col byte addr for this row
+es_have:
+        ld h, d
+        ld l, e
         xor a
         ld (hl), a
         inc hl
         ld (hl), a
         inc hl
         ld (hl), a
-        ld a, (row_y)
-        inc a
-        ld (row_y), a
-        pop bc
+        inc d                   ; base += 256 -> next pixel line in this cell
+        inc c
         dec b
-        jr nz, es_row
+        jr nz, es_loop
         ret
 
 ; ============================================================================
@@ -5385,9 +5482,10 @@ dps_base:
         ld (xc_tmp), a
         ld a, (spr_y)
         ld (row_y), a
-        ld b, 16
-dps_row:
-        ld a, (row_y)
+        add a, 16
+        ld (dps_end), a
+dps_cell:
+        ld a, (row_y)           ; (re)compute the col base (BC) at a cell start
         ld l, a
         ld h, 0
         add hl, hl
@@ -5397,42 +5495,46 @@ dps_row:
         inc hl
         ld d, (hl)
         ld a, (xc_tmp)
-        ld l, a
-        ld h, 0
-        add hl, de              ; HL = screen address
-        ld a, (ix+3)
-        ld c, a
+        add a, e
+        ld e, a
+        jr nc, dps_nc
+        inc d
+dps_nc:
+        ld b, d
+        ld c, e                 ; BC = col byte addr
+        ld a, (row_y)
+        and 7
+        cpl
+        add a, 9                ; rows left in this cell
+        ld (dps_incell), a
+dps_row:
+        ld h, b                 ; HL = base; mask=~data so just OR data
+        ld l, c
         ld a, (hl)
-        and c
-        ld c, a
-        ld a, (ix+0)
-        or c
+        or (ix+0)
         ld (hl), a
         inc hl
-        ld a, (ix+4)
-        ld c, a
         ld a, (hl)
-        and c
-        ld c, a
-        ld a, (ix+1)
-        or c
+        or (ix+1)
         ld (hl), a
         inc hl
-        ld a, (ix+5)
-        ld c, a
         ld a, (hl)
-        and c
-        ld c, a
-        ld a, (ix+2)
-        or c
+        or (ix+2)
         ld (hl), a
         ld de, 6
         add ix, de
+        inc b                   ; base += 256 -> next pixel line in cell
         ld a, (row_y)
         inc a
         ld (row_y), a
-        dec b
-        jp nz, dps_row
+        ld hl, dps_end
+        cp (hl)
+        jr z, dps_done
+        ld hl, dps_incell
+        dec (hl)
+        jr nz, dps_row
+        jr dps_cell
+dps_done:
         pop ix
         ret
 
@@ -5744,6 +5846,8 @@ cf_val:       defb 0
 cf_pr:        defb 0
 cf_ptr:       defw 0
 cf_src:       defw 0
+dps_end:      defb 0
+dps_incell:   defb 0
 ss_base:      defb 0
 ss_row:       defb 0
 ss_tile:      defw 0
@@ -5845,6 +5949,7 @@ str_p10:      db "+10",0
 str_p5:       db "+5",0
 str_p200:     db "+200",0
 str_p50:      db "+50",0
+str_zclr:     db "ZONE CLEAR!",0
 str_midboss:  db "WARSHIP!",0
 str_demo:     db "DEMO",0
 str_graze:    db "GRZ",0
