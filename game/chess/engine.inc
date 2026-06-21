@@ -1673,7 +1673,26 @@ smv1:
         srl a
         srl a                    ; /4 -> 0..63
         jr smvStore
-smvCap:
+smvCap:                          ; b=victim type, c=promo flag, d=to, e=from
+        ; SEE-lite: is this a losing capture (heavier piece takes lighter on
+        ; a defended square)?  Compute it now, before the registers are reused.
+        push hl
+        ld h,0xE0
+        ld l,e
+        ld a,(hl)                ; piece on `from`
+        and 7
+        pop hl
+        push bc                  ; save victim(b) + promo(c)
+        push de                  ; save to(d) + from(e)
+        ld c,a                   ; C = attacker type, B = victim type
+        call seeIsBadCapture     ; CF=1 if it loses material on a defended sq
+        ld a,0
+        jr nc,smvSeeOk
+        inc a
+smvSeeOk:
+        ld (seeBad),a
+        pop de
+        pop bc
         ld a,b
         add a,a
         add a,a
@@ -1688,13 +1707,20 @@ smvCap:
         pop hl
         ld d,a                   ; attacker type
         ld a,b
-        sub d                    ; victim-weighted minus attacker
+        sub d                    ; victim*8 + 0x80 - attacker
         ld d,a
         ld a,c
         or a
         ld a,d
-        jr z,smvStore
+        jr z,smvCapP
         add a,8                  ; promotion bonus
+smvCapP:
+        ld c,a
+        ld a,(seeBad)
+        or a
+        ld a,c
+        jr z,smvStore
+        sub 0x80                 ; losing capture: drop below the good captures
 smvStore:
         pop hl
         push hl
@@ -1703,6 +1729,53 @@ smvStore:
         inc hl
         ld (hl),a
         pop hl
+        ret
+
+; seeIsBadCapture(B=victim type, C=attacker type, D=to) -> CF=1 if
+; materialTbl[attacker] > materialTbl[victim] AND `to` is defended by the
+; side not to move (a likely material-losing capture).  Clobbers all regs.
+seeIsBadCapture:
+        ld a,d
+        ld (seeTo),a
+        ; HL = materialTbl[attacker]
+        ld a,c
+        add a,a
+        ld l,a
+        ld h,0
+        ld de,materialTbl
+        add hl,de
+        ld a,(hl)
+        inc hl
+        ld h,(hl)
+        ld l,a                   ; HL = attacker value
+        push hl
+        ; DE = materialTbl[victim]
+        ld a,b
+        add a,a
+        ld l,a
+        ld h,0
+        ld de,materialTbl
+        add hl,de
+        ld a,(hl)
+        inc hl
+        ld d,(hl)
+        ld e,a                   ; DE = victim value
+        pop hl                   ; HL = attacker value
+        or a
+        sbc hl,de                ; attacker - victim
+        jr z,sicNo               ; equal trade -> fine
+        jr c,sicNo               ; attacker cheaper -> winning capture, fine
+        ; trading down: is `to` defended by the opponent?
+        ld a,(sideToMove)
+        xor 8
+        ld (atkSide),a
+        ld a,(seeTo)
+        call isAttacked          ; A=1 if defended
+        or a
+        jr z,sicNo
+        scf
+        ret
+sicNo:  or a
         ret
 
 orderMoves:

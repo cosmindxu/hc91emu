@@ -179,6 +179,8 @@ INITCLK  equ 15000       ; starting time per side: 5:00 at 50 Hz
 is128    equ 0xE158      ; 1 on a 128K machine (paging available), else 0
 colorScheme equ 0xE159   ; selected board colour scheme (0..NSCHEMES-1)
 whiteStyle equ 0xE15A    ; white-piece style: 0 = outline, 1 = white fill
+seeTo    equ 0xE15B      ; SEE capture-ordering: target square scratch
+seeBad   equ 0xE15C      ; SEE capture-ordering: 1 if capture loses material
 saveBuf  equ 0xE160      ; game-save buffer: 64 board + side/cas/ep + extras
 SAVELEN  equ 71          ; 64 + side + castle + ep + halfmove + moveCount(2) + depth
 SA_BYTES equ 0x04C2      ; ROM tape save  (IX=addr, DE=len, A=flag)
