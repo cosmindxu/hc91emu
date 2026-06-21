@@ -148,3 +148,15 @@ jobs:
             --joy "1750-1758:F" --joy "1810-1818:F" --frames 2000 --text \
             /tmp/bt.tap | tee /tmp/boss.txt
           grep -q "SENTINEL" /tmp/boss.txt
+
+      - name: Content - Boss Rush mode (key 7) spawns the boss at once
+        run: |
+          # pressing 7 on the title arms boss rush (shipping build, no flag)
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --keys "1410:7" \
+            --frames 1430 --text game/build/game.tap | tee /tmp/rusharm.txt
+          grep -q "BOSS RUSH ARMED" /tmp/rusharm.txt
+          # armed + launched, the first zone's boss appears immediately
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --keys "1410:7" --joy "1750-1758:F" --joy "1810-1818:F" \
+            --frames 2000 --text game/build/game.tap | tee /tmp/rush.txt
+          grep -q "SENTINEL" /tmp/rush.txt
