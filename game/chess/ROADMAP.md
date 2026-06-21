@@ -6,11 +6,13 @@ engines work, then re-deriving the same ideas under the constraints of a
 3.5 MHz 8-bit CPU with 48 KB of RAM.
 
 The plan is organised as five phases — **Foundation → Stabilization →
-Improvement → Optimization → Excellence**. Phases 1–4 are implemented and
-tested; Phase 5's core is in place, with the larger "excellence" items
-tracked as remaining work. Every claim marked ✅ is exercised by the
-headless test harness (`make test`: golden board, engine reply, and a
-perft + Zobrist-key self-test) or by a documented manual check.
+Improvement → Optimization → Excellence**. Phases 1–4 are complete;
+Phase 5 is substantially implemented, with the largest hardware-dependent
+"excellence" items (tape save/load, a serial UCI bridge, 128K AY voices
+and a banked TT) tracked as remaining work. Every claim marked ✅ is
+exercised by the headless test harness (`make test`: golden board, engine
+reply, and a perft + Zobrist-key self-test) or by a documented manual
+check.
 
 > **Reference frame.** "What Stockfish/Leela/lichess do" is the north
 > star, but almost none of it ports verbatim. A Z80 has no 64-bit
@@ -62,23 +64,25 @@ perft + Zobrist-key self-test) or by a documented manual check.
   "zobrist key OK". ✅
 - **Threefold repetition** via the position-key history. ✅
 - **Insufficient material** draws (KvK / KNvK / KBvK). ✅
-- *Remaining:* SAN move log (coordinate readout is shown today), a
-  promotion piece chooser (auto-queens for now).
+- **Promotion piece chooser** (Q/R/B/N prompt). ✅
+- *Remaining:* SAN move log (a coordinate readout is shown today).
 
 ---
 
 ## Phase 3 — Improvement ✅ DONE (core)
 
 - **Quiescence search** (captures + promotions, stand-pat). ✅
-- **Move ordering**: MVV-LVA + **killer moves** + TT/PV move first. ✅
+- **Move ordering**: TT/PV move first, MVV-LVA captures, **killer
+  moves**, then a **history heuristic** for the remaining quiet moves. ✅
 - **Tapered evaluation**: middlegame/endgame king tables switched by
   game phase (king centralises in the endgame); **bishop-pair bonus**;
-  **doubled/isolated pawn** penalties; **king-safety pawn shield**. ✅
+  **doubled / isolated / passed pawn** terms; **king-safety pawn
+  shield**. ✅
 - **Difficulty levels** 1–5 (search depth, `1`–`5` keys). ✅
 - **Opening book** (compact): instant, sound replies to the common first
-  moves. ✅
-- *Remaining:* history heuristic, mobility / passed-pawn terms, a deeper
-  book, explicit beginner weakening (depth already differentiates).
+  moves, with the opening named on screen. ✅
+- *Remaining:* a mobility term, a deeper book, explicit beginner
+  weakening (depth already differentiates).
 
 ---
 
@@ -101,19 +105,25 @@ perft + Zobrist-key self-test) or by a documented manual check.
 
 ---
 
-## Phase 5 — Excellence — core implemented
+## Phase 5 — Excellence — substantially implemented
 
 - **Two-player** (human vs human) mode (`V`). ✅
 - **Take-back / undo** (`Z`): a 48-ply stack restores board, side,
   castling/ep, Zobrist key and repetition history exactly. ✅
-- **Analysis readout**: level, and after each engine move its move in
-  coordinate notation with the evaluation in centipawns. ✅
-- **Endgame**: the tapered king table already drives the king to the
-  centre to help conversion; insufficient-material draws are detected. ✅
-- *Remaining (tracked):* dedicated KQK / KRK / KPK mating logic, a FEN
-  set-up screen and game save/load to tape, chess clocks, opening-name
-  display, a captured-material tray, AY move sounds, and a serial
-  **UCI bridge** so the engine can be driven by external GUIs.
+- **Analysis readout**: level, two-player flag, opening name, the
+  engine's last move (coordinate notation), its evaluation, and the
+  material balance (a captured-material-at-a-glance line). ✅
+- **Endgame**: a **KQK / KRK mating drive** pushes the lone king to a
+  corner and the stronger king toward it; the tapered king table
+  centralises in the endgame; insufficient-material draws are detected. ✅
+- **Move sound**: a beeper click on every move (the 48K equivalent of a
+  128K AY blip). ✅
+- **Position loader** wired into the game (an `E` key loads a KRK demo) —
+  the foundation for a full set-up / FEN screen. ✅
+- *Remaining (tracked):* a full FEN/keyboard set-up screen and game
+  save/load to tape, chess clocks (needs an interrupt time-base), a
+  serial **UCI bridge**, and AY voices / a 128K-banked TT on the 128K
+  family.
 
 ---
 
