@@ -171,6 +171,7 @@ zobPiece  equ 0xD540     ; 12 pieces * 64 squares * 2 bytes = 1536
 zobCastle equ 0xDB40     ; 16 * 2
 zobEp     equ 0xDB60     ; 8 * 2
 zobSide   equ 0xDB70     ; 2
+historyTbl equ 0xDC00    ; 6 piece types * 64 squares (quiet-move history)
 TT_BASE   equ 0x6000     ; 1024 entries * 8 bytes = 8 KB
 TT_MASK   equ 0x03FF
 gameKeys  equ 0x5B00     ; game position-key history (2 bytes/ply)
@@ -312,6 +313,7 @@ ngFile: ld a,(hl)
         ld (gameUndoN),a
         call recordGameKey     ; record the initial position
         call ttClear
+        call clearHistory
         ret
 
 startPos:
