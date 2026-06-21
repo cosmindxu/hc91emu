@@ -60,7 +60,7 @@ SI_FLAME2 equ 18
 ; ============================================================================
 start:
         di
-        ld sp, 0xEFFF
+        ld sp, 0xFDF0           ; above psbuf, below the IM2 ISR (0xFDFD)
         call build_addrtab
         call build_preshift
         call ay_init
@@ -162,6 +162,8 @@ cp_done:
 ; ============================================================================
 show_title:
         call clear_screen
+        ld hl, 0
+        ld (idle_ctr), hl       ; restart the attract-mode idle timer
         xor a
         ld (cur_border), a
         out (254), a
@@ -209,6 +211,10 @@ draw_opts:
         ld hl, str_opts1
         ld b, 18
         ld c, 5
+        call print_str_at
+        ld hl, str_defk
+        ld b, 19
+        ld c, 9
         call print_str_at
         ret
 
@@ -312,6 +318,14 @@ tc_ok:
         ld a, (credit_idx)
         inc a
         ld (credit_idx), a
+        ; idle countdown -> launch the attract-mode demo
+        ld hl, (idle_ctr)
+        inc hl
+        ld (idle_ctr), hl
+        ld a, h
+        cp 3                    ; ~768 frames idle (~15s)
+        ret c
+        call start_demo
         ret
 
 draw_scheme:
@@ -319,15 +333,70 @@ draw_scheme:
         ld b, 16
         ld c, 8
         call print_str_at
-        ld hl, str_qaop
         ld a, (ctrl_scheme)
         or a
-        jr z, dsc_show
+        jr nz, dsc_n0
+        ld hl, str_qaop
+        jr dsc_show
+dsc_n0:
+        cp 1
+        jr nz, dsc_cust
         ld hl, str_cursor
+        jr dsc_show
+dsc_cust:
+        ld hl, str_custom
 dsc_show:
         ld b, 17
         ld c, 10
         call print_str_at
+        ret
+
+; define_keys: capture five key presses into key_defs and select scheme 2
+define_keys:
+        ld a, 2
+        ld (ctrl_scheme), a
+        ld ix, key_defs
+        xor a
+        ld (dk_i), a
+dk_loop:
+        ld a, (dk_i)            ; print the prompt for this key
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, def_prompts
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
+        push ix
+        ld b, 17
+        ld c, 10
+        call print_str_at
+        pop ix
+dk_rel:
+        halt                    ; wait for all keys released
+        call scan_key
+        jr nc, dk_rel
+dk_wait:
+        halt                    ; wait for a key press
+        call scan_key
+        jr c, dk_wait
+        ld (ix+0), b
+        ld (ix+1), c
+        inc ix
+        inc ix
+        call sfx_pickup
+dk_rel2:
+        halt
+        call scan_key
+        jr nc, dk_rel2
+        ld a, (dk_i)
+        inc a
+        ld (dk_i), a
+        cp 5
+        jr nz, dk_loop
+        call show_title
         ret
 
 ; draw the 5-entry high-score table starting at row 8
@@ -431,6 +500,21 @@ tp_mok:
 tp_mup:
         xor a
         ld (m_prev), a
+        ld bc, 0xFDFE           ; D -> define custom keys
+        in a, (c)
+        bit 2, a
+        jr nz, tp_dup
+        ld a, (d_prev)
+        or a
+        jr nz, tp_scheme
+        ld a, 1
+        ld (d_prev), a
+        call define_keys
+        call draw_scheme
+        ret
+tp_dup:
+        xor a
+        ld (d_prev), a
 tp_scheme:
         ld bc, 0xF7FE           ; control-scheme select: 1 / 2
         in a, (c)
@@ -974,6 +1058,17 @@ zero_objects:
 ;  PER-FRAME PLAY
 ; ============================================================================
 play_frame:
+        ld a, (demo_active)     ; attract-mode demo: fire returns to title
+        or a
+        jr z, pf_go
+        call fire_down
+        jr nz, pf_go
+        xor a
+        ld (demo_active), a
+        ld (state), a
+        call show_title
+        ret
+pf_go:
         ld a, (anim_ctr)
         inc a
         ld (anim_ctr), a
@@ -988,9 +1083,16 @@ play_frame:
         call erase_ship
         call uncolor_ship       ; clear old ship colour cells
         call erase_flame        ; clear last frame's exhaust
+        ld a, (demo_active)
+        or a
+        jr nz, pf_demoin
         call read_input
         call cave_collide       ; crash if the ship flew into a wall
         call do_cheats
+        jr pf_inputdone
+pf_demoin:
+        call demo_ai
+pf_inputdone:
         call do_fire
         call do_bullets
         call do_objects
@@ -1132,11 +1234,115 @@ ds_normal:
 ; ============================================================================
 ;  INPUT  -  QAOP, plus Kempston joystick directions
 ; ============================================================================
+; demo_ai: simple attract-mode pilot — stays invulnerable, weaves to a sine
+; target height (dodging the cave), and the forced auto-fire shoots.
+demo_ai:
+        ld a, 12
+        ld (invuln), a          ; never dies in the demo
+        ld a, (anim_ctr)
+        rrca
+        and 0x1F
+        ld e, a
+        ld d, 0
+        ld hl, sintab
+        add hl, de
+        ld a, (hl)
+        add a, 56               ; target y ~56..80
+        ld b, a
+        xor a
+        ld (want_x), a
+        ld (want_y), a
+        ld a, (ship_y)
+        cp b
+        jr z, da_apply
+        jr c, da_down
+        ld a, 0xFF              ; above target -> climb
+        ld (want_y), a
+        jr da_apply
+da_down:
+        ld a, 1
+        ld (want_y), a
+da_apply:
+        call apply_inertia
+        ret
+
+; start_demo: launch the attract-mode game from the title
+start_demo:
+        call init_game
+        ld a, 1
+        ld (demo_active), a
+        ld (state), a
+        ld hl, 0
+        ld (idle_ctr), hl
+        ret
+
+; test_key: B=row index (0..7), C=bit mask ; returns Z if that key is pressed
+test_key:
+        push bc
+        ld a, b
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, rowports
+        add hl, de
+        ld c, (hl)
+        inc hl
+        ld b, (hl)              ; BC = half-row port
+        in a, (c)
+        pop bc
+        and c
+        ret                     ; Z set if the bit read 0 (pressed)
+
+; scan_key: find the first pressed key -> B=row, C=mask, NC ; CY if none
+scan_key:
+        ld b, 0
+sk_row:
+        ld a, b
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, rowports
+        add hl, de
+        ld c, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, c
+        push bc
+        ld b, h
+        ld c, l
+        in a, (c)
+        pop bc
+        ld c, 1                 ; test bits 0..4
+sk_bit:
+        ld d, a
+        and c
+        jr z, sk_found
+        ld a, d
+        sla c
+        ld e, a
+        ld a, c
+        cp 0x20
+        jr z, sk_nextrow
+        ld a, e
+        jr sk_bit
+sk_nextrow:
+        inc b
+        ld a, b
+        cp 8
+        jr nz, sk_row
+        scf
+        ret                     ; none pressed
+sk_found:
+        or a                    ; NC
+        ret
+
 read_input:
         xor a                   ; reset movement intents
         ld (want_x), a
         ld (want_y), a
         ld a, (ctrl_scheme)
+        cp 2
+        jp z, ri_custom
         or a
         jr nz, ri_cursor
         ; ----- scheme 0: QAOP -----
@@ -1185,6 +1391,31 @@ ri_cnotrt:
         bit 4, a                ; 5 -> left
         jr nz, ri_notrt
         call ship_left
+ri_custom:                      ; scheme 2: user-defined keys
+        ld a, (key_defs+0)
+        ld b, a
+        ld a, (key_defs+1)
+        ld c, a
+        call test_key
+        call z, ship_up
+        ld a, (key_defs+2)
+        ld b, a
+        ld a, (key_defs+3)
+        ld c, a
+        call test_key
+        call z, ship_down
+        ld a, (key_defs+4)
+        ld b, a
+        ld a, (key_defs+5)
+        ld c, a
+        call test_key
+        call z, ship_left
+        ld a, (key_defs+6)
+        ld b, a
+        ld a, (key_defs+7)
+        ld c, a
+        call test_key
+        call z, ship_right
 ri_notrt:
         call read_joy           ; Kempston (0 if absent/floating)
         ld e, a
@@ -1430,10 +1661,23 @@ do_fire:
         dec a
         ld (fire_cd), a
 df_cdok:
+        ld a, (demo_active)     ; demo auto-fires
+        or a
+        jr nz, df_pressed
         ld bc, 0x7FFE           ; Space
         in a, (c)
         bit 0, a
         jr z, df_pressed
+        ld a, (ctrl_scheme)     ; custom fire key
+        cp 2
+        jr nz, df_chkjoy
+        ld a, (key_defs+8)
+        ld b, a
+        ld a, (key_defs+9)
+        ld c, a
+        call test_key
+        jr z, df_pressed
+df_chkjoy:
         call read_joy           ; Kempston fire
         bit 4, a
         jr nz, df_pressed
@@ -2869,12 +3113,16 @@ st_d2:
         ret
 
 sfx_shoot:
+        ld a, 7                 ; 128K: high blip on channel B
+        call ay_blip
         ld c, 18
         ld de, 26
         call sfx_tone
         ret
 
 sfx_pickup:
+        ld a, 5                 ; 128K: mid blip
+        call ay_blip
         ld c, 40
         ld de, 14
         call sfx_tone
@@ -2925,6 +3173,8 @@ sfx_z_lp:
         ret
 
 sfx_hit:                        ; short metallic tick (boss/shield)
+        ld a, 3                 ; 128K: low blip
+        call ay_blip
         ld c, 30
         ld de, 8
         call sfx_tone
@@ -2980,13 +3230,13 @@ ay_w:
         ret
 
 ay_init:
-        ld d, 7                 ; mixer: channel A tone only
-        ld e, 0x3E
+        ld d, 7                 ; mixer: channels A+B tone enabled
+        ld e, 0x3C
         call ay_w
-        ld d, 8                 ; channel A volume
+        ld d, 8                 ; channel A volume (music)
         ld e, 12
         call ay_w
-        ld d, 9
+        ld d, 9                 ; channel B volume (SFX, off)
         ld e, 0
         call ay_w
         ld d, 10
@@ -2994,13 +3244,38 @@ ay_init:
         call ay_w
         ret
 
+; ay_blip: A = note index; a short non-blocking SFX on channel B (128K).
+; Harmless on a 48K machine; the beeper SFX still play there.
+ay_blip:
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, note_tab
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a                 ; HL = period
+        ld d, 2                 ; reg2 = ch B period low
+        ld e, l
+        call ay_w
+        ld d, 3                 ; reg3 = ch B period high
+        ld e, h
+        call ay_w
+        ld d, 9                 ; ch B volume
+        ld e, 13
+        call ay_w
+        ld a, 3
+        ld (ay_sfx_t), a
+        ret
+
 ; ay_noise_burst: brief explosion noise on channel C
 ay_noise_burst:
         ld d, 6                 ; noise period
         ld e, 6
         call ay_w
-        ld d, 7                 ; mixer: A tone + C noise
-        ld e, 0x1E
+        ld d, 7                 ; mixer: A+B tone + C noise
+        ld e, 0x1C
         call ay_w
         ld d, 10                ; channel C volume
         ld e, 15
@@ -3010,6 +3285,16 @@ ay_noise_burst:
         ret
 
 do_music:
+        ld a, (ay_sfx_t)        ; clear the channel-B SFX when it ends
+        or a
+        jr z, dm_noisechk
+        dec a
+        ld (ay_sfx_t), a
+        jr nz, dm_noisechk
+        ld d, 9
+        ld e, 0
+        call ay_w
+dm_noisechk:
         ld a, (ay_noise_t)      ; clear the noise burst when it ends
         or a
         jr z, dm_lead
@@ -3017,7 +3302,7 @@ do_music:
         ld (ay_noise_t), a
         jr nz, dm_lead
         ld d, 7
-        ld e, 0x3E
+        ld e, 0x3C
         call ay_w
         ld d, 10
         ld e, 0
@@ -3787,6 +4072,13 @@ show_hud:
         call draw_combo         ; combo multiplier, row1 right
         call draw_bombs         ; smart-bomb count, row1 right
         call draw_zone_banner   ; brief centered zone name on entry
+        ld a, (demo_active)     ; show DEMO while attracting
+        or a
+        ret z
+        ld hl, str_demo
+        ld b, 0
+        ld c, 13
+        call print_str_at
         ret
 
 ; draw_zone_banner: show the new zone's name centred while zone_msg_t > 0
@@ -5169,6 +5461,8 @@ ship_choice:  defb 0
 m_prev:       defb 0
 tctr:         defb 0
 credit_idx:   defb 0
+d_prev:       defb 0
+dk_i:         defb 0
 
 ; 6 designs x 3 banks (level, climb, dive)
 ship_tab:
@@ -5194,6 +5488,7 @@ next_life:    defw 1000
 mus_div:      defb 0
 mus_idx:      defb 0
 ay_noise_t:   defb 0
+ay_sfx_t:     defb 0
 tick:         defb 0
 cheat_kprev:  defb 0
 
@@ -5211,6 +5506,18 @@ str_p5:       db "+5",0
 str_p200:     db "+200",0
 str_p50:      db "+50",0
 str_midboss:  db "WARSHIP!",0
+str_demo:     db "DEMO",0
+str_defk:     db "D-DEFINE KEYS",0
+str_defup:    db "PRESS UP KEY   ",0
+str_defdn:    db "PRESS DOWN KEY ",0
+str_deflf:    db "PRESS LEFT KEY ",0
+str_defrt:    db "PRESS RIGHT KEY",0
+str_deffr:    db "PRESS FIRE KEY ",0
+str_custom:   db "USING CUSTOM",0
+def_prompts:  dw str_defup, str_defdn, str_deflf, str_defrt, str_deffr
+rowports:     dw 0xFEFE,0xFDFE,0xFBFE,0xF7FE,0xEFFE,0xDFFE,0xBFFE,0x7FFE
+; default custom keys = QAOP + Space (rowindex, bitmask pairs)
+key_defs:     db 2,1, 1,1, 5,2, 5,1, 7,1
 str_pwr:      db "PWR!",0
 str_1up:      db "1UP!",0
 str_bonus:    db "BONUS STAGE!",0
