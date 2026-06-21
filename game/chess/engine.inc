@@ -1700,17 +1700,30 @@ tbLoop:
         jr z,tbNo
         ld a,(humanLastFrom)
         cp (hl)
-        jr nz,tbNext
+        jr nz,tbAdv
+        push hl
         inc hl
         ld a,(humanLastTo)
         cp (hl)
-        jr nz,tbNext2
+        pop hl
+        jr nz,tbAdv
+        ; match: read booked reply + opening name pointer
+        push hl
+        inc hl
         inc hl
         ld a,(hl)
         ld (mvFrom),a
         inc hl
         ld a,(hl)
         ld (mvTo),a
+        inc hl
+        ld a,(hl)
+        ld e,a
+        inc hl
+        ld a,(hl)
+        ld d,a
+        ld (openingNamePtr),de
+        pop hl
         xor a
         ld (mvFlag),a
         call bookLegal
@@ -1728,12 +1741,9 @@ tbLoop:
         ld (lastScore),hl
         scf
         ret
-tbNext:
-        inc hl
-tbNext2:
-        inc hl
-        inc hl
-        inc hl
+tbAdv:
+        ld de,6
+        add hl,de
         jr tbLoop
 tbNo:
         or a
@@ -1786,13 +1796,18 @@ blNo:
         or a
         ret
 
-; opening book: white from,to -> black from,to (0x88 squares); 0xFF ends
+; opening book: white from,to -> black from,to (0x88), then name ptr; 0xFF ends
 bookTable:
-        defb 0x14,0x34, 0x64,0x44   ; 1.e4 e5
-        defb 0x13,0x33, 0x63,0x43   ; 1.d4 d5
-        defb 0x06,0x25, 0x76,0x55   ; 1.Nf3 Nf6
-        defb 0x12,0x32, 0x64,0x44   ; 1.c4 e5
-        defb 0x15,0x35, 0x63,0x43   ; 1.f4 d5
+        defb 0x14,0x34,0x64,0x44
+        defw nmOpen                 ; 1.e4 e5
+        defb 0x13,0x33,0x63,0x43
+        defw nmClosed               ; 1.d4 d5
+        defb 0x06,0x25,0x76,0x55
+        defw nmReti                 ; 1.Nf3 Nf6
+        defb 0x12,0x32,0x64,0x44
+        defw nmEnglish              ; 1.c4 e5
+        defb 0x15,0x35,0x63,0x43
+        defw nmBird                 ; 1.f4 d5
         defb 0xFF
 
 ; =====================================================================

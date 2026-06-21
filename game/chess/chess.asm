@@ -153,6 +153,7 @@ lmrPA    equ 0xE12F      ; (2) parent alpha captured for LMR re-search
 lmrPB    equ 0xE131      ; (2) parent beta
 lmrReduced equ 0xE133    ; 1 if the current child was searched reduced
 matBalTmp equ 0xE134     ; (2) material-balance accumulator
+openingNamePtr equ 0xE136 ; (2) opening name string, 0 = none
 
 killerArr equ 0xD100     ; 4 bytes/ply: k1from,k1to,k2from,k2to
 inChkArr  equ 0xD140     ; 1/ply: side-to-move in check at this node
@@ -285,6 +286,8 @@ ngFile: ld a,(hl)
         ld (flipFlag),a
         ld (twoPlayer),a
         ld (haveLast),a
+        ld (openingNamePtr),a
+        ld (openingNamePtr+1),a
         ld (halfmove),a
         ld a,0x0F
         ld (castling),a
@@ -775,6 +778,15 @@ drawInfo:
         ld c,20
         call printStr
 diNo2p:
+        ; opening name (if a book line was used)
+        ld hl,(openingNamePtr)
+        ld a,h
+        or l
+        jr z,diNoName
+        ld b,11
+        ld c,20
+        call printStr
+diNoName:
         ; material balance (pawns) - always shown
         ld hl,msgMatl
         ld b,9
@@ -1371,6 +1383,11 @@ msg2pL:      defb "2-player",0
 msgMoveL:    defb "Move",0
 msgEval:     defb "Eval",0
 msgMatl:     defb "Matl",0
+nmOpen:      defb "Open game",0
+nmClosed:    defb "Closed game",0
+nmReti:      defb "Reti",0
+nmEnglish:   defb "English",0
+nmBird:      defb "Bird",0
 msgCheck:    defb "Check!             ",0
 
         include "pieces.inc"
