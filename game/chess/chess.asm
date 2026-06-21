@@ -176,6 +176,7 @@ clkBuf   equ 0xE153      ; (5) "M:SS",0 formatting buffer
 
 FRAMES   equ 0x5C78      ; ROM 50 Hz frame counter (3 bytes), low 16 used
 INITCLK  equ 15000       ; starting time per side: 5:00 at 50 Hz
+is128    equ 0xE158      ; 1 on a 128K machine (paging available), else 0
 saveBuf  equ 0xE160      ; game-save buffer: 64 board + side/cas/ep + extras
 SAVELEN  equ 71          ; 64 + side + castle + ep + halfmove + moveCount(2) + depth
 SA_BYTES equ 0x04C2      ; ROM tape save  (IX=addr, DE=len, A=flag)
@@ -234,6 +235,7 @@ start:
         ld iy,0x5C3A           ; ROM sysvar base, for the IM1 keyboard/FRAMES ISR
         im 1
         ei                     ; let the ROM tick FRAMES (0x5C78) at 50 Hz
+        call detect128         ; set is128: enables the banked transposition table
         call seedRng
         call zobInit
         call newGame
@@ -1715,6 +1717,44 @@ ayWrite:
         out (c),e
         ret
 
+; detect128 — is this a 128K machine?  Page bank 1 then bank 2 into the
+; 0xC000 window writing a different marker to each, page bank 1 back, and
+; see which marker survived: on a 48K the writes alias the same fixed RAM
+; so the second wins; on a 128K the banks are distinct so the first does.
+; Register-only between DI/EI (the stack lives in the paged window), and
+; 0xC000-0xCFFF is unused this early so the markers clobber nothing.
+detect128:
+        di
+        ld bc,0x7FFD
+        ld a,0x11              ; ROM1, bank 1
+        out (c),a
+        ld hl,0xC000
+        ld (hl),0xAA
+        ld bc,0x7FFD
+        ld a,0x12              ; ROM1, bank 2
+        out (c),a
+        ld (hl),0x55
+        ld bc,0x7FFD
+        ld a,0x11              ; back to bank 1
+        out (c),a
+        ld e,(hl)              ; 0xAA on 128K, 0x55 on 48K (aliased)
+        ld bc,0x7FFD
+        ld a,0x10              ; restore ROM1, bank 0
+        out (c),a
+        ei
+        ld a,e
+        cp 0xAA
+        ld a,0
+        jr nz,d128set
+        inc a                  ; A = 1: 128K
+d128set:
+        ld (is128),a
+        ret
+
+; ttBanks — the 0x7FFD values that page each spare 16K RAM bank into the
+; 0xC000 window for the banked transposition table (ROM1 kept, screen norm).
+ttBanks: defb 0x11,0x13,0x14,0x16
+
 ; 16-bit xorshift-ish PRNG -> A
 rng:
         ld hl,(rngState)
@@ -1991,3 +2031,8 @@ nmQGD:       defb "QGD",0
 msgCheck:    defb "Check!             ",0
 
         include "pieces.inc"
+
+; ttStage — 8-byte staging copy of a transposition-table entry, in
+; non-pageable RAM (0x8000-0xBFFF) so it stays mapped while a spare bank is
+; paged into 0xC000 for the banked TT on 128K machines.
+ttStage: defs 8

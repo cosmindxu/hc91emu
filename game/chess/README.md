@@ -23,8 +23,9 @@ It is a full, rules-correct game against a genuinely searching engine:
   repetition** / **insufficient-material** draws
 - **negamax alpha-beta** with **iterative deepening**, **aspiration
   windows**, **quiescence**, **null-move** and **reverse-futility**
-  pruning, and an 8 KB **transposition table** keyed by an
-  incrementally-maintained **Zobrist** hash
+  pruning, and a **transposition table** keyed by an
+  incrementally-maintained **Zobrist** hash — 8 KB on the 48K, growing to
+  64 KB across the spare RAM banks on a 128K machine
 - move ordering by **TT move + PV + MVV-LVA + killer moves + history**
 - **tapered** evaluation (endgame king centralisation), **bishop pair**,
   **doubled/isolated/passed pawns**, **king-safety pawn shield**, a
@@ -141,10 +142,14 @@ score, alpha/beta, move pointer, depth — kept in RAM, not on the
 hardware stack). On top of it: **iterative deepening** (carrying the
 previous depth's best move forward as a PV hint), a **quiescence**
 search at the leaves (captures + promotions, stand-pat) to kill the
-horizon effect, **null-move pruning**, and an 8 KB **transposition
-table** keyed by a 16-bit **Zobrist** hash that is maintained
-incrementally in make/unmake and verified against a from-scratch
-recompute in the perft self-test. Moves are ordered TT-move → PV →
+horizon effect, **null-move pruning**, and a **transposition table**
+keyed by a 16-bit **Zobrist** hash that is maintained incrementally in
+make/unmake and verified against a from-scratch recompute in the perft
+self-test. The table is 8 KB (1024 buckets) on the 48K; on a 128K
+machine it grows to 64 KB (8192 buckets) hosted across the four spare
+RAM banks, paged through `0x7FFD` into the `0xC000` window with a
+register-only access inside a `DI`/`EI` guard so the workspace and stack
+(also up there) stay coherent. Moves are ordered TT-move → PV →
 MVV-LVA captures → killers → quiet. Mate scores carry the ply so the
 engine prefers the quickest mate and the longest defence.
 
@@ -173,10 +178,12 @@ character set, so nothing here depends on paging the ROM out.
 | `movegen.inc` | 0x88 move generation (incl. castling), attacks, make/unmake, legal filter, draws |
 | `engine.inc` | alpha-beta + quiescence + null-move search, ordering, tapered eval, tables |
 | `zobrist.inc` | incremental Zobrist hashing + from-scratch key recompute |
-| `tt.inc` | transposition table probe/store and per-ply search-array pointers |
+| `tt.inc` | transposition table (48K direct / 128K banked) probe/store and per-ply search-array pointers |
 | `perft.inc` | perft node counter, position loader, and the self-test screen |
 | `pieces.py` → `pieces.inc` | 16×16 piece glyph generator and its output |
-| `Makefile` | build the tape, run the smoke + perft test, launch interactively |
+| `bookgen.py` | host-side generator for the position-keyed opening book |
+| `tt_check.py` | snapshot checker for the 128K banked-TT test |
+| `Makefile` | build the tape, run the smoke + perft + save/load + 128K-TT tests, launch interactively |
 | `initial_golden.png` | golden screenshot for the smoke test |
 
 The generic assemble-to-bootable-tape tool is

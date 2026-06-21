@@ -191,12 +191,28 @@ verified.
    hc128` by the AY raising the recorded waveform's peak (12000→14432, 189
    samples above +13000 versus none on 48k).
 
-5. **128K-banked transposition table.** *What:* on 128K machines, page
+5. **128K-banked transposition table.** ✅ *What:* on 128K machines, page
    the spare 16 KB RAM banks through port `0x7FFD` to host a much larger
    TT than the 8 KB that fits in 48 KB. *Value:* a bigger table means
    more cache hits and fewer re-searched transpositions — measurably
    deeper search on the same clock. *Verify:* run on `--machine hc128`;
    perft / play confirm correctness and the hit-rate confirms the gain.
+   *Done:* `detect128` probes `0x7FFD` paging at boot (writing distinct
+   markers to two banks and seeing which survives) and sets `is128`. On a
+   128K the table grows to **8192 buckets across the four spare banks
+   (1,3,4,6)** — 8× the 48K's 1024 — indexed by 13 key bits (top 2 select
+   the bank, low 11 the slot). The risk that the workspace and **stack**
+   also live in the pageable `0xC000-0xFFFF` window is sidestepped: every
+   entry is copied to/from `ttStage` in non-pageable RAM with a
+   register-only `LDIR` inside a `DI`/`EI` window — no stack op and no ISR
+   runs while a bank is paged, and bank 0 is restored before any `ret`.
+   Verified end-to-end: `is128` is 0 on 48K and 1 on hc128; hc128 perft
+   passes (banking never corrupts the board/key/phase/pst); a forced KRK
+   search yields the *same* move on both machines; and an SZX snapshot
+   shows all four spare banks populated with well-formed entries
+   (valid key, score, depth and stored move) — proving the banked
+   store/probe round-trips rather than silently no-opping. Covered by a new
+   `make test` step (`tt_check.py`).
 
 6. **FEN / set-up position screen.** ✅ *What:* enter an arbitrary position,
    either with a cursor-driven board editor or by typing a FEN string, on
