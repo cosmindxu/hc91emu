@@ -120,6 +120,7 @@ wBish    equ 0xE105
 bBish    equ 0xE106
 gamePhase equ 0xE107
 matVal   equ 0xE108      ; (2)
+nullEp    equ 0xE10A      ; saved ep square across a null move
 
 PHASE_EG equ 8           ; below this non-pawn phase, use endgame king PST
 DOUBLED  equ 12
