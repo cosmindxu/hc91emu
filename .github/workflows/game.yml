@@ -66,6 +66,7 @@ jobs:
             --joy "1750-1758:F" --joy "1790-1798:F" --joy "1800-13000:U" \
             --frames 13000 --text game/build/game.tap | tee /tmp/crash.txt
           grep -q "GAME OVER" /tmp/crash.txt
+          grep -q "RANK" /tmp/crash.txt   # end-of-run rank on the game-over screen
 
       - name: 128K - boots and captures AY audio
         run: |

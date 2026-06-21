@@ -944,26 +944,8 @@ show_victory:
         ld c, 13
         call print_str_n5
         ; end-of-run rank: grade the final score S / A / B / C
-        ld a, 'C'
         ld hl, (score)
-        ld de, 3000
-        or a
-        sbc hl, de
-        jr c, svc_rank
-        ld a, 'B'
-        ld hl, (score)
-        ld de, 5000
-        or a
-        sbc hl, de
-        jr c, svc_rank
-        ld a, 'A'
-        ld hl, (score)
-        ld de, 8000
-        or a
-        sbc hl, de
-        jr c, svc_rank
-        ld a, 'S'
-svc_rank:
+        call score_rank
         ld (str_rank+6), a
         ld hl, str_rank
         ld b, 18
@@ -1036,6 +1018,27 @@ show_gameover:
         ld b, 15
         ld c, 12
         call print_str_n5
+        ; end-of-run rank: score + depth bonus (world*2000, saturating)
+        ld hl, (score)
+        ld a, (world)
+        or a
+        jr z, go_rank
+        ld b, a
+        ld de, 2000
+go_rankadd:
+        add hl, de
+        jr c, go_rankmax        ; saturate at 0xFFFF on overflow
+        djnz go_rankadd
+        jr go_rank
+go_rankmax:
+        ld hl, 0xFFFF
+go_rank:
+        call score_rank
+        ld (str_rank+6), a
+        ld hl, str_rank
+        ld b, 16
+        ld c, 10
+        call print_str_at
         call hs_qualify         ; new high score?
         jr nc, go_cont
         ld hl, str_newhi
@@ -2682,7 +2685,7 @@ obj_movey_done:
         ; --- ship collision (unless invulnerable) ---
         ld a, (invuln)
         or a
-        jr nz, obj_draw
+        jp nz, obj_draw
         ld a, 9                 ; tight, fair hit-box
         ld (col_thr), a
         ld a, (ship_x)
@@ -2695,7 +2698,7 @@ obj_movey_done:
         ld a, (ix+2)
         ld e, a
         call collide
-        jr nz, obj_draw
+        jp nz, obj_draw
         ld a, (ix+0)
         cp T_CRYS
         jr z, obj_collect
@@ -2723,9 +2726,23 @@ obj_collect:
 obj_power:
         xor a
         ld (ix+0), a
+        ld a, (pw_twin)         ; total weapon level before the grant
+        ld hl, pw_rapid
+        add a, (hl)
+        push af
         call grant_power
         ld hl, str_pwr
         call set_popup
+        pop af
+        ld b, a                 ; before
+        ld a, (pw_twin)         ; after
+        ld hl, pw_rapid
+        add a, (hl)
+        cp b
+        jr z, op_normal         ; no weapon-level increase -> normal pickup
+        call sfx_levelup        ; a weapon got stronger -> level-up chirp
+        jp do_obj_next
+op_normal:
         call sfx_power
         jp do_obj_next
 obj_draw:
@@ -4108,9 +4125,13 @@ sfx_victory:                    ; ascending "you did it" jingle for the ending
 sfx_bossdn:                     ; short triumphant motif when a boss falls
         ld hl, bdn_notes
         jr play_notes
+sfx_levelup:                    ; quick rising chirp when a weapon levels up
+        ld hl, lvl_notes
+        jr play_notes
 
 vic_notes:    db 60,18, 48,18, 40,18, 30,22, 24,30, 20,40, 0
 bdn_notes:    db 36,14, 26,14, 18,26, 0
+lvl_notes:    db 34,10, 24,10, 16,16, 0
 
 sfx_power:                      ; power-up: bright rising arpeggio
         ld c, 50
@@ -5798,6 +5819,25 @@ score5:
         ld a, l
         add a, '0'
         ld (ix+0), a
+        ret
+
+; score_rank: HL = score -> A = grade char S/A/B/C (>=8000/5000/3000/else).
+; Subtracts incrementally so HL need not be reloaded. Preserves nothing else.
+score_rank:
+        ld a, 'C'
+        ld de, 3000
+        or a
+        sbc hl, de              ; >= 3000 ?
+        ret c
+        ld a, 'B'
+        ld de, 2000
+        sbc hl, de              ; >= 5000 ? (carry clear from above)
+        ret c
+        ld a, 'A'
+        ld de, 3000
+        sbc hl, de              ; >= 8000 ?
+        ret c
+        ld a, 'S'
         ret
 
 ; sc_digit: HL=value DE=divisor ; appends digit to (IX++), HL=remainder
