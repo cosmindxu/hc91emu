@@ -37,8 +37,8 @@ It is a full, rules-correct game against a genuinely searching engine:
   cursor-driven **set-up board editor**, beeper move sound, an **analysis
   readout** (opening name, the engine's last move, its evaluation and the
   material balance), per-side **chess clocks** with flag-fall, and an
-  endgame demo loader — selectable strength (depth 1–5), board flip, new
-  game
+  endgame demo loader — selectable strength (depth 1–5), **switchable
+  board colour schemes** (`C`), board flip, new game
 
 See [ROADMAP.md](ROADMAP.md) for the phase-by-phase status and the
 remaining "excellence" items (opening book, KQK/KRK endgame logic,
@@ -85,6 +85,7 @@ ROM character set, so it is fully 48K-compatible.
 | `F` | flip the board |
 | `N` | new game |
 | `S` | open the set-up board editor |
+| `C` | cycle the board colour scheme |
 | `G` / `L` | save / load the game to / from tape |
 | `T` | run the perft + Zobrist self-test |
 
@@ -164,16 +165,21 @@ Added on top: a **bishop-pair** bonus and **doubled / isolated** pawn
 penalties.
 
 ### Display
-The 8×8 board is drawn as 2×2 character cells per square (128×128 px) on a
-yellow/green checkerboard, with hand-designed **16×16 piece glyphs**
-([pieces.py](pieces.py) turns ASCII art into the data). Because a ZX cell
-has a single ink + paper, solid white pieces would vanish on light
-squares; instead [pieces.py](pieces.py) emits two glyph sets — a **solid
-silhouette for Black** and a **hollow black-outline ("contour") for
-White** — both inked black, so pieces stay legible on every square colour.
-The cursor square is highlighted cyan and the picked-up square magenta.
-Text uses the ROM character set, so nothing here depends on paging the
-ROM out.
+The 8×8 board is drawn as 2×2 character cells per square (128×128 px),
+with hand-designed **16×16 piece glyphs** ([pieces.py](pieces.py) turns
+ASCII art into the data). Because a ZX cell has a single ink + paper,
+solid white pieces would vanish on light squares; instead
+[pieces.py](pieces.py) emits two glyph sets — a **solid silhouette for
+Black** and a **hollow black-outline ("contour") for White** — both inked
+black, so pieces stay legible on every square colour.
+
+The board colour scheme is switchable in-game with **`C`** (shown on the
+panel as `C:<name>`): **Classic** (yellow/red, the default), **Meadow**
+(yellow/green) and **Clean** (white/cyan). Each scheme is four attribute
+bytes in `schemeTable` (light, dark, cursor, selected); the cursor and
+picked-up square highlights shift per scheme to stay distinct from the
+squares. Text uses the ROM character set, so nothing here depends on
+paging the ROM out.
 
 ## Files
 

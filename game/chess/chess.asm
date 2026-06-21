@@ -177,6 +177,7 @@ clkBuf   equ 0xE153      ; (5) "M:SS",0 formatting buffer
 FRAMES   equ 0x5C78      ; ROM 50 Hz frame counter (3 bytes), low 16 used
 INITCLK  equ 15000       ; starting time per side: 5:00 at 50 Hz
 is128    equ 0xE158      ; 1 on a 128K machine (paging available), else 0
+colorScheme equ 0xE159   ; selected board colour scheme (0..NSCHEMES-1)
 saveBuf  equ 0xE160      ; game-save buffer: 64 board + side/cas/ep + extras
 SAVELEN  equ 71          ; 64 + side + castle + ep + halfmove + moveCount(2) + depth
 SA_BYTES equ 0x04C2      ; ROM tape save  (IX=addr, DE=len, A=flag)
@@ -236,6 +237,8 @@ start:
         im 1
         ei                     ; let the ROM tick FRAMES (0x5C78) at 50 Hz
         call detect128         ; set is128: enables the banked transposition table
+        xor a
+        ld (colorScheme),a     ; default scheme 0 = Classic (yellow/red)
         call seedRng
         call zobInit
         call newGame
@@ -484,7 +487,10 @@ mcrCol: ld a,b
         ld (dsRow),a
         ret
 
-; attribute for dsSquare -> A
+; attribute for dsSquare -> A.  Pieces are drawn with black ink on the
+; square colour (white = hollow outline, black = solid), so the attribute
+; is just the square's paper, taken from the active colour scheme's row of
+; schemeTable: [light, dark, cursor, selected].
 squareAttr:
         ld b,a
         and 7
@@ -496,28 +502,53 @@ squareAttr:
         rrca
         and 7
         add a,c
-        and 1
+        and 1                  ; 1 = light square, 0 = dark square
         jr z,saDark
-        ld e,0x70              ; light: bright, ink 0, paper 6 (yellow)
-        jr saCur
-saDark: ld e,0x60              ; dark:  bright, ink 0, paper 4 (green)
-        ; Pieces are drawn with black ink on the square colour: white pieces
-        ; as a hollow outline (black keyline), black pieces as a solid
-        ; silhouette, so the attribute is simply the square's paper colour.
-saCur:  ld a,(dsSquare)
+        xor a                  ; offset 0: light
+        jr saBase
+saDark: ld a,1                 ; offset 1: dark
+saBase: call schemeAttr
+        ld e,a                 ; E = base square attribute
+        ld a,(dsSquare)
         ld hl,cursorSq
         cp (hl)
         jr nz,saSel
-        ld a,0x68              ; cursor: bright, ink 0, paper 5 (cyan)
-        ret
+        ld a,2                 ; cursor highlight
+        jp schemeAttr
 saSel:  ld a,(dsSquare)
         ld hl,selSq
         cp (hl)
         jr nz,saEnd
-        ld a,0x58              ; selected: bright, ink 0, paper 3 (magenta)
-        ret
+        ld a,3                 ; selected-square highlight
+        jp schemeAttr
 saEnd:  ld a,e
         ret
+
+; schemeAttr(A = field 0..3) -> A = attribute byte from the active scheme
+schemeAttr:
+        ld e,a
+        ld a,(colorScheme)
+        add a,a
+        add a,a                ; scheme*4
+        add a,e
+        ld e,a
+        ld d,0
+        ld hl,schemeTable
+        add hl,de
+        ld a,(hl)
+        ret
+
+; Colour schemes — 4 attribute bytes each: light, dark, cursor, selected.
+; All bright, ink 0 (pieces are black); only the paper colour varies.
+NSCHEMES equ 3
+schemeTable:
+        defb 0x70,0x50,0x68,0x58   ; 0 Classic: yellow / red   (cyan, magenta)
+        defb 0x70,0x60,0x68,0x58   ; 1 Meadow:  yellow / green (cyan, magenta)
+        defb 0x78,0x68,0x60,0x58   ; 2 Clean:   white  / cyan  (green, magenta)
+schemeNames:
+        defw nmSchClassic
+        defw nmSchMeadow
+        defw nmSchClean
 
 ; set 4 attribute cells of square (dsCol,dsRow) to dsAttr
 setAttr2x2:
@@ -785,6 +816,27 @@ setMsg:                        ; HL = string
         ld (msgPtr),hl
         ret
 
+; drawScheme — show the active colour scheme + its cycle key (C) at row 16
+drawScheme:
+        ld hl,msgColK
+        ld b,16
+        ld c,20
+        call printStr
+        ld a,(colorScheme)
+        add a,a
+        ld e,a
+        ld d,0
+        ld hl,schemeNames
+        add hl,de
+        ld a,(hl)
+        inc hl
+        ld h,(hl)
+        ld l,a                 ; HL = scheme-name string
+        ld b,16
+        ld c,22
+        call printStr
+        ret
+
 ; --- analysis info panel (right of the board) ------------------------
 drawInfo:
         ld hl,msgLevel
@@ -824,6 +876,7 @@ diNoName:
         ld b,9
         ld c,25
         call printScore
+        call drawScheme        ; "C:" + active colour scheme, row 16
         ld a,(haveLast)
         or a
         ret z
@@ -1005,8 +1058,14 @@ sk_v:   ld bc,0xFEFE           ; CAPS,Z,X,C,V
 sk_z:   ld bc,0xFEFE
         in a,(c)
         bit 1,a                ; Z = take back
-        jr nz,sk_a
+        jr nz,sk_c
         ld a,'Z'
+        ret
+sk_c:   ld bc,0xFEFE
+        in a,(c)
+        bit 3,a                ; C = cycle colour scheme
+        jr nz,sk_a
+        ld a,'C'
         ret
 sk_a:   ld bc,0xFDFE           ; A,S,D,F,G
         in a,(c)
@@ -1124,6 +1183,8 @@ hmLoop: call clkWaitKey        ; like readKeyDebounced, but ticks the clock
         jp z,hmEndgame
         cp 'S'
         jp z,hmSetup
+        cp 'C'
+        jp z,hmColor
         cp 'G'
         jp z,hmSave
         cp 'L'
@@ -1180,6 +1241,18 @@ hmTwoP:
         ld hl,msgTwoP
         call setMsg
         call drawStatus
+        jp hmLoop
+
+hmColor:
+        ld a,(colorScheme)
+        inc a
+        cp NSCHEMES
+        jr c,hmcSet
+        xor a
+hmcSet: ld (colorScheme),a
+        ld hl,msgColour
+        call setMsg
+        call drawScreenFull    ; repaint the board in the new scheme
         jp hmLoop
 
 hmTakeBack:
@@ -1972,7 +2045,7 @@ msgThinking: defb "Thinking...        ",0
 msgIllegal:  defb "Illegal move       ",0
 msgPick:     defb "Pick your piece    ",0
 msgDiff:     defb "Difficulty set     ",0
-msgKeys:     defb "QAOP move ENT=pick NTEVZF 1-5",0
+msgKeys:     defb "QAOP+ENT  C=colour  NTEVZFSGL",0
 msgPerftHdr: defb "PERFT self-test (start position)",0
 msgPerftN:   defb "perft",0
 msgOK:       defb "OK",0
@@ -2016,6 +2089,11 @@ nmItalian:   defb "Italian Game",0
 nmQG:        defb "Queen's Gambit",0
 nmQP:        defb "Queen's Pawn",0
 nmQGD:       defb "QGD",0
+nmSchClassic: defb "Classic",0
+nmSchMeadow:  defb "Meadow ",0
+nmSchClean:   defb "Clean  ",0
+msgColK:      defb "C:",0
+msgColour:    defb "Colour scheme (C)  ",0
 msgCheck:    defb "Check!             ",0
 
         include "pieces.inc"
