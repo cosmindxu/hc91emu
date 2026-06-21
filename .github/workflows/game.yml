@@ -36,6 +36,14 @@ jobs:
             --frames 1800 --text game/build/game.tap | tee /tmp/title.txt
           grep -q "STELLAR DRIFT" /tmp/title.txt
 
+      - name: Sprite depack is byte-identical to source
+        run: |
+          # boot, snapshot RAM, and prove the Z80 LZSS depacker reproduces the
+          # sprite bytes exactly at SPRBASE (guards the compression tooling)
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo \
+            --frames 1500 --save-sna /tmp/g.sna game/build/game.tap
+          python3 game/tools/check_unpack.py /tmp/g.sna
+
       - name: Gameplay - boot, start and reach the first zone
         run: |
           ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \

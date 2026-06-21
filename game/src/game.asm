@@ -50,6 +50,12 @@ T_FORMV equ 12              ; wave marker: spawn a V-formation of enemies
 T_GATE  equ 13              ; pulsing laser-gate barrier
 NZONES  equ 6               ; number of named zones in the cycle
 
+; Sprite pixel data is stored LZSS-packed (sprpack.inc) and depacked at boot
+; into this fixed low-RAM block (just above the scratch BSS, below 0x8000).
+; sprites.inc EQUs every sprite label to SPRBASE + offset. SPR_END = SPRBASE
+; + SPR_RAWLEN must stay below 0x8000 (currently ends ~0x7020).
+SPRBASE equ 0x6300
+
 ; pre-shifted 16x16 sprite indices (into sprtab / psbuf)
 NSPR    equ 19
 SI_ROCK equ 0
@@ -79,6 +85,7 @@ start:
         di
         ld sp, 0xFDF0           ; above psbuf, below the IM2 ISR (0xFDFD)
         call detect_128k        ; probe paging before psbuf fills 0xC000+
+        call unpack_sprites      ; depack sprite data into SPRBASE (low RAM)
         call build_addrtab
         call build_preshift
         call ay_init
@@ -6188,6 +6195,72 @@ es_have:
 ;  PRE-SHIFTED SPRITES  -  the 16x16 blitter's shift loop, done once at
 ;  startup into psbuf, so drawing is a plain masked copy (much faster).
 ; ============================================================================
+; unpack_sprites: LZSS-depack sprpacked -> SPRBASE (SPR_RAWLEN bytes).
+; Format (matches tools/mksprites.py): [flag byte][8 items]; flag bits MSB
+; first, 1 = literal (1 byte), 0 = match (2 bytes V=lo|hi<<8; len=(V&15)+3,
+; off=(V>>4)+1, copied from already-output data).
+unpack_sprites:
+        ld hl, sprpacked
+        ld de, SPRBASE
+        xor a
+        ld (us_cnt), a          ; force a flag refill on the first item
+us_loop:
+        ld a, e                 ; done when DE reaches SPRBASE + SPR_RAWLEN
+        cp (SPRBASE + SPR_RAWLEN) & 0xFF
+        jr nz, us_go
+        ld a, d
+        cp (SPRBASE + SPR_RAWLEN) >> 8
+        ret z
+us_go:
+        ld a, (us_cnt)
+        or a
+        jr nz, us_have
+        ld a, (hl)              ; reload 8 flag bits
+        inc hl
+        ld (us_flags), a
+        ld a, 8
+us_have:
+        dec a
+        ld (us_cnt), a
+        ld a, (us_flags)
+        rlca                    ; MSB -> carry (and rotate)
+        ld (us_flags), a
+        jr nc, us_match
+        ld a, (hl)              ; literal
+        inc hl
+        ld (de), a
+        inc de
+        jr us_loop
+us_match:
+        ld c, (hl)              ; V low
+        inc hl
+        ld b, (hl)              ; V high
+        inc hl
+        push hl                 ; save the compressed-stream pointer
+        ld a, c
+        and 0x0F
+        add a, 3                ; A = length (3..18)
+        push af
+        srl b
+        rr c
+        srl b
+        rr c
+        srl b
+        rr c
+        srl b
+        rr c                    ; BC = V >> 4
+        inc bc                  ; BC = offset
+        ld h, d
+        ld l, e                 ; HL = dst
+        or a
+        sbc hl, bc              ; HL = dst - offset = match source
+        pop af
+        ld c, a
+        ld b, 0                 ; BC = length
+        ldir                    ; overlapping forward copy; DE advances
+        pop hl                  ; restore the compressed-stream pointer
+        jr us_loop
+
 build_preshift:
         ld hl, psbuf
         ld (ps_dst), hl
@@ -6512,6 +6585,7 @@ esh_have:
 ;  DATA
 ; ============================================================================
         include "src/sprites.inc"
+        include "src/sprpack.inc"
 
 ; worlds_tab entry: border, spawn-period, sky, mid, ground attributes
 ; (all attrs bright | paper | white ink; banded backdrop top->bottom)
@@ -6847,6 +6921,8 @@ xc_tmp:   defb 0
 row_y:    defb 0
 scr_addr: defw 0
 shbuf:    defb 0,0,0,0,0,0
+us_flags: defb 0
+us_cnt:   defb 0
 
 sprtab:
         dw spr_rock, spr_rock2, spr_enemy, spr_crystal, spr_crystal2
