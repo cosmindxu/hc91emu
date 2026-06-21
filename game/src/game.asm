@@ -48,6 +48,8 @@ start:
         ld sp, 0xEFFF
         call build_addrtab
         call build_preshift
+        call ay_init
+        call setup_im2          ; rock-steady 50 Hz game clock
         ld a, r
         ld (seed), a
         call init_hiscores
@@ -55,6 +57,33 @@ start:
         ld (state), a           ; 0 = title
         call show_title
         ei
+        jp main_loop            ; (do not fall through into setup_im2)
+
+; setup_im2: vector table of 0xFD at 0xFE00 -> ISR jp at 0xFDFD
+setup_im2:
+        ld hl, 0xFE00
+        ld (hl), 0xFD
+        ld de, 0xFE01
+        ld bc, 256
+        ldir
+        ld a, 0xC3              ; JP opcode
+        ld (0xFDFD), a
+        ld hl, im2_isr
+        ld (0xFDFE), hl
+        ld a, 0xFE
+        ld i, a
+        im 2
+        ret
+
+im2_isr:
+        push af
+        push hl
+        ld hl, tick
+        inc (hl)
+        pop hl
+        pop af
+        ei
+        ret
 
 main_loop:
         halt                    ; sync to 50 Hz frame interrupt
@@ -743,6 +772,7 @@ play_frame:
         call erase_ship
         call uncolor_ship       ; clear old ship colour cells
         call read_input
+        call do_cheats
         call do_fire
         call do_bullets
         call do_objects
@@ -787,6 +817,7 @@ pf_skipship:
         dec hl
         ld (bonus_timer), hl
 pf_nobonus:
+        call do_music
         call engine_drone
         ; screen-shake / border-flash decay
         call do_shake
@@ -912,6 +943,41 @@ read_joy:
         ret
 rj_none:
         xor a
+        ret
+
+; do_cheats: I=invincible (hold), G=grant power-ups (hold), K=skip zone
+do_cheats:
+        ld bc, 0xDFFE           ; I
+        in a, (c)
+        bit 2, a
+        jr nz, ch_noi
+        ld a, 40
+        ld (invuln), a
+ch_noi:
+        ld bc, 0xFDFE           ; G
+        in a, (c)
+        bit 4, a
+        jr nz, ch_nog
+        ld a, 1
+        ld (pw_twin), a
+        ld (pw_rapid), a
+        ld (pw_shield), a
+        ld (pw_speed), a
+ch_nog:
+        ld bc, 0xBFFE           ; K -> next zone (edge)
+        in a, (c)
+        bit 2, a
+        jr nz, ch_kup
+        ld a, (cheat_kprev)
+        or a
+        ret nz
+        ld a, 1
+        ld (cheat_kprev), a
+        call next_world
+        ret
+ch_kup:
+        xor a
+        ld (cheat_kprev), a
         ret
 
 ; input handlers just record intent (-1 / +1); apply_inertia does the rest
@@ -1747,6 +1813,7 @@ se_free:
         ld (ix+1), a
         ld a, (spr_y)
         ld (ix+2), a
+        call ay_noise_burst     ; 128K: explosion noise
         ret
 
 do_explosions:
@@ -2122,6 +2189,100 @@ engine_drone:
         ld de, 4
         call sfx_tone
         ret
+
+; ============================================================================
+;  128K AY-3-8912 MUSIC + NOISE
+;  Writes to the PSG ports do nothing on a 48K machine, so this is safe to
+;  drive unconditionally; on the HC-128 it plays a tune + explosion noise.
+; ============================================================================
+; ay_w: D = register, E = value
+ay_w:
+        ld bc, 0xFFFD
+        out (c), d
+        ld b, 0xBF
+        out (c), e
+        ret
+
+ay_init:
+        ld d, 7                 ; mixer: channel A tone only
+        ld e, 0x3E
+        call ay_w
+        ld d, 8                 ; channel A volume
+        ld e, 12
+        call ay_w
+        ld d, 9
+        ld e, 0
+        call ay_w
+        ld d, 10
+        ld e, 0
+        call ay_w
+        ret
+
+; ay_noise_burst: brief explosion noise on channel C
+ay_noise_burst:
+        ld d, 6                 ; noise period
+        ld e, 6
+        call ay_w
+        ld d, 7                 ; mixer: A tone + C noise
+        ld e, 0x1E
+        call ay_w
+        ld d, 10                ; channel C volume
+        ld e, 15
+        call ay_w
+        ld a, 4
+        ld (ay_noise_t), a
+        ret
+
+do_music:
+        ld a, (ay_noise_t)      ; clear the noise burst when it ends
+        or a
+        jr z, dm_lead
+        dec a
+        ld (ay_noise_t), a
+        jr nz, dm_lead
+        ld d, 7
+        ld e, 0x3E
+        call ay_w
+        ld d, 10
+        ld e, 0
+        call ay_w
+dm_lead:
+        ld a, (mus_div)
+        inc a
+        ld (mus_div), a
+        and 7
+        ret nz                  ; advance the melody every 8 frames
+        ld a, (mus_idx)
+        inc a
+        and 15
+        ld (mus_idx), a
+        ld e, a
+        ld d, 0
+        ld hl, music_a
+        add hl, de
+        ld a, (hl)              ; note index
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, note_tab
+        add hl, de
+        ld e, (hl)              ; period low
+        inc hl
+        ld d, (hl)              ; period high
+        push de
+        ld d, 0                 ; reg0 = period low
+        call ay_w
+        pop de
+        ld a, d
+        ld e, a
+        ld d, 1                 ; reg1 = period high
+        call ay_w
+        ret
+
+note_tab:
+        dw 504, 423, 377, 336, 283, 252, 212, 168
+music_a:
+        db 0,2,4,5, 4,2,0,2, 1,3,5,6, 5,3,1,3
 
 ; ============================================================================
 ;  SPAWNING
@@ -3674,6 +3835,11 @@ sp_type:      defb 0
 sp_yv:        defb 0
 bonus_timer:  defw 0
 next_life:    defw 1000
+mus_div:      defb 0
+mus_idx:      defb 0
+ay_noise_t:   defb 0
+tick:         defb 0
+cheat_kprev:  defb 0
 
 zone_names:   dw zn0, zn1, zn2, zn3
 zn0:          db "ASTEROID BELT",0
