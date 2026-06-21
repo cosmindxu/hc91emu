@@ -179,9 +179,10 @@ colour (white pieces read as an outline with the square showing through).
 White pieces have two display modes, toggled in-game with **`W`** (shown on
 the panel as `W:<mode>`): **Outline** (the default — a black contour with
 the square colour showing through) or **Filled** (a solid white silhouette
-with no contour, on the scheme's square colour). Outline reads well on any
-square; Filled keeps the checkerboard intact but, like any solid-white
-piece, has less contrast on light squares — pick whichever you prefer.
+with no contour). A solid white body can't be seen on a light square, so in
+Filled mode each white piece sits on the scheme's dark backdrop colour
+(Classic red, Meadow green, Clean blue) for guaranteed contrast — black
+pieces and empty squares keep the checkerboard. Pick whichever you prefer.
 
 The board colour scheme is switchable in-game with **`C`** (shown on the
 panel as `C:<name>`): **Classic** (yellow/red, the default), **Meadow**
