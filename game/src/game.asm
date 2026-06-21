@@ -3990,20 +3990,25 @@ dc_ceil:
         ld a, (dc_ch)           ; solid while k < ceil_h
         ld hl, dc_k
         cp (hl)
-        ld a, 0xFF
         jr z, dc_cclr
-        jr nc, dc_cdraw
+        jr c, dc_cclr
+        ld a, (dc_ch)           ; lip = inner-most solid cell (k == ceil_h-1)
+        dec a
+        cp (hl)
+        ld hl, ceil_lip
+        jr z, dc_cset
+        ld hl, rock_tile
+        jr dc_cset
 dc_cclr:
-        xor a
-dc_cdraw:
-        ld (dc_val), a
+        ld hl, zero_tile
+dc_cset:
+        ld (cf_ptr), hl
         ld a, (dc_k)
         add a, 2                ; cell row = 2 + k
         ld b, a
         ld a, (dc_c)
         ld c, a
-        ld a, (dc_val)
-        call cell_fill
+        call cell_tile
         ld a, (dc_k)
         inc a
         ld (dc_k), a
@@ -4016,21 +4021,26 @@ dc_floor:
         ld a, (dc_fh)           ; solid while k < floor_h (from the bottom up)
         ld hl, dc_k
         cp (hl)
-        ld a, 0xFF
         jr z, dc_fclr
-        jr nc, dc_fdraw
+        jr c, dc_fclr
+        ld a, (dc_fh)           ; lip = inner-most solid cell (k == floor_h-1)
+        dec a
+        cp (hl)
+        ld hl, floor_lip
+        jr z, dc_fset
+        ld hl, rock_tile
+        jr dc_fset
 dc_fclr:
-        xor a
-dc_fdraw:
-        ld (dc_val), a
+        ld hl, zero_tile
+dc_fset:
+        ld (cf_ptr), hl
         ld a, 23                ; cell row = 23 - k
         ld hl, dc_k
         sub (hl)
         ld b, a
         ld a, (dc_c)
         ld c, a
-        ld a, (dc_val)
-        call cell_fill
+        call cell_tile
         ld a, (dc_k)
         inc a
         ld (dc_k), a
@@ -4093,6 +4103,49 @@ cf_lp:
         pop bc
         djnz cf_lp
         ret
+
+; cell_tile: copy the 8-byte pattern at (cf_ptr) into cell B=row, C=col
+cell_tile:
+        ld a, b
+        add a, a
+        add a, a
+        add a, a                ; pixel row = cellrow*8
+        ld (cf_pr), a
+        ld hl, (cf_ptr)
+        ld (cf_src), hl
+        ld b, 8
+ctl_lp:
+        push bc
+        ld a, (cf_pr)
+        ld l, a
+        ld h, 0
+        add hl, hl
+        ld de, addrtab
+        add hl, de
+        ld e, (hl)
+        inc hl
+        ld d, (hl)
+        ld a, c
+        ld l, a
+        ld h, 0
+        add hl, de              ; HL = screen byte
+        ld de, (cf_src)
+        ld a, (de)
+        ld (hl), a
+        inc de
+        ld (cf_src), de
+        ld a, (cf_pr)
+        inc a
+        ld (cf_pr), a
+        pop bc
+        djnz ctl_lp
+        ret
+
+; cave wall tiles (8 rows). Subtle rock texture + serrated inner-edge lips.
+rock_tile:    db 0xFF,0xFB,0xFF,0xEF,0xFF,0xFD,0xFF,0xBF
+ceil_lip:     db 0xFF,0xFB,0xFF,0xEF,0xFF,0xFF,0xAA,0x44
+floor_lip:    db 0x44,0xAA,0xFF,0xFF,0xFB,0xFF,0xEF,0xFF
+zero_tile:    db 0,0,0,0,0,0,0,0
 
 ; cave_collide: crash if the ship overlaps a wall at its centre column
 cave_collide:
@@ -5689,6 +5742,8 @@ dc_k:         defb 0
 dc_val:       defb 0
 cf_val:       defb 0
 cf_pr:        defb 0
+cf_ptr:       defw 0
+cf_src:       defw 0
 ss_base:      defb 0
 ss_row:       defb 0
 ss_tile:      defw 0
