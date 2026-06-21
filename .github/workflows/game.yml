@@ -1,0 +1,52 @@
+# CI for the STELLAR DRIFT game: assemble it and run headless smoke tests
+# against the emulator (build, screenshot and beeper-WAV capture).
+name: game
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pasmo (Z80 assembler)
+        run: sudo apt-get update && sudo apt-get install -y pasmo
+
+      - name: Build the emulator
+        run: make
+
+      - name: Fetch ROMs (needed to run the emulator)
+        run: tools/get_roms.sh
+
+      - name: Build the game (.tap/.tzx + loading screen)
+        run: cd game && bash build.sh
+
+      - name: Check artefacts exist and are non-empty
+        run: |
+          test -s game/build/game.tap
+          test -s game/build/game.tzx
+          test -s game/build/game.bin
+
+      - name: Smoke test - boot, start and play a few hundred frames
+        run: |
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1500-1508:F" --joy "1540-1900:F" \
+            --frames 1900 --screenshot /tmp/play.png \
+            --save-scr /tmp/play.scr game/build/game.tap
+          test -s /tmp/play.png
+          # the HUD text must be present once we are in-game
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1500-1508:F" --joy "1540-1900:F" --frames 1900 --text \
+            game/build/game.tap | tee /tmp/screen.txt
+          grep -q "ASTEROID BELT" /tmp/screen.txt
+
+      - name: Smoke test - 128K AY audio capture
+        run: |
+          ./build/hc91emu --machine hc128 --rom roms/hc-128.rom \
+            --rom1 roms/hc-128.rom --autoload --kempston \
+            --joy "1500-1520:F" --joy "1560-2000:F" --frames 1900 \
+            --wav /tmp/ay.wav game/build/game.tap
+          test -s /tmp/ay.wav

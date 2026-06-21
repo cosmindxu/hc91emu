@@ -1,43 +1,45 @@
 # STELLAR DRIFT
 
-A small cave-flyer for the **HC-91 / ZX Spectrum 48K**, written in Z80
-assembly. You pilot a side-on spaceship cruising left-to-right through a
-series of colour-themed *zones*: **dodge** the asteroids and enemy craft,
-**shoot** what you can, and **collect** crystals for score — with beeper
-sound effects throughout.
+A cave-flyer for the **HC-91 / ZX Spectrum 48K** (with **128K** extras),
+written in Z80 assembly. You pilot a side-on spaceship cruising
+left-to-right through a series of colour-themed *zones*: **dodge** the
+asteroids and enemy fire, **shoot** what you can, **collect** crystals and
+power-ups, and **beat the zone boss** — with beeper sound effects on 48K and
+an AY soundtrack on 128K.
 
 ![title](docs/title.png)
 ![gameplay](docs/play.png)
 
 ## Controls
 
-| Action | Keyboard | Kempston |
-|--------|----------|----------|
-| Up     | **Q**    | up       |
-| Down   | **A**    | down     |
-| Left   | **O**    | left     |
-| Right  | **P**    | right    |
-| Fire   | **Space**| fire     |
+| Action | QAOP | Cursor | Kempston |
+|--------|------|--------|----------|
+| Up     | **Q** | **7** | up   |
+| Down   | **A** | **6** | down |
+| Left   | **O** | **5** | left |
+| Right  | **P** | **8** | right|
+| Fire   | **Space** | **Space** | fire |
 
-Press **Fire** on the title screen to start, and again after **GAME OVER**.
-Hold **Fire** to stream shots (auto-repeat on a short cooldown).
+Pick **QAOP** or **Cursor** keys on the title (keys **1** / **2**); the
+Kempston joystick is always live. **H** pauses. Press **Fire** to start and
+to continue after **GAME OVER**; hold Fire to stream shots.
+
+*Cheat keys (QA):* hold **I** for invincibility, hold **G** for all
+power-ups, press **K** to skip a zone.
 
 ## Gameplay
 
-- **Asteroids** (●) and **enemy craft** drift in from the right. Touching one
-  costs a life; you respawn with a few seconds of (blinking) invulnerability.
-- **Crystals** (◆) are worth **10** points — fly into them.
-- Your shots destroy asteroids and enemies for **5** points each.
-- Every ~15 seconds you advance a **zone**. Each zone re-tints the world and
-  spawns hazards faster. Four zones cycle: black → blue → red → magenta.
-- You start with **3 ships**. Lose them all and it's game over.
-
-Colour: the cyan ship, white asteroids, green enemies and yellow crystals
-each get their own ink over the zone's palette. Sound: shots, explosions,
-pickups and zone changes all play on the 48K beeper.
-
-See **`ROADMAP.md`** for where this is heading (loading screen, 128K AY
-music, enemy patterns, power-ups, high-score table, and more).
+- **Asteroids** and **enemy craft** arrive in scripted waves; enemies weave
+  and shoot back. Touching a hazard or being hit costs a life (you respawn
+  with brief invulnerability).
+- **Crystals** are **+10**; shooting a hazard is **+5**; the boss is **+200**.
+- **Power-up pods** grant, in turn: spread shot, rapid fire, a shield, and a
+  speed boost (shown as **T R S F** in the HUD).
+- Each zone ends with a **boss**; beat it for a bonus and a **BONUS STAGE**
+  crystal run, then the next zone. Four named zones cycle (Asteroid Belt,
+  Nebula, Inferno, Verdant Reach), each denser than the last.
+- **Extra life** every 1000 points. Make the **high-score table** and enter
+  your initials.
 
 ## Building
 
@@ -45,54 +47,55 @@ Needs a Z80 assembler (`pasmo`) and Python 3:
 
 ```sh
 sudo apt-get install -y pasmo        # one-time
-./build.sh                           # -> build/game.tap
+./build.sh                           # -> build/game.tap and build/game.tzx
 ```
 
-`build.sh` runs three steps:
+`build.sh`:
 1. `tools/mksprites.py` — turns the ASCII-art sprites into `src/sprites.inc`.
 2. `pasmo` — assembles `src/game.asm` to a raw binary at `$8000`.
-3. `tools/mktap.py` — wraps it in a `.tap` with a BASIC autoloader.
+3. captures the title as a **loading screen** (`build/loading.scr`) by
+   running the emulator once.
+4. `tools/mktap.py` — wraps the binary + loading screen into a `.tap` (and a
+   `.tzx`) with a BASIC autoloader (`LOAD ""SCREEN$: LOAD ""CODE`).
 
 ## Running
 
-In the emulator at the repo root:
-
 ```sh
-# interactive (SDL window; Tab = turbo)
-../build/hc91emu --autoload --kempston --sdl game/build/game.tap
+# interactive (SDL window; Tab = turbo).  Use 128K for the AY soundtrack:
+../build/hc91emu --machine hc128 --autoload --kempston --sdl game/build/game.tap
 
 # headless screenshot (handy for development)
 ../build/hc91emu --autoload --turbo --kempston \
-    --joy "1300-1308:F" --frames 1600 \
+    --joy "1500-1508:F" --frames 1700 \
     --screenshot shot.png game/build/game.tap
 ```
 
-`game/build/game.tap` also loads in any ZX Spectrum 48K emulator or on real
-hardware.
+`game/build/game.tap` / `.tzx` also load in any ZX Spectrum emulator or on
+real hardware. On a 48K machine the AY writes are ignored (beeper still
+plays); on a 128K/HC-128 the soundtrack and explosion noise come alive.
 
 ## How it works
 
 The whole game is one Z80 source file, `src/game.asm`:
 
-- **`build_addrtab`** precomputes the 192 screen-row addresses (the Spectrum's
-  display memory is interleaved), so plotting is a table lookup, not a
-  bit-twiddle, every frame.
-- **`draw_sprite` / `erase_sprite`** are a masked 16×16 blitter. Each sprite
-  row is `(data, mask)`; the routine shifts both right by `x & 7` across three
-  bytes and writes `screen = (screen AND mask) OR data`, so sprites move with
-  single-pixel precision and let the background show through. The player ship
-  uses a wider **24×16** variant (`draw_ship`) so it can carry detail —
-  antenna, cockpit/panel windows and fins.
-- Everything moving is an entry in a small fixed array (`objs`, `bullets`,
-  `stars`); each frame it is erased at its old position, updated, collided, and
-  redrawn — the classic flicker-light Spectrum approach.
-- Text (HUD, title) is blitted 8×8 from the **ROM font** at `$3C00`.
-- **Colour** is added by painting a 3×3 attribute block under each sprite
-  with the object's ink over the zone paper, and clearing it back on erase.
-- **Sound** is the 48K beeper: square-wave tones via bit 4 of port `$254`,
-  preserving the current border colour, with a noise burst for explosions.
-- Input reads the keyboard half-rows directly and the Kempston port `$1F`
-  (rejecting the floating-bus reading when no interface is present).
+- **`build_addrtab`** precomputes the 192 interleaved screen-row addresses.
+- **Pre-shifted sprites** (`build_preshift` → `psbuf`): every 16×16 sprite's
+  eight sub-cell shifts are computed once at startup, so `draw_sprite_ps` is a
+  plain masked copy with no per-row shift loop. The player ship and boss use a
+  wider **24×16** blitter (`draw_ship`).
+- Everything moving is an entry in a fixed array (objects, bullets, enemy
+  bullets, explosions, stars); each is erased, updated, collided and redrawn
+  per frame, with the player drawn last (on top).
+- **Banded backdrops** (`attr_row`) give each zone sky/mid/ground colour
+  bands; the attribute blitter paints per row so sprites never bleed across.
+- **Scrolling cave terrain** (ceiling + floor) and a **3-layer parallax**
+  starfield sell the flight.
+- **Sound**: 48K beeper SFX (border-preserving square waves) plus a 128K AY
+  melody and noise channel.
+- **IM2** interrupt clock; the HUD only repaints values that changed.
+- Input reads the keyboard half-rows directly and the Kempston port `$1F`.
+
+See **`ROADMAP.md`** — every item is implemented (✅).
 
 ## Files
 
@@ -100,6 +103,7 @@ The whole game is one Z80 source file, `src/game.asm`:
 src/game.asm       the game
 src/sprites.inc    generated sprite data (do not edit by hand)
 tools/mksprites.py ASCII-art -> sprite data
-tools/mktap.py     raw binary -> .tap with BASIC loader
+tools/mktap.py     raw binary -> .tap / .tzx with BASIC loader + screen
 build.sh           build everything
+.github/workflows/game.yml   CI: assemble + headless smoke tests
 ```

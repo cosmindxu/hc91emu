@@ -13,19 +13,29 @@ the game loads.
 import sys, struct, os
 
 
-def tap_block(flag, data):
+def block_body(flag, data):
+    """Return flag + data + XOR checksum (the tape block payload)."""
     body = bytes([flag]) + data
     chk = 0
     for b in body:
         chk ^= b
-    body += bytes([chk])
+    return body + bytes([chk])
+
+
+def tap_block(flag, data):
+    body = block_body(flag, data)
     return struct.pack("<H", len(body)) + body
 
 
-def header(ftype, name, length, p1, p2):
+def header_body(ftype, name, length, p1, p2):
     name = name.encode("ascii")[:10].ljust(10, b" ")
-    return tap_block(0x00, bytes([ftype]) + name +
-                     struct.pack("<HHH", length, p1, p2))
+    return block_body(0x00, bytes([ftype]) + name +
+                      struct.pack("<HHH", length, p1, p2))
+
+
+def header(ftype, name, length, p1, p2):
+    body = header_body(ftype, name, length, p1, p2)
+    return struct.pack("<H", len(body)) + body
 
 
 # BASIC tokens we use
@@ -43,6 +53,17 @@ def basic_loader(org, with_screen):
     return struct.pack(">H", 10) + struct.pack("<H", len(line)) + line
 
 
+def write_tzx(path, blocks):
+    """Standard-speed .tzx: header + one 0x10 block per tape block."""
+    out = b"ZXTape!\x1a\x01\x14"          # signature + version 1.20
+    for body in blocks:
+        out += bytes([0x10])              # standard-speed data block
+        out += struct.pack("<H", 1000)    # 1000 ms pause after
+        out += struct.pack("<H", len(body))
+        out += body
+    open(path, "wb").write(out)
+
+
 def main():
     binf, outf = sys.argv[1], sys.argv[2]
     org = int(sys.argv[3]) if len(sys.argv) > 3 else 32768
@@ -51,16 +72,19 @@ def main():
     has_scr = bool(scrf) and os.path.exists(scrf) and os.path.getsize(scrf) == 6912
     code = open(binf, "rb").read()
     prog = basic_loader(org, has_scr)
-    tap = b""
-    tap += header(0, name, len(prog), 10, len(prog))   # program, autostart line 10
-    tap += tap_block(0xFF, prog)
+    blocks = [header_body(0, name, len(prog), 10, len(prog)),
+              block_body(0xFF, prog)]
     if has_scr:
         scr = open(scrf, "rb").read()
-        tap += header(3, name, 6912, 16384, 0x8000)     # SCREEN$
-        tap += tap_block(0xFF, scr)
-    tap += header(3, name, len(code), org, 0x8000)      # code at ORG
-    tap += tap_block(0xFF, code)
+        blocks.append(header_body(3, name, 6912, 16384, 0x8000))
+        blocks.append(block_body(0xFF, scr))
+    blocks.append(header_body(3, name, len(code), org, 0x8000))
+    blocks.append(block_body(0xFF, code))
+    # .tap = each block prefixed with its length
+    tap = b"".join(struct.pack("<H", len(b)) + b for b in blocks)
     open(outf, "wb").write(tap)
+    if outf.endswith(".tap"):
+        write_tzx(outf[:-4] + ".tzx", blocks)
     print(f"wrote {outf}: {len(code)} code bytes, org {org}, screen={has_scr}")
 
 
