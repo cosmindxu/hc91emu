@@ -1171,6 +1171,15 @@ utStale:
         call setMsg
         ret
 utHas:
+        call countReps
+        cp 3
+        jr c,utMatChk
+        ld a,4
+        ld (gameState),a
+        ld hl,msgRep
+        call setMsg
+        ret
+utMatChk:
         call isInsufficient
         or a
         jr z,utHm
@@ -1244,4 +1253,46 @@ iiNext:
         ret
 iiNo:
         xor a
+        ret
+
+; record the current position key in the game history (for repetition)
+recordGameKey:
+        ld a,(gameKeyN)
+        cp 250
+        ret nc
+        ld e,a
+        ld d,0
+        ld hl,gameKeys
+        add hl,de
+        add hl,de
+        ld de,(hashKey)
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        ld a,(gameKeyN)
+        inc a
+        ld (gameKeyN),a
+        ret
+
+; countReps -> A = how many times hashKey appears in the game history
+countReps:
+        ld a,(gameKeyN)
+        or a
+        ret z
+        ld b,a
+        ld c,0
+        ld hl,gameKeys
+crLp:   ld e,(hl)
+        inc hl
+        ld d,(hl)
+        inc hl
+        ld a,(hashKey)
+        cp e
+        jr nz,crNo
+        ld a,(hashKey+1)
+        cp d
+        jr nz,crNo
+        inc c
+crNo:   djnz crLp
+        ld a,c
         ret
