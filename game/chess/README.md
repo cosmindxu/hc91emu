@@ -152,8 +152,12 @@ machine it grows to 64 KB (8192 buckets) hosted across the four spare
 RAM banks, paged through `0x7FFD` into the `0xC000` window with a
 register-only access inside a `DI`/`EI` guard so the workspace and stack
 (also up there) stay coherent. Moves are ordered TT-move → PV →
-MVV-LVA captures → killers → quiet. Mate scores carry the ply so the
-engine prefers the quickest mate and the longest defence.
+MVV-LVA captures (with a cheap **static-exchange** check that demotes
+captures losing material on a defended square) → killers → quiet. Mate
+scores carry the ply so the engine prefers the quickest mate and the
+longest defence. Iterative deepening is **clock-aware**: once a move has
+spent its slice of the remaining clock it stops before the next, slower
+iteration, so the engine paces itself instead of always paying full depth.
 
 ### Evaluation — tapered material + piece-square tables
 Leaf positions score material (P=100, N=320, B=330, R=500, Q=900
