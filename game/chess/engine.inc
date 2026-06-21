@@ -770,7 +770,9 @@ ppLoop:
         ; white pawn: clear if no black pawns on f-1,f,f+1
         ld a,c
         and 7
+        push bc                 ; adjBlackPawns clobbers C (the loop square)
         call adjBlackPawns
+        pop bc
         or a
         jr nz,ppNext
         ; bonus = PASSED * rank
@@ -788,7 +790,9 @@ ppLoop:
 ppBlack:
         ld a,c
         and 7
+        push bc                 ; adjWhitePawns clobbers C (the loop square)
         call adjWhitePawns
+        pop bc
         or a
         jr nz,ppNext
         ld a,c
