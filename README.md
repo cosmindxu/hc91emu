@@ -147,19 +147,22 @@ README carries the full index.
 scratch in Z80 assembly for this machine. Chess programs are as old as
 home computing, so the interesting part is not the genre but the build:
 modern open-source engines (Stockfish/Leela, lichess) are mined for their
-algorithms, which are then re-derived under 8-bit constraints — a 0x88
-board, direction-offset move generation with full
-castling/en-passant/promotion, check/mate/stalemate detection, and a
-negamax search with material + piece-square evaluation and selectable
-strength. Two things set it apart from a typical retro port: the search
-is deliberately structured (a `searchPly`-indexed frame) so alpha-beta,
-PVS and a transposition table slot in without a rewrite, and the whole
-thing is verified **headlessly and reproducibly** by this emulator's own
-harness — `make test` golden-checks the rendered board and confirms the
-engine answers 1.e4 with a legal reply. It assembles with `pasmo` into a
-bootable tape (`cd game/chess && make`) and runs on every supported
-machine. The phased plan from this Foundation to a club-strength engine
-with quiescence, transposition tables, an opening book and analysis mode
+algorithms, which are then re-derived under 8-bit constraints. It is a
+real, searching engine — **0x88** move generation with full
+castling/en-passant/promotion; **negamax alpha-beta** with iterative
+deepening, **quiescence**, **null-move pruning** and an 8 KB
+**transposition table** keyed by an incremental **Zobrist** hash;
+ordering by TT/PV/MVV-LVA/killers; a **tapered** evaluation; and full
+draw detection (threefold, fifty-move, insufficient material). Two things
+set it apart from a typical retro port: it is verified **headlessly and
+reproducibly** — `make test` golden-checks the board, confirms the
+engine answers 1.e4, and runs a **perft** self-test (start position to
+depth 4 plus Kiwipete/en-passant/promotion, 197281 nodes and friends)
+that also checks the Zobrist key against a from-scratch recompute; and it
+ships with two-player mode, take-back, and an on-board analysis readout.
+It assembles with `pasmo` into a bootable tape (`cd game/chess && make`)
+and runs on every supported machine. The phase-by-phase status
+(Foundation → Stabilization → Improvement → Optimization → Excellence)
 is in [`game/chess/ROADMAP.md`](game/chess/ROADMAP.md).
 
 ## ROMs

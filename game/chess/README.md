@@ -15,21 +15,28 @@ from "legal and playable" to "club-strength with analysis" are in
 
 ## Status
 
-**Phase 1 (Foundation) is complete and playable.** You get a full,
-rules-correct game against a real search:
+**Phases 1–4 are implemented and tested; Phase 5's core is in place.**
+It is a full, rules-correct game against a genuinely searching engine:
 
-- 0x88 board, full legal move generation including **castling, en passant
-  and promotion**
-- check / checkmate / stalemate / fifty-move detection, "Check!" alerts
-- a **negamax** search with material + **piece-square-table** evaluation,
-  selectable strength (depth 1–5)
-- a 16×16-piece graphical board with cursor input, labels, status line,
-  board flip and new-game
+- **0x88** board; full legal move generation incl. **castling, en
+  passant, promotion**; checkmate / stalemate / fifty-move / **threefold
+  repetition** / **insufficient-material** draws
+- **negamax alpha-beta** with **iterative deepening**, **quiescence**,
+  **null-move pruning**, and an 8 KB **transposition table** keyed by an
+  incrementally-maintained **Zobrist** hash
+- move ordering by **TT move + PV + MVV-LVA + killer moves**
+- **tapered** evaluation (endgame king centralisation), **bishop pair**,
+  **doubled/isolated pawns**, material + piece-square tables
+- **perft self-test** (press `T`) proving the move generator against the
+  canonical counts — start position to depth 4 plus Kiwipete, an
+  en-passant and a promotion position — and verifying the Zobrist key
+- **two-player** mode, **take-back/undo**, and an **analysis readout**
+  (the engine's last move + evaluation), selectable strength (depth 1–5),
+  board flip, new game
 
-See the roadmap for Stabilization (perft, repetition, notation),
-Improvement (quiescence, ordering, king safety, opening book),
-Optimization (PVS, transposition table, pruning, 128K banking) and
-Excellence (endgame knowledge, analysis mode, game I/O, UCI bridge).
+See [ROADMAP.md](ROADMAP.md) for the phase-by-phase status and the
+remaining "excellence" items (opening book, KQK/KRK endgame logic,
+PVS/LMR, FEN + save/load, clocks, AY sound, 128K-banked TT, UCI bridge).
 
 ## Build & run
 
@@ -66,13 +73,17 @@ ROM character set, so it is fully 48K-compatible.
 | `O` / `P` | move cursor left / right a file |
 | `ENTER` / `SPACE` | pick up the piece under the cursor; move it; or deselect |
 | `1`–`5` | set engine strength (search depth) |
+| `Z` | take back / undo |
+| `V` | toggle two-player (human vs human) |
 | `F` | flip the board |
 | `N` | new game |
+| `T` | run the perft + Zobrist self-test |
 
 You play White (bottom). Select your piece, move the cursor to the
 destination and confirm. Promotions auto-queen for now (a Q/R/B/N chooser
-is a Stabilization-phase item). When the game ends, `SPACE` or `N` starts
-a new one.
+is a planned refinement). When the game ends, `SPACE` or `N` starts a new
+one. The panel to the right shows the level and, after each engine move,
+its move and evaluation.
 
 ## How it works (the 8-bit engine)
 
@@ -107,24 +118,28 @@ updates the board, king cache, castling rights, en-passant square,
 halfmove clock and side, pushing everything needed onto a per-ply undo
 stack so `unmakeMove` is exact — the foundation every search needs.
 
-### Search — negamax (α-β ready)
-The search is a clean fixed-depth **negamax**: one routine that scores a
-position from the side-to-move's perspective and recurses. Mate scores
-carry the ply so the engine prefers the quickest mate and the longest
-defence. The per-ply state (best score, move pointer, remaining count,
-depth) lives in `searchPly`-indexed arrays rather than on the hardware
-stack, which is exactly the frame α-β, PVS, killers and a transposition
-table slot into during the Optimization phase — no rewrite required.
+### Search — alpha-beta negamax
+A **negamax alpha-beta** search over `searchPly`-indexed frames (best
+score, alpha/beta, move pointer, depth — kept in RAM, not on the
+hardware stack). On top of it: **iterative deepening** (carrying the
+previous depth's best move forward as a PV hint), a **quiescence**
+search at the leaves (captures + promotions, stand-pat) to kill the
+horizon effect, **null-move pruning**, and an 8 KB **transposition
+table** keyed by a 16-bit **Zobrist** hash that is maintained
+incrementally in make/unmake and verified against a from-scratch
+recompute in the perft self-test. Moves are ordered TT-move → PV →
+MVV-LVA captures → killers → quiet. Mate scores carry the ply so the
+engine prefers the quickest mate and the longest defence.
 
-### Evaluation — material + piece-square tables
-Leaf positions are scored as material (P=100, N=320, B=330, R=500,
-Q=900 centipawns) plus a **piece-square table** for each piece that
-encodes classical chess knowledge: knights belong in the centre, rooks on
-the seventh, kings castled and tucked away in the middlegame, pawns
-rewarded for advancing. Black's tables are White's mirrored by one XOR.
-This captures most of what a hand-crafted classical evaluator does; the
-roadmap tapers it (middlegame/endgame blend) and adds pawn structure and
-king safety.
+### Evaluation — tapered material + piece-square tables
+Leaf positions score material (P=100, N=320, B=330, R=500, Q=900
+centipawns) plus a **piece-square table** per piece (knights to the
+centre, rooks to the seventh, pawns rewarded for advancing; Black's
+tables are White's mirrored by one XOR). The king table is **tapered**:
+a middlegame table that keeps the king tucked away switches, below a
+non-pawn material threshold, to an endgame table that centralises it.
+Added on top: a **bishop-pair** bonus and **doubled / isolated** pawn
+penalties.
 
 ### Display
 The 8×8 board is drawn as 2×2 character cells per square (128×128 px),
@@ -137,11 +152,14 @@ character set, so nothing here depends on paging the ROM out.
 
 | File | Purpose |
 |------|---------|
-| `chess.asm` | entry, game loop, board state, display, keyboard, UI |
-| `movegen.inc` | 0x88 move generation, attacks, make/unmake, legal filter, terminal detection |
-| `engine.inc` | evaluation, negamax search, material & piece-square tables |
+| `chess.asm` | entry, game loop, board state, display, keyboard, UI, take-back |
+| `movegen.inc` | 0x88 move generation (incl. castling), attacks, make/unmake, legal filter, draws |
+| `engine.inc` | alpha-beta + quiescence + null-move search, ordering, tapered eval, tables |
+| `zobrist.inc` | incremental Zobrist hashing + from-scratch key recompute |
+| `tt.inc` | transposition table probe/store and per-ply search-array pointers |
+| `perft.inc` | perft node counter, position loader, and the self-test screen |
 | `pieces.py` → `pieces.inc` | 16×16 piece glyph generator and its output |
-| `Makefile` | build the tape, run the smoke test, launch interactively |
+| `Makefile` | build the tape, run the smoke + perft test, launch interactively |
 | `initial_golden.png` | golden screenshot for the smoke test |
 
 The generic assemble-to-bootable-tape tool is
