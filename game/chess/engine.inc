@@ -1382,6 +1382,8 @@ ckLp:   ld (hl),0xFF
         ret
 
 aiMove:
+        call tryBook             ; CF=1 and move played if a book move applies
+        ret c
         call clearKillers
         ld a,0xFF
         ld (bestFrom),a
@@ -1481,6 +1483,120 @@ aidDone:
         ld (searchPly),a
         call makeMove
         ret
+
+; tryBook — if it is Black's first reply and the human's move is in the
+; opening book, play the booked reply.  Returns CF=1 if a move was made.
+tryBook:
+        ld a,(sideToMove)
+        cp 8
+        jr nz,tbNo
+        ld a,(moveCount)
+        cp 1
+        jr nz,tbNo
+        ld a,(moveCount+1)
+        or a
+        jr nz,tbNo
+        ld hl,bookTable
+tbLoop:
+        ld a,(hl)
+        cp 0xFF
+        jr z,tbNo
+        ld a,(humanLastFrom)
+        cp (hl)
+        jr nz,tbNext
+        inc hl
+        ld a,(humanLastTo)
+        cp (hl)
+        jr nz,tbNext2
+        inc hl
+        ld a,(hl)
+        ld (mvFrom),a
+        inc hl
+        ld a,(hl)
+        ld (mvTo),a
+        xor a
+        ld (mvFlag),a
+        call bookLegal
+        jr nc,tbNo
+        xor a
+        ld (searchPly),a
+        call makeMove
+        ld a,(mvFrom)
+        ld (lastFrom),a
+        ld a,(mvTo)
+        ld (lastTo),a
+        ld a,1
+        ld (haveLast),a
+        ld hl,0
+        ld (lastScore),hl
+        scf
+        ret
+tbNext:
+        inc hl
+tbNext2:
+        inc hl
+        inc hl
+        inc hl
+        jr tbLoop
+tbNo:
+        or a
+        ret
+
+; bookLegal — CF=1 if (mvFrom,mvTo) is legal; sets mvFlag from the list.
+; genLegal clobbers mvFrom/mvTo, so save the booked move first.
+bookLegal:
+        ld a,(mvFrom)
+        ld (bkF),a
+        ld a,(mvTo)
+        ld (bkT),a
+        xor a
+        ld (searchPly),a
+        call genLegal
+        ld a,(genCount)
+        ld b,a
+        or a
+        jr z,blNo
+        call curMoveBuf
+blL:    push hl
+        ld a,(bkF)
+        cp (hl)
+        jr nz,blSkip
+        inc hl
+        ld a,(bkT)
+        cp (hl)
+        jr nz,blSkip
+        pop hl
+        ld a,(bkF)
+        ld (mvFrom),a
+        ld a,(bkT)
+        ld (mvTo),a
+        inc hl
+        inc hl
+        ld a,(hl)
+        ld (mvFlag),a
+        scf
+        ret
+blSkip:
+        pop hl
+        ld de,4
+        add hl,de
+        djnz blL
+blNo:
+        ld a,(bkF)
+        ld (mvFrom),a
+        ld a,(bkT)
+        ld (mvTo),a
+        or a
+        ret
+
+; opening book: white from,to -> black from,to (0x88 squares); 0xFF ends
+bookTable:
+        defb 0x14,0x34, 0x64,0x44   ; 1.e4 e5
+        defb 0x13,0x33, 0x63,0x43   ; 1.d4 d5
+        defb 0x06,0x25, 0x76,0x55   ; 1.Nf3 Nf6
+        defb 0x12,0x32, 0x64,0x44   ; 1.c4 e5
+        defb 0x15,0x35, 0x63,0x43   ; 1.f4 d5
+        defb 0xFF
 
 ; =====================================================================
 ;  TABLES

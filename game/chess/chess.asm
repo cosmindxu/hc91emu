@@ -145,6 +145,10 @@ osKT     equ 0xE126
 osKScore equ 0xE127
 gameUndoN equ 0xE128     ; plies on the take-back stack
 rfEval   equ 0xE129      ; (2) reverse-futility static eval
+humanLastFrom equ 0xE12B ; the human's last move (for the opening book)
+humanLastTo equ 0xE12C
+bkF      equ 0xE12D      ; book move scratch (genLegal clobbers mvFrom/To)
+bkT      equ 0xE12E
 
 killerArr equ 0xD100     ; 4 bytes/ply: k1from,k1to,k2from,k2to
 
@@ -1062,6 +1066,10 @@ hmTry:  ; if cursor is own piece, reselect
 hmTry2: ; attempt move selSq -> cursor; validate against legal list
         call validateHumanMove ; CF set if legal; mvFrom/mvTo/mvFlag set
         jr nc,hmIllegal
+        ld a,(mvFrom)
+        ld (humanLastFrom),a
+        ld a,(mvTo)
+        ld (humanLastTo),a
         xor a
         ld (searchPly),a
         call makeMove
