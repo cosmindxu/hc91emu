@@ -1,9 +1,10 @@
 # STELLAR DRIFT
 
 A small cave-flyer for the **HC-91 / ZX Spectrum 48K**, written in Z80
-assembly. You pilot a spaceship cruising left-to-right through a series of
-themed *zones*: **dodge** the asteroids and enemy craft, **shoot** what you
-can, and **collect** crystals for score.
+assembly. You pilot a side-on spaceship cruising left-to-right through a
+series of colour-themed *zones*: **dodge** the asteroids and enemy craft,
+**shoot** what you can, and **collect** crystals for score — with beeper
+sound effects throughout.
 
 ![title](docs/title.png)
 ![gameplay](docs/play.png)
@@ -19,6 +20,7 @@ can, and **collect** crystals for score.
 | Fire   | **Space**| fire     |
 
 Press **Fire** on the title screen to start, and again after **GAME OVER**.
+Hold **Fire** to stream shots (auto-repeat on a short cooldown).
 
 ## Gameplay
 
@@ -29,6 +31,13 @@ Press **Fire** on the title screen to start, and again after **GAME OVER**.
 - Every ~15 seconds you advance a **zone**. Each zone re-tints the world and
   spawns hazards faster. Four zones cycle: black → blue → red → magenta.
 - You start with **3 ships**. Lose them all and it's game over.
+
+Colour: the cyan ship, white asteroids, green enemies and yellow crystals
+each get their own ink over the zone's palette. Sound: shots, explosions,
+pickups and zone changes all play on the 48K beeper.
+
+See **`ROADMAP.md`** for where this is heading (loading screen, 128K AY
+music, enemy patterns, power-ups, high-score table, and more).
 
 ## Building
 
@@ -76,6 +85,10 @@ The whole game is one Z80 source file, `src/game.asm`:
   `stars`); each frame it is erased at its old position, updated, collided, and
   redrawn — the classic flicker-light Spectrum approach.
 - Text (HUD, title) is blitted 8×8 from the **ROM font** at `$3C00`.
+- **Colour** is added by painting a 3×3 attribute block under each sprite
+  with the object's ink over the zone paper, and clearing it back on erase.
+- **Sound** is the 48K beeper: square-wave tones via bit 4 of port `$254`,
+  preserving the current border colour, with a noise burst for explosions.
 - Input reads the keyboard half-rows directly and the Kempston port `$1F`
   (rejecting the floating-bus reading when no interface is present).
 

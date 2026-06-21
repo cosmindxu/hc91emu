@@ -11,7 +11,7 @@
 ; ---- constants -------------------------------------------------------------
 SCR     equ 0x4000          ; pixel memory
 ATTR    equ 0x5800          ; attribute memory
-MAXOBJ  equ 10              ; rocks / enemies / crystals
+MAXOBJ  equ 8               ; rocks / enemies / crystals
 MAXBUL  equ 4               ; player bullets in flight
 NSTAR   equ 16              ; parallax stars
 FONT    equ 0x3C00          ; ROM font base (char*8 + FONT)
@@ -56,6 +56,7 @@ ml_gameover:
 show_title:
         call clear_screen
         xor a
+        ld (cur_border), a
         out (254), a
         ld hl, str_title
         ld b, 8
@@ -69,10 +70,18 @@ show_title:
 
 title_poll:
         call fire_down
-        ret nz
+        jr z, tp_press
+        xor a
+        ld (menu_lock), a       ; fire released -> arm
+        ret
+tp_press:
+        ld a, (menu_lock)
+        or a
+        ret nz                  ; wait for a fresh press
         call init_game
         ld a, 1
         ld (state), a
+        ld (menu_lock), a
         ret
 
 show_gameover:
@@ -84,10 +93,19 @@ show_gameover:
 
 gameover_poll:
         call fire_down
+        jr z, gp_press
+        xor a
+        ld (menu_lock), a
+        ret
+gp_press:
+        ld a, (menu_lock)
+        or a
         ret nz
         xor a
         ld (state), a
         call show_title
+        ld a, 1
+        ld (menu_lock), a
         ret
 
 ; fire_down: Z set if Space or Kempston-fire is pressed
@@ -126,6 +144,7 @@ init_game:
         xor a
         ld (invuln), a
         ld (fire_prev), a
+        ld (fire_cd), a
         ld a, (spawn_period)
         ld (spawn_timer), a
         ld hl, 750
@@ -156,6 +175,7 @@ play_frame:
         ld a, (ship_y)
         ld (spr_y), a
         call erase_sprite
+        call uncolor_obj        ; clear old ship colour cells
         call read_input
         call do_fire
         call do_bullets
@@ -177,6 +197,8 @@ pf_drawship:
         ld a, (ship_y)
         ld (spr_y), a
         call draw_sprite
+        ld a, 5                 ; bright cyan ship
+        call color_obj
 pf_skipship:
         ld hl, (world_timer)
         dec hl
@@ -284,6 +306,12 @@ ship_right:
 ;  SHOOTING
 ; ============================================================================
 do_fire:
+        ld a, (fire_cd)         ; tick down the fire cooldown
+        or a
+        jr z, df_cdok
+        dec a
+        ld (fire_cd), a
+df_cdok:
         ld bc, 0x7FFE           ; Space
         in a, (c)
         bit 0, a
@@ -291,15 +319,13 @@ do_fire:
         call read_joy           ; Kempston fire
         bit 4, a
         jr nz, df_pressed
-        xor a
-        ld (fire_prev), a
         ret
 df_pressed:
-        ld a, (fire_prev)
+        ld a, (fire_cd)
         or a
-        ret nz                  ; held: no auto-repeat
-        ld a, 1
-        ld (fire_prev), a
+        ret nz                  ; auto-repeat gated by cooldown
+        ld a, 8
+        ld (fire_cd), a
         ; find a free bullet slot
         ld ix, bullets
         ld a, MAXBUL
@@ -325,6 +351,7 @@ fb_free:
         ld a, (ship_y)
         add a, 7
         ld (ix+2), a
+        call sfx_shoot
         ret
 
 do_bullets:
@@ -377,12 +404,14 @@ db_objloop:
         ld a, (iy+4)
         ld (spr_y), a
         call erase_sprite
+        call uncolor_obj
         xor a
         ld (iy+0), a
         ld bc, 5
         call add_score
         xor a
         ld (ix+0), a
+        call sfx_explode
         jp db_next
 db_objnext:
         ld de, 6
@@ -427,6 +456,7 @@ do_obj_loop:
         ld a, (ix+4)
         ld (spr_y), a
         call erase_sprite
+        call uncolor_obj        ; clear old colour cells
         ; move left
         ld a, (ix+1)
         sub (ix+5)
@@ -462,6 +492,7 @@ obj_collect:
         call add_score
         xor a
         ld (ix+0), a
+        call sfx_pickup
         jp do_obj_next
 obj_draw:
         ld a, (ix+0)
@@ -483,6 +514,21 @@ obj_spr_set:
         ld a, (ix+2)
         ld (spr_y), a
         call draw_sprite
+        ; colour the cells by type
+        ld a, (ix+0)
+        cp 3
+        jr z, obj_col_c
+        cp 2
+        jr z, obj_col_e
+        ld a, 7                 ; rock: bright white
+        jr obj_col_set
+obj_col_e:
+        ld a, 4                 ; enemy: bright green
+        jr obj_col_set
+obj_col_c:
+        ld a, 6                 ; crystal: bright yellow
+obj_col_set:
+        call color_obj
         ld a, (ix+1)
         ld (ix+3), a
         ld a, (ix+2)
@@ -503,6 +549,8 @@ ship_hit:
         ld a, (ship_y)
         ld (spr_y), a
         call erase_sprite
+        call uncolor_obj
+        call sfx_explode
         ld a, (lives)
         dec a
         ld (lives), a
@@ -539,6 +587,156 @@ c_dy:
         ret
 c_none:
         or 1
+        ret
+
+; ============================================================================
+;  COLOUR  -  paint/clear a 3x3 attribute block under a sprite
+; ============================================================================
+; set_attr_block: A=attr  B=cell row  C=cell col   (3 wide x 3 tall)
+set_attr_block:
+        ld (sab_attr), a
+        ld a, b
+        ld l, a
+        ld h, 0
+        add hl, hl
+        add hl, hl
+        add hl, hl
+        add hl, hl
+        add hl, hl              ; row*32
+        ld de, ATTR
+        add hl, de
+        ld a, c
+        ld e, a
+        ld d, 0
+        add hl, de              ; + col
+        ld a, (sab_attr)
+        ld b, 3
+sab_row:
+        ld (hl), a
+        inc hl
+        ld (hl), a
+        inc hl
+        ld (hl), a
+        ld de, 30
+        add hl, de
+        djnz sab_row
+        ret
+
+; color_obj: A = ink (0..7); colours the cells under spr_x,spr_y, keeping
+; the zone's paper/bright bits.
+color_obj:
+        ld c, a
+        ld a, (zone_base)
+        and 0xF8
+        or c
+        ld (sab_attr), a
+        ld a, (spr_y)
+        srl a
+        srl a
+        srl a
+        ld b, a
+        ld a, (spr_x)
+        srl a
+        srl a
+        srl a
+        ld c, a
+        ld a, (sab_attr)
+        call set_attr_block
+        ret
+
+; uncolor_obj: reset the cells under spr_x,spr_y to the plain zone attr
+uncolor_obj:
+        ld a, (spr_y)
+        srl a
+        srl a
+        srl a
+        ld b, a
+        ld a, (spr_x)
+        srl a
+        srl a
+        srl a
+        ld c, a
+        ld a, (zone_base)
+        call set_attr_block
+        ret
+
+; ============================================================================
+;  SOUND  -  48K beeper (bit 4 of port 254), border bits preserved
+; ============================================================================
+; sfx_tone: C = pitch (delay, smaller = higher), DE = number of half-cycles
+sfx_tone:
+st_lp:
+        ld a, (cur_border)
+        or 0x10
+        out (254), a            ; speaker high
+        ld b, c
+st_d1:
+        djnz st_d1
+        ld a, (cur_border)
+        out (254), a            ; speaker low
+        ld b, c
+st_d2:
+        djnz st_d2
+        dec de
+        ld a, d
+        or e
+        jr nz, st_lp
+        ret
+
+sfx_shoot:
+        ld c, 18
+        ld de, 26
+        call sfx_tone
+        ret
+
+sfx_pickup:
+        ld c, 40
+        ld de, 14
+        call sfx_tone
+        ld c, 26
+        ld de, 14
+        call sfx_tone
+        ld c, 15
+        ld de, 18
+        call sfx_tone
+        ret
+
+sfx_explode:
+        ld de, 80
+sfx_ex_lp:
+        call rnd
+        and 0x3F
+        add a, 12
+        ld c, a
+        ld a, (cur_border)
+        or 0x10
+        out (254), a
+        ld b, c
+sfx_ex1:
+        djnz sfx_ex1
+        ld a, (cur_border)
+        out (254), a
+        ld b, c
+sfx_ex2:
+        djnz sfx_ex2
+        dec de
+        ld a, d
+        or e
+        jr nz, sfx_ex_lp
+        ret
+
+sfx_zone:                       ; high-to-low sweep
+        ld c, 12
+sfx_z_lp:
+        ld de, 4
+        push bc
+        call sfx_tone
+        pop bc
+        ld a, c
+        add a, 5
+        ld c, a
+        cp 60
+        jr c, sfx_z_lp
         ret
 
 ; ============================================================================
@@ -662,9 +860,11 @@ set_world_attr:
         ld hl, worlds_tab
         add hl, de
         ld a, (hl)              ; border
+        ld (cur_border), a
         out (254), a
         inc hl
         ld a, (hl)              ; play-area attribute
+        ld (zone_base), a
         push hl
         ld hl, ATTR+64
         ld (hl), a
@@ -688,6 +888,7 @@ next_world:
         and 3
         ld (world), a
         call set_world_attr
+        call sfx_zone
         ld hl, 750
         ld (world_timer), hl
         ret
@@ -1112,6 +1313,8 @@ lives:        defb 0
 world:        defb 0
 invuln:       defb 0
 fire_prev:    defb 0
+fire_cd:      defb 0
+menu_lock:    defb 0
 spawn_timer:  defb 0
 spawn_period: defb 40
 score:        defw 0
@@ -1125,6 +1328,9 @@ pc_col:       defb 0
 pc_prow:      defb 0
 pc_font:      defw 0
 decbuf:       defs 5
+cur_border:   defb 0
+zone_base:    defb 0x47
+sab_attr:     defb 0
 
 ship_x:   defb 0
 ship_y:   defb 0
