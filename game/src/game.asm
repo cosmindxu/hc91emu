@@ -7,13 +7,15 @@
 ;
 ;  Memory map (48K; the lower 0x4000-0x7FFF is always mapped on 128K too):
 ;    0x4000-0x5AFF  screen + attributes
-;    0x6000-0x626B  runtime scratch BSS (objs/bullets/.../addrtab) - EQU,
-;                   not emitted, rebuilt at startup
-;    0x8000-~0xC2D2 game code + data (the emitted/loaded image)
-;    0xC4F0-0xFDF0  psbuf pre-shift scratch - EQU, not emitted, built at
-;                   startup; pinned just below the stack
+;    0x6000-0x62F2  runtime scratch BSS (objs/bullets/.../addrtab, hi-score
+;                   table, attr bands, cave maps) - EQU, not emitted, built
+;                   at startup
+;    0x8000-..      game code + data (the emitted/loaded image)
+;    ..-..+NSPR*768 psbuf pre-shift scratch - EQU, not emitted, sits right
+;                   after the image and is filled at startup
 ;    0xFDF0         stack top (grows down); IM2 ISR vector at 0xFDFD/0xFE00
-;  build.sh guards that code+data stays below psbuf at 0xC4F0.
+;  build.sh guards that the image stays small enough that psbuf still ends
+;  below the stack with margin (see the 17106-byte ceiling there).
 ; ============================================================================
 
         org 32768
@@ -656,18 +658,7 @@ dhs_loop:
         ld l, (iy+0)
         ld h, (iy+1)
         push ix
-        ld ix, decbuf
-        ld de, 10000
-        call sc_digit
-        ld de, 1000
-        call sc_digit
-        ld de, 100
-        call sc_digit
-        ld de, 10
-        call sc_digit
-        ld a, l
-        add a, '0'
-        ld (ix+0), a
+        call score5
         pop ix
         ld hl, decbuf
         ld a, (hst_row)
@@ -946,19 +937,8 @@ show_victory:
         ld hl, str_score        ; FINAL SCORE label + value
         ld b, 16
         call print_center
-        ld ix, decbuf           ; render the 5-digit score
-        ld hl, (score)
-        ld de, 10000
-        call sc_digit
-        ld de, 1000
-        call sc_digit
-        ld de, 100
-        call sc_digit
-        ld de, 10
-        call sc_digit
-        ld a, l
-        add a, '0'
-        ld (ix+0), a
+        ld hl, (score)          ; render the 5-digit score
+        call score5
         ld hl, decbuf
         ld b, 17
         ld c, 13
@@ -1023,19 +1003,8 @@ show_gameover:
         ld b, 11
         ld c, 8
         call print_str_at
-        ld ix, decbuf
         ld hl, (score)
-        ld de, 10000
-        call sc_digit
-        ld de, 1000
-        call sc_digit
-        ld de, 100
-        call sc_digit
-        ld de, 10
-        call sc_digit
-        ld a, l
-        add a, '0'
-        ld (ix+0), a
+        call score5
         ld hl, decbuf
         ld b, 11
         ld c, 14
@@ -1061,19 +1030,8 @@ show_gameover:
         ld b, 15
         ld c, 6
         call print_str_at
-        ld ix, decbuf
         ld hl, (run_kills)
-        ld de, 10000
-        call sc_digit
-        ld de, 1000
-        call sc_digit
-        ld de, 100
-        call sc_digit
-        ld de, 10
-        call sc_digit
-        ld a, l
-        add a, '0'
-        ld (ix+0), a
+        call score5
         ld hl, decbuf
         ld b, 15
         ld c, 12
@@ -5807,18 +5765,7 @@ show_score:
         ret z
         ld hl, (score)
         ld (hud_score), hl
-        ld ix, decbuf
-        ld de, 10000
-        call sc_digit
-        ld de, 1000
-        call sc_digit
-        ld de, 100
-        call sc_digit
-        ld de, 10
-        call sc_digit
-        ld a, l
-        add a, '0'
-        ld (ix+0), a
+        call score5
         ld hl, decbuf
         ld b, 0
         ld c, 0
@@ -5834,6 +5781,23 @@ ss_print:
         ld a, c
         cp 5
         jr nz, ss_print
+        ret
+
+; score5: HL = value (0..65535) -> 5 ASCII digits written to decbuf.
+; (preserves IY and C; clobbers A, B, DE, HL, IX - same as sc_digit)
+score5:
+        ld ix, decbuf
+        ld de, 10000
+        call sc_digit
+        ld de, 1000
+        call sc_digit
+        ld de, 100
+        call sc_digit
+        ld de, 10
+        call sc_digit
+        ld a, l
+        add a, '0'
+        ld (ix+0), a
         ret
 
 ; sc_digit: HL=value DE=divisor ; appends digit to (IX++), HL=remainder
@@ -6132,114 +6096,6 @@ clr_pixel:
         cpl
         and (hl)
         ld (hl), a
-        ret
-
-; ============================================================================
-;  MASKED 16x16 SPRITE BLITTER
-;   spr_ptr -> 16 rows of (data_hi,data_lo,mask_hi,mask_lo)
-;   spr_x, spr_y ; screen = (screen AND mask) OR data, shifted by spr_x&7
-; ============================================================================
-draw_sprite:
-        ld a, (spr_x)
-        and 7
-        ld (shift_n), a
-        ld a, (spr_x)
-        rrca
-        rrca
-        rrca
-        and 0x1F
-        ld (xc_tmp), a
-        ld a, (spr_y)
-        ld (row_y), a
-        ld b, 16
-ds_row:
-        push bc
-        ld a, (row_y)
-        ld l, a
-        ld h, 0
-        add hl, hl
-        ld de, addrtab
-        add hl, de
-        ld e, (hl)
-        inc hl
-        ld d, (hl)
-        ld a, (xc_tmp)
-        ld l, a
-        ld h, 0
-        add hl, de
-        ld (scr_addr), hl
-        ld hl, (spr_ptr)
-        ld a, (hl)
-        ld (shbuf+0), a
-        inc hl
-        ld a, (hl)
-        ld (shbuf+1), a
-        inc hl
-        ld a, (hl)
-        ld (shbuf+3), a
-        inc hl
-        ld a, (hl)
-        ld (shbuf+4), a
-        inc hl
-        ld (spr_ptr), hl
-        xor a
-        ld (shbuf+2), a
-        ld a, 255
-        ld (shbuf+5), a
-        ld a, (shift_n)
-        or a
-        jr z, ds_noshift
-        ld c, a
-ds_shloop:
-        ld hl, shbuf
-        srl (hl)
-        inc hl
-        rr (hl)
-        inc hl
-        rr (hl)
-        ld hl, shbuf+3
-        scf
-        rr (hl)
-        inc hl
-        rr (hl)
-        inc hl
-        rr (hl)
-        dec c
-        jr nz, ds_shloop
-ds_noshift:
-        ld hl, (scr_addr)
-        ld a, (shbuf+3)
-        ld c, a
-        ld a, (hl)
-        and c
-        ld c, a
-        ld a, (shbuf+0)
-        or c
-        ld (hl), a
-        inc hl
-        ld a, (shbuf+4)
-        ld c, a
-        ld a, (hl)
-        and c
-        ld c, a
-        ld a, (shbuf+1)
-        or c
-        ld (hl), a
-        inc hl
-        ld a, (shbuf+5)
-        ld c, a
-        ld a, (hl)
-        and c
-        ld c, a
-        ld a, (shbuf+2)
-        or c
-        ld (hl), a
-        ld a, (row_y)
-        inc a
-        ld (row_y), a
-        pop bc
-        dec b
-        jp nz, ds_row
         ret
 
 erase_sprite:
@@ -6642,7 +6498,6 @@ str_title:  db "STELLAR DRIFT",0
 str_fire:   db "PRESS FIRE",0
 str_over:   db "GAME OVER",0
 str_score:  db "SCORE",0
-str_ships:  db "SHIPS",0
 str_zone:   db "ZONE",0
 str_hiscores: db "HIGH SCORES",0
 str_ctrl:   db "QAOP/KEMPSTON   H-PAUSE",0
@@ -6675,8 +6530,6 @@ str_d0:      db "[CADET]",0
 str_d1:      db "[PILOT]",0
 str_d2:      db "[ACE]  ",0
 str_opts1:   db "4-MUSIC 5-FLASH 6-SAFE",0
-str_on:      db "ON ",0
-str_off:     db "OFF",0
 diff_tab:    dw str_d0, str_d1, str_d2
 credits_msg: db "STELLAR DRIFT - A CAVE FLYER FOR THE HC-91 - DODGE, "
              db "SHOOT, COLLECT - BEAT THE ZONE BOSSES - GOOD LUCK PILOT     ",0
@@ -6900,10 +6753,8 @@ str_pm1:      db "H = RESUME   R = RESTART",0
 str_pm2:      db "Q = QUIT TO TITLE",0
 str_p10:      db "+10",0
 str_p5:       db "+5",0
-str_p200:     db "+200",0
 str_p50:      db "+50",0
 str_zclr:     db "ZONE CLEAR!",0
-str_midboss:  db "WARSHIP!",0
 str_demo:     db "DEMO",0
 str_graze:    db "GRZ",0
 str_meteor:   db "METEORS!",0
