@@ -149,8 +149,12 @@ humanLastFrom equ 0xE12B ; the human's last move (for the opening book)
 humanLastTo equ 0xE12C
 bkF      equ 0xE12D      ; book move scratch (genLegal clobbers mvFrom/To)
 bkT      equ 0xE12E
+lmrPA    equ 0xE12F      ; (2) parent alpha captured for LMR re-search
+lmrPB    equ 0xE131      ; (2) parent beta
+lmrReduced equ 0xE133    ; 1 if the current child was searched reduced
 
 killerArr equ 0xD100     ; 4 bytes/ply: k1from,k1to,k2from,k2to
+inChkArr  equ 0xD140     ; 1/ply: side-to-move in check at this node
 
 ; per-ply search arrays (continued, page 0xD4/0xD5)
 origAlphaArr equ 0xD4F0  ; 16 * 2 = original alpha for TT bound flags

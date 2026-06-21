@@ -59,6 +59,22 @@ ptrBeta:
         ld h,0xD4
         ret
 
+; setChildWindow — at the child ply, alpha = -parentBeta, beta = -parentAlpha
+setChildWindow:
+        ld de,(lmrPB)
+        ld hl,0
+        or a
+        sbc hl,de
+        ex de,hl
+        call setAlphaDE
+        ld de,(lmrPA)
+        ld hl,0
+        or a
+        sbc hl,de
+        ex de,hl
+        call setBetaDE
+        ret
+
 ; cmpDEgtBC: CF=1 if DE > BC  (signed 16-bit, overflow-correct)
 cmpDEgtBC:
         ld h,b
@@ -667,6 +683,13 @@ noNull:
         ld (hl),e
         inc hl
         ld (hl),d
+        ; is the side to move in check at this node? (LMR skips reductions)
+        ld a,(sideToMove)
+        call inCheckSide
+        push af
+        call ptrInChk
+        pop af
+        ld (hl),a
 nmLoop:
         call ptrCnt
         ld a,(hl)
@@ -715,46 +738,80 @@ nmNoRoot:
 nmLegal:
         call ptrLegal
         inc (hl)
-        call ptrBeta
-        ld c,(hl)
-        inc hl
-        ld b,(hl)
-        ld hl,0
-        or a
-        sbc hl,bc
-        push hl                  ; childAlpha = -parentBeta
+        ; capture parent alpha/beta (for the child window and LMR re-search)
         call ptrAlpha
-        ld c,(hl)
+        ld e,(hl)
         inc hl
-        ld b,(hl)
-        ld hl,0
+        ld d,(hl)
+        ld (lmrPA),de
+        call ptrBeta
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        ld (lmrPB),de
+        ; --- LMR: reduce late, quiet moves at depth>=3 when not in check ---
+        xor a
+        ld (lmrReduced),a
+        call ptrDepth
+        ld a,(hl)
+        cp 3
+        jr c,lmrFull
+        call ptrLegal
+        ld a,(hl)
+        cp 4
+        jr c,lmrFull             ; first three legal moves: full depth
+        ld a,(mkCaptured)
         or a
-        sbc hl,bc
-        push hl                  ; childBeta = -parentAlpha
+        jr nz,lmrFull
+        ld a,(mkPromo)
+        or a
+        jr nz,lmrFull
+        call ptrInChk
+        ld a,(hl)
+        or a
+        jr nz,lmrFull
+        call ptrDepth
+        ld a,(hl)
+        sub 2
+        ld (nmCd),a              ; reduced depth
+        ld a,1
+        ld (lmrReduced),a
+        jr lmrGo
+lmrFull:
         call ptrDepth
         ld a,(hl)
         dec a
         ld (nmCd),a
+lmrGo:
         ld a,(searchPly)
         inc a
         ld (searchPly),a
-        pop de                   ; childBeta
-        call ptrBeta
-        ld (hl),e
-        inc hl
-        ld (hl),d
-        pop de                   ; childAlpha
-        call ptrAlpha
-        ld (hl),e
-        inc hl
-        ld (hl),d
+        call setChildWindow
         ld a,(nmCd)
         call negamax
         ex de,hl
         ld hl,0
         or a
-        sbc hl,de                ; HL = -child = score
+        sbc hl,de                ; score = -child
         ld (nmScore),hl
+        ; LMR re-search at full depth if the reduced search beat alpha
+        ld a,(lmrReduced)
+        or a
+        jr z,lmrNoRe
+        ld de,(nmScore)
+        ld bc,(lmrPA)
+        call cmpDEgtBC           ; score > parentAlpha ?
+        jr nc,lmrNoRe
+        call setChildWindow      ; first search dirtied the child window
+        ld a,(nmCd)
+        inc a                    ; full depth = reduced + 1
+        call negamax
+        ex de,hl
+        ld hl,0
+        or a
+        sbc hl,de
+        ld (nmScore),hl
+lmrNoRe:
         ld a,(searchPly)
         dec a
         ld (searchPly),a

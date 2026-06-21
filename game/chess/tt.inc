@@ -43,6 +43,12 @@ ptrKiller:
         ld l,a
         ld h,0xD1
         ret
+ptrInChk:
+        ld a,(searchPly)
+        add a,0x40
+        ld l,a
+        ld h,0xD1
+        ret
 
 ; set root alpha/beta (searchPly assumed 0) from DE
 setAlphaDE:
