@@ -46,8 +46,9 @@ Status legend: ✅ done · ◐ partial · ☐ todo
 - ✅ Side-on ship sprite; per-object attribute colour; per-zone palette
   and border.
 - ✅ **Banded / gradient backdrops per zone** — `attr_row[24]` gives each
-  zone three sky/mid/ground colour bands, applied per row by the blitter
-  so sprites never bleed across a band.
+  zone six nebula colour bands (vivid blues/magentas/reds inspired by space
+  nebulae), applied per row by the blitter so sprites never bleed across a
+  band.
 - ✅ **Parallax starfield in 3 depth layers** — speeds 1–3; the near layer
   draws a 2px dash so it reads brighter.
 - ✅ **Sprite animation.** Ship exhaust flicker (two frames), spinning
@@ -80,8 +81,9 @@ Status legend: ✅ done · ◐ partial · ☐ todo
 
 ## 5. Content & replayability
 
-- ✅ **Named zones with identity** (Asteroid Belt, Nebula, Inferno,
-  Verdant Reach) each with its own palette, border and difficulty.
+- ✅ **Named zones with identity** (Orion Drift, Crimson Veil, Sapphire
+  Expanse, Magenta Storm) each with its own vivid nebula palette (six
+  colour bands per zone), border and difficulty.
 - ✅ **Bonus stages** — a crystals-only "collect-'em-all" run between
   zones (after each boss), shown as BONUS STAGE in the HUD.
 - ✅ **Extra life at score thresholds** (+1 ship every 1000 pts) with a

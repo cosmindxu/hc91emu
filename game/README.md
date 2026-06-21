@@ -38,8 +38,9 @@ power-ups, press **K** to skip a zone.
 - **Power-up pods** grant, in turn: spread shot, rapid fire, a shield, and a
   speed boost (shown as **T R S F** in the HUD).
 - Each zone ends with a **boss**; beat it for a bonus and a **BONUS STAGE**
-  crystal run, then the next zone. Four named zones cycle (Asteroid Belt,
-  Nebula, Inferno, Verdant Reach), each denser than the last.
+  crystal run, then the next zone. Four named zones cycle (Orion Drift,
+  Crimson Veil, Sapphire Expanse, Magenta Storm), each with its own vivid
+  nebula palette and denser than the last.
 - **Extra life** every 1000 points. Make the **high-score table** and enter
   your initials.
 

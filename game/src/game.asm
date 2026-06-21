@@ -815,6 +815,11 @@ zero_objects:
         ld bc, MAXEB*6-1
         ld (hl), 0
         ldir
+        ld hl, expls            ; clear explosions too (was uninitialised)
+        ld de, expls+1
+        ld bc, MAXEXPL*3-1
+        ld (hl), 0
+        ldir
         ret
 
 ; ============================================================================
@@ -1514,7 +1519,15 @@ obj_crd:
 obj_spr_p:
         ld a, SI_POWER
         ld (spr_idx), a
-        ld a, 2                 ; power-up: red
+        ld a, (anim_ctr)        ; power-up: shimmering cycle of bright inks
+        rrca
+        rrca
+        and 3
+        ld e, a
+        ld d, 0
+        ld hl, pw_coltab
+        add hl, de
+        ld a, (hl)
 obj_spr_set:
         ld (obj_ink), a
         ld a, (ix+1)
@@ -2016,6 +2029,7 @@ gp_n3:
 ; Each row's attribute = (attr_row[row] & sab_keep) | sab_or, so the band
 ; backdrop is preserved per row (no cross-band bleed).
 set_attr_block:
+        push ix                 ; preserve caller's IX (object pointer etc.)
         ld a, b
         ld (sab_r), a
         ld h, 0
@@ -2068,6 +2082,7 @@ sab_col:
         ld (sab_r), a
         pop bc
         djnz sab_row
+        pop ix                  ; restore caller's IX
         ret
 
 ; color_obj / color_ship: A = ink (0..7); paint cells under spr_x,spr_y
@@ -2633,12 +2648,14 @@ ss_loop:
 ;  WORLDS / ZONES
 ; ============================================================================
 ; worlds_tab entry: border, period, sky, mid, ground   (5 bytes)
+; worlds_tab entry: border, period, then 6 band attributes (top->bottom).
+; Papers are kept to black/blue/red/magenta (nebula hues) so the bright
+; sprite inks stay readable; each band's ink tints that band's stars.
 set_world_attr:
         ld a, (world)
-        ld b, a
         add a, a
         add a, a
-        add a, b                ; world*5
+        add a, a                ; world*8
         ld e, a
         ld d, 0
         ld hl, worlds_tab
@@ -2650,46 +2667,40 @@ set_world_attr:
         ld a, (hl)              ; spawn period
         ld (spawn_period), a
         inc hl
-        ld a, (hl)              ; sky
+        ld a, (hl)              ; first band = nominal zone_base
         ld (zone_base), a
-        ld (zb_sky), a
-        inc hl
-        ld a, (hl)              ; mid
-        ld (zb_mid), a
-        inc hl
-        ld a, (hl)              ; ground
-        ld (zb_gnd), a
-        ; build attr_row[24]: HUD(0,1), sky(2..9), mid(10..16), ground(17..23)
+        ld de, zb_band          ; copy the 6 band attributes
+        ld bc, 6
+        ldir
+        ; build attr_row: rows 0-1 HUD, then 6 nebula bands over rows 2-23
         ld hl, attr_row
         ld (hl), 0x47
         inc hl
         ld (hl), 0x47
         inc hl
-        ld a, (zb_sky)
-        ld b, 8                 ; rows 2..9
-swa_sky:
-        ld (hl), a
+        ld ix, zb_band
+        ld iy, bandcnt
+        ld b, 6
+swa_band:
+        push bc
+        ld a, (ix+0)
+        ld c, a                 ; band attribute
+        ld b, (iy+0)            ; rows in this band
+swa_bfill:
+        ld (hl), c
         inc hl
-        djnz swa_sky
-        ld a, (zb_mid)
-        ld b, 7                 ; rows 10..16
-swa_mid:
-        ld (hl), a
-        inc hl
-        djnz swa_mid
-        ld a, (zb_gnd)
-        ld b, 7                 ; rows 17..23
-swa_gnd:
-        ld (hl), a
-        inc hl
-        djnz swa_gnd
+        djnz swa_bfill
+        inc ix
+        inc iy
+        pop bc
+        djnz swa_band
         ; paint the screen attributes from attr_row (32 cells per row)
         ld hl, ATTR
         ld ix, attr_row
-        ld c, 24                ; rows
+        ld c, 24
 swa_paintrow:
         ld a, (ix+0)
-        ld b, 32                ; cells
+        ld b, 32
 swa_paintcell:
         ld (hl), a
         inc hl
@@ -2698,6 +2709,9 @@ swa_paintcell:
         dec c
         jr nz, swa_paintrow
         ret
+
+bandcnt: db 4,4,4,3,3,4          ; rows per band over rows 2..23 (=22)
+pw_coltab: db 5,6,7,4            ; power-up shimmer: cyan, yellow, white, green
 
 next_world:
         ld a, (world)
@@ -2880,7 +2894,7 @@ dz_blank:
         pop bc
         inc c
         ld a, c
-        cp 14
+        cp 17
         jr nz, dz_blank
         ld hl, (bonus_timer)    ; bonus stage label?
         ld a, h
@@ -3773,11 +3787,18 @@ esh_row:
 
 ; worlds_tab entry: border, spawn-period, sky, mid, ground attributes
 ; (all attrs bright | paper | white ink; banded backdrop top->bottom)
+; entry: border, spawn-period, then 6 nebula band attributes (top->bottom).
+; attr = 0x40(bright) | paper<<3 | ink ; papers limited to black/blue/red/
+; magenta so bright sprite inks stay visible; ink tints each band's stars.
 worlds_tab:
-        db 0, 48, 0x47, 0x47, 0x4F   ; Zone 1 Asteroid Belt: black -> blue
-        db 1, 38, 0x4F, 0x4F, 0x5F   ; Zone 2 Nebula: blue -> magenta
-        db 2, 30, 0x5F, 0x57, 0x57   ; Zone 3 Inferno: magenta -> red
-        db 4, 24, 0x4F, 0x67, 0x67   ; Zone 4 Verdant: blue -> green
+        ; Zone 1  ORION DRIFT  (blue reflection nebula, magenta core)
+        db 1, 48, 0x45,0x4F,0x5E,0x5D,0x4F,0x46
+        ; Zone 2  CRIMSON VEIL  (red/magenta emission nebula)
+        db 2, 38, 0x46,0x57,0x5E,0x55,0x5F,0x45
+        ; Zone 3  SAPPHIRE EXPANSE  (deep blue with a magenta bloom)
+        db 1, 30, 0x47,0x4E,0x4D,0x5F,0x4E,0x45
+        ; Zone 4  MAGENTA STORM  (red/magenta turbulence)
+        db 3, 24, 0x45,0x5F,0x56,0x5E,0x57,0x5D
 
 str_title:  db "STELLAR DRIFT",0
 str_fire:   db "PRESS FIRE",0
@@ -3833,6 +3854,7 @@ zone_base:    defb 0x47
 zb_sky:       defb 0x47
 zb_mid:       defb 0x47
 zb_gnd:       defb 0x47
+zb_band:      defs 6
 attr_row:     defs 24
 sab_attr:     defb 0
 sab_keep:     defb 0xF8
@@ -3904,10 +3926,10 @@ tick:         defb 0
 cheat_kprev:  defb 0
 
 zone_names:   dw zn0, zn1, zn2, zn3
-zn0:          db "ASTEROID BELT",0
-zn1:          db "NEBULA",0
-zn2:          db "INFERNO",0
-zn3:          db "VERDANT REACH",0
+zn0:          db "ORION DRIFT",0
+zn1:          db "CRIMSON VEIL",0
+zn2:          db "SAPPHIRE EXPANSE",0
+zn3:          db "MAGENTA STORM",0
 str_boss:     db "BOSS!!",0
 str_pause:    db "PAUSED",0
 str_p10:      db "+10",0
