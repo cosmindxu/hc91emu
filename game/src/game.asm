@@ -35,6 +35,7 @@ T_TURRET equ 9              ; clings to ceiling/floor, fires aimed
 T_MIDBOSS equ 10            ; multi-hit mini-boss (hp in +7)
 T_ARMOR equ 11              ; armoured enemy (multi-hit, hp in +7)
 T_FORMV equ 12              ; wave marker: spawn a V-formation of enemies
+T_GATE  equ 13              ; pulsing laser-gate barrier
 NZONES  equ 6               ; number of named zones in the cycle
 
 ; pre-shifted 16x16 sprite indices (into sprtab / psbuf)
@@ -1249,6 +1250,10 @@ ig_setlives:
         xor a
         ld (overdrive), a
         ld (od_active), a
+        ld (armor_flash), a
+        ld (meteor_t), a
+        ld hl, 600
+        ld (meteor_cd), hl
         ld a, 0xFF
         ld (hud_combo), a
         ld (hud_bombs), a
@@ -1395,6 +1400,7 @@ pf_inputdone:
         call do_bomb
         call do_overdrive
         call do_spawn
+        call do_meteor
         ; invulnerability countdown + blink / colour-pulse
         ld a, (invuln)
         or a
@@ -2336,6 +2342,8 @@ do_obj_loop:
         jp z, do_obj_next
         cp T_BOSS
         jp z, do_obj_boss
+        cp T_GATE
+        jp z, do_gate
         ; --- erase at old position ---
         ld a, (ix+3)
         ld (spr_x), a
@@ -2739,6 +2747,101 @@ boss_inkset:
         ld a, (ix+2)
         ld (ix+4), a
         jp do_obj_next
+
+; ---- laser gate: a pulsing full-gap vertical barrier ----
+; +4 holds the "lit last frame" flag so we only erase what we drew.
+do_gate:
+        ld a, (ix+4)            ; erase old beam if it was lit
+        or a
+        jr z, dg_moved
+        xor a
+        ld (gate_val), a
+        ld a, (ix+3)
+        call gate_beam
+dg_moved:
+        inc (ix+6)
+        ld a, (ix+1)            ; move left
+        sub (ix+5)
+        jr nc, dg_alive
+        xor a
+        ld (ix+0), a
+        jp do_obj_next
+dg_alive:
+        ld (ix+1), a
+        ld a, (ix+6)            ; pulse: lit 32 frames, off 32
+        and 0x20
+        jr nz, dg_off
+        ld a, 1
+        ld (ix+4), a            ; lit
+        ld a, 0x18              ; 2px beam
+        ld (gate_val), a
+        ld a, (ix+1)
+        call gate_beam
+        ld a, (invuln)          ; collision when lit
+        or a
+        jr nz, dg_store
+        ld a, (ship_x)
+        add a, 11
+        ld b, a
+        ld a, (ix+1)
+        add a, 4
+        sub b
+        jr nc, dg_dx
+        neg
+dg_dx:
+        cp 10
+        jr nc, dg_store
+        call ship_hit
+        jr dg_store
+dg_off:
+        xor a
+        ld (ix+4), a
+dg_store:
+        ld a, (ix+1)
+        ld (ix+3), a
+        jp do_obj_next
+
+; gate_beam: A = x ; fills column x/8 rows 56..151 with (gate_val)
+gate_beam:
+        rrca
+        rrca
+        rrca
+        and 0x1F
+        ld (gate_col), a
+        ld c, 56                ; pixel rows 56..151 (the open gap)
+        ld b, 96
+gb_loop:
+        ld a, c
+        and 7
+        jr nz, gb_have
+        ld a, c
+        ld l, a
+        ld h, 0
+        add hl, hl
+        push bc
+        ld de, addrtab
+        add hl, de
+        ld e, (hl)
+        inc hl
+        ld d, (hl)
+        ld a, (gate_col)
+        add a, e
+        ld e, a
+        jr nc, gb_nc
+        inc d
+gb_nc:
+        pop bc
+        ld (gate_addr), de
+gb_have:
+        ld de, (gate_addr)
+        ld a, (gate_val)
+        ld (de), a
+        inc d
+        ld (gate_addr), de
+        inc c
+        dec b
+        jr nz, gb_loop
+        ret
 
 ship_hit:
         call reset_combo        ; any hit breaks the chain
@@ -3929,6 +4032,56 @@ music_a:
 ; ============================================================================
 ; do_spawn: bonus stage drops only crystals; otherwise a looping wave
 ; script defines designed formations (type, y, delay), denser each zone.
+; do_meteor: every meteor_cd frames, a telegraphed dense asteroid burst
+do_meteor:
+        ld a, (boss_active)
+        or a
+        ret nz
+        ld hl, (bonus_timer)    ; not during the bonus stage
+        ld a, h
+        or l
+        jr nz, met_ret0
+        ld a, (meteor_t)
+        or a
+        jr nz, met_active
+        ld hl, (meteor_cd)      ; counting down to the next shower
+        dec hl
+        ld (meteor_cd), hl
+        ld a, h
+        or l
+        ret nz
+        ld a, 120               ; trigger
+        ld (meteor_t), a
+        ld hl, 600
+        ld (meteor_cd), hl
+        ld hl, str_meteor
+        call set_popup
+        ret
+met_active:
+        dec a
+        ld (meteor_t), a
+        and 3                   ; a rock every 4th frame
+        ret nz
+        call sp_find_slot
+        ret c
+        ld a, T_ROCK
+        ld (ix+0), a
+        ld a, 2
+        ld (ix+5), a
+        ld a, 232
+        ld (ix+1), a
+        ld (ix+3), a
+        call rnd
+        and 0x6F
+        add a, 30
+        ld (ix+2), a
+        ld (ix+4), a
+        ld (ix+7), a
+        xor a
+        ld (ix+6), a
+met_ret0:
+        ret
+
 do_spawn:
         ld a, (boss_active)     ; no spawns during a boss fight
         or a
@@ -4015,6 +4168,14 @@ dw_spds:
         jr z, dw_mboss
         cp T_ARMOR             ; armoured enemy: slow, hp 3 in +7
         jr z, dw_armor
+        cp T_GATE             ; laser gate: slow, starts unlit
+        jr z, dw_gate
+        ret
+dw_gate:
+        ld a, 1
+        ld (ix+5), a
+        xor a
+        ld (ix+4), a           ; not-lit
         ret
 dw_mboss:
         ld a, 1
@@ -4168,11 +4329,11 @@ wave3:
 wave4:
         db T_FORMV, 64, 44
         db T_DRONE, 60, 18
-        db T_MINE,  96, 20
+        db T_GATE,   0, 50
         db T_ARMOR, 70, 30
         db T_ENEMY, 84, 16
         db T_MIDBOSS,64, 56
-        db T_DRONE, 50, 16
+        db T_GATE,   0, 50
         db T_CRYS,  56, 22
         db T_DIVER, 34, 16
         db T_POWER, 60, 40
@@ -6215,6 +6376,11 @@ overdrive:    defb 0          ; overdrive charge (0..OD_MAX)
 od_active:    defb 0          ; overdrive frames remaining
 hud_od:       defb 0xFE
 armor_flash:  defb 0          ; armoured-enemy hit flash timer
+gate_col:     defb 0
+gate_val:     defb 0
+gate_addr:    defw 0
+meteor_cd:    defw 600        ; frames until next meteor shower
+meteor_t:     defb 0          ; meteor-shower active frames remaining
 bomb_prev:    defb 0
 bomb_flash:   defb 0
 charge:       defb 0          ; fire-charge counter while held
@@ -6291,6 +6457,7 @@ str_zclr:     db "ZONE CLEAR!",0
 str_midboss:  db "WARSHIP!",0
 str_demo:     db "DEMO",0
 str_graze:    db "GRZ",0
+str_meteor:   db "METEORS!",0
 str_defk:     db "D-KEYS S-SAVE L-LOAD",0
 str_defup:    db "PRESS UP KEY   ",0
 str_defdn:    db "PRESS DOWN KEY ",0
