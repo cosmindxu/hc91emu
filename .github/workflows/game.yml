@@ -60,10 +60,11 @@ jobs:
 
       - name: Gameplay regression - terrain crash costs lives (game over)
         run: |
+          # first FIRE opens the mission briefing, second FIRE launches, then
           # holding UP flies into the cave ceiling repeatedly -> GAME OVER
           ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
-            --joy "1750-1758:F" --joy "1800-13000:U" --frames 13000 --text \
-            game/build/game.tap | tee /tmp/crash.txt
+            --joy "1750-1758:F" --joy "1790-1798:F" --joy "1800-13000:U" \
+            --frames 13000 --text game/build/game.tap | tee /tmp/crash.txt
           grep -q "GAME OVER" /tmp/crash.txt
 
       - name: 128K - boots and captures AY audio
