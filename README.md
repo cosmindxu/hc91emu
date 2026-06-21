@@ -141,6 +141,21 @@ and one 128K title when the library is present. The files are
 copyrighted period software and are never committed; the library
 README carries the full index.
 
+## ZX-CHESS — bundled original game
+
+[`game/chess/`](game/chess/) is an original chess engine + game written
+in Z80 assembly for this machine, designed by studying the best
+open-source engines (Stockfish/Leela, lichess) and re-deriving the same
+algorithms under 8-bit constraints: a 0x88 board, direction-offset move
+generation with full castling/en-passant/promotion, check/mate/stalemate
+detection, and a negamax search with material + piece-square evaluation
+and selectable strength. It assembles with `pasmo` into a bootable tape
+(`cd game/chess && make`), runs on every supported machine, and is
+verified headlessly by `make test`. The phased plan from this Foundation
+to a club-strength engine with quiescence, transposition tables, an
+opening book and analysis mode is in
+[`game/chess/ROADMAP.md`](game/chess/ROADMAP.md).
+
 ## ROMs
 
 The genuine I.C.E. Felix dumps — HC-85, HC-90, HC-91, HC-128 (plus the

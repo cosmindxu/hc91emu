@@ -7,6 +7,11 @@ core
 tests/vectors/
 dist/
 
+# ZX-CHESS build artifacts (source + generated pieces.inc are committed)
+game/chess/chess.bin
+game/chess/chess.tap
+game/chess/chess.sym
+
 # LaTeX build auxiliaries (docs/ARCHITECTURE.pdf is committed)
 docs/ARCHITECTURE.aux
 docs/ARCHITECTURE.log
