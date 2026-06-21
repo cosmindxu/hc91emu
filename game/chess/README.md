@@ -84,6 +84,7 @@ ROM character set, so it is fully 48K-compatible.
 | `F` | flip the board |
 | `N` | new game |
 | `S` | open the set-up board editor |
+| `G` / `L` | save / load the game to / from tape |
 | `T` | run the perft + Zobrist self-test |
 
 On a pawn promotion the game prompts for the piece (`Q`/`R`/`B`/`N`).

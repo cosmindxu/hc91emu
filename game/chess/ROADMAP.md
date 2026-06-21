@@ -226,11 +226,19 @@ verified.
    screenshot: White's clock counts down on move 1, then freezes when Black
    is charged its (instant, booked) reply.
 
-8. **Game save / load to tape.** *What:* write the game state (board +
+8. **Game save / load to tape.** ✅ *What:* write the game state (board +
    move history) to a tape block via the ROM `SA-BYTES`, and read it back
    with `LD-BYTES`. *Value:* persistence — the authentic Spectrum way to
    keep a game between sessions. *Verify:* capture the save with
-   `--save-tape`, then load the resulting `.tap` in a second run.
+   `--save-tape`, then load the resulting `.tap` in a second run. *Done:*
+   `G` saves a 71-byte block (the board in `setupBoard` layout plus side,
+   castling, en-passant, halfmove, move number and difficulty) through the
+   ROM `SA-BYTES`; `L` reads it back with `LD-BYTES`, reuses `setupBoard`
+   to rebuild the position and restores the extras. Interrupts are disabled
+   around the timing-critical ROM calls and re-enabled after. `make test`
+   now plays 1.e4 e5, saves with `--save-tape`, appends that block to the
+   boot tape, boots fresh, loads with `L`, and asserts from a snapshot that
+   the e4/e5 pawns and the vacated e2/e7 squares came back.
 
 ### Phase B — valuable, but not verifiable in this environment
 
