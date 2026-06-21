@@ -103,18 +103,21 @@ Status legend: ✅ done · ◐ partial · ☐ todo
   trimmed entity counts this roughly doubled the frame rate.
 - ✅ **Cheat keys** for QA: hold **I** for invincibility, hold **G** to
   grant all power-ups, press **K** to skip to the next zone.
-- ☐ **CI hook**: assemble the game and run a few headless
-  `--frames/--screenshot/--wav` smoke tests on every push (the emulator
-  makes this trivial — see how the dev shots were captured).
-- ☐ **`.tzx` with a custom loader & loading screen** for the authentic
-  cassette experience; keep the plain `.tap` for quick loads.
+- ✅ **CI hook**: `.github/workflows/game.yml` assembles the game, builds
+  the emulator, and runs headless screenshot / OCR / WAV smoke tests
+  (incl. a 128K AY capture) on every push.
+- ✅ **`.tzx` output** with the loading screen alongside the `.tap`
+  (`build.sh` emits both; mktap.py writes a standard-speed .tzx).
 
 ---
 
-## Suggested next three steps
+## Status
 
-1. **Loading screen + AY title tune (128K).** Biggest nostalgia payoff
-   for the effort.
-2. **Enemy movement patterns + enemy fire.** Makes the core loop genuinely
-   fun and skill-based.
-3. **High-score table with initials + power-ups.** The "one more go" hook.
+Every item above is implemented and smoke-tested (`.github/workflows/game.yml`
+assembles the game and runs headless screenshot / OCR / WAV checks, including
+a 128K AY capture). The whole game is in `src/game.asm`; build with
+`./build.sh`.
+
+Ideas beyond this roadmap: smooth full-screen pixel scrolling, more enemy
+types and boss attack patterns, branching zone routes, a two-player mode,
+and saving the high-score table to disk on the HC-2000.
