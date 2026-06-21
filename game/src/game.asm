@@ -672,6 +672,14 @@ init_game:
         ld (poptimer), a
         ld a, (spawn_period)
         ld (spawn_timer), a
+        ld hl, wave_script      ; reset the wave script
+        ld (wave_ptr), hl
+        ld a, 1
+        ld (wave_delay), a
+        ld hl, 0
+        ld (bonus_timer), hl
+        ld hl, 1000
+        ld (next_life), hl
         ld hl, 750
         ld (world_timer), hl
         ret
@@ -748,6 +756,13 @@ pf_shipf:
 pf_shipink:
         call color_ship
 pf_skipship:
+        ld hl, (bonus_timer)    ; bonus-stage countdown
+        ld a, h
+        or l
+        jr z, pf_nobonus
+        dec hl
+        ld (bonus_timer), hl
+pf_nobonus:
         call engine_drone
         ; screen-shake / border-flash decay
         call do_shake
@@ -2084,77 +2099,136 @@ engine_drone:
 ; ============================================================================
 ;  SPAWNING
 ; ============================================================================
+; do_spawn: bonus stage drops only crystals; otherwise a looping wave
+; script defines designed formations (type, y, delay), denser each zone.
 do_spawn:
-        ld a, (boss_active)     ; no normal spawns during a boss fight
+        ld a, (boss_active)     ; no spawns during a boss fight
         or a
         ret nz
-        ld a, (spawn_timer)
+        ld a, (bonus_timer)
+        or a
+        jr z, ds_wave
+        ld a, (spawn_timer)     ; ----- bonus: crystals only -----
         dec a
         ld (spawn_timer), a
         ret nz
-        ld a, (spawn_period)
+        ld a, 18
         ld (spawn_timer), a
-        ; difficulty ramp: tighten the period every few spawns (floor 14)
-        ld a, (spawn_count)
-        inc a
-        and 3
-        ld (spawn_count), a
-        jr nz, sp_noramp
-        ld a, (spawn_period)
-        cp 15
-        jr c, sp_noramp
+        call sp_find_slot
+        ret c
+        ld a, T_CRYS
+        ld (ix+0), a
+        ld a, 1
+        ld (ix+5), a
+        call sp_setpos
+        ret
+ds_wave:
+        ld a, (wave_delay)
         dec a
-        ld (spawn_period), a
-sp_noramp:
+        ld (wave_delay), a
+        ret nz
+        ld hl, (wave_ptr)
+        ld a, (hl)              ; type (0xFF = loop)
+        cp 0xFF
+        jr nz, dw_ok
+        ld hl, wave_script
+        ld a, (hl)
+dw_ok:
+        ld (sp_type), a
+        inc hl
+        ld a, (hl)              ; y
+        ld (sp_yv), a
+        inc hl
+        ld a, (hl)              ; delay to next
+        inc hl
+        ld (wave_ptr), hl
+        ld b, a                 ; per-zone density: delay - world*4 (floor 8)
+        ld a, (world)
+        add a, a
+        add a, a
+        ld c, a
+        ld a, b
+        sub c
+        cp 8
+        jr nc, dw_setd
+        ld a, 8
+dw_setd:
+        ld (wave_delay), a
+        call sp_find_slot
+        ret c
+        ld a, (sp_type)
+        ld (ix+0), a
+        cp T_ENEMY
+        jr nz, dw_spd1
+        ld a, 2
+        jr dw_spds
+dw_spd1:
+        ld a, 1
+dw_spds:
+        ld (ix+5), a
+        ld a, (sp_yv)
+        ld (ix+2), a
+        ld (ix+4), a
+        ld (ix+7), a
+        ld a, 232
+        ld (ix+1), a
+        ld (ix+3), a
+        xor a
+        ld (ix+6), a
+        ret
+
+; sp_find_slot: free object slot -> IX; carry set if none free
+sp_find_slot:
         ld ix, objs
         ld b, MAXOBJ
-sp_find:
+sfs_loop:
         ld a, (ix+0)
         or a
-        jr z, sp_free
+        jr z, sfs_found
         ld de, OBJSZ
         add ix, de
-        djnz sp_find
+        djnz sfs_loop
+        scf
         ret
-sp_free:
-        ; choose a type
-        call rnd
-        cp 16                   ; ~6% power-up
-        jr nc, sp_normal
-        ld a, T_POWER
-        ld c, 1
-        jr sp_settype
-sp_normal:
-        call rnd
-        and 3
-        jr nz, sp_t1
-        ld a, T_CRYS
-        ld c, 1
-        jr sp_settype
-sp_t1:
-        cp 1
-        jr nz, sp_rock
-        ld a, T_ENEMY
-        ld c, 2
-        jr sp_settype
-sp_rock:
-        ld a, T_ROCK
-        ld c, 1
-sp_settype:
-        ld (ix+0), a
-        ld (ix+5), c
+sfs_found:
+        or a
+        ret
+
+; sp_setpos: x=232, random y, phase 0 (used by the bonus stage)
+sp_setpos:
         ld a, 232
         ld (ix+1), a
         ld (ix+3), a
         call rnd
-        and 0x6F                ; keep clear of the cave floor with the weave
+        and 0x6F
         add a, 24
         ld (ix+2), a
         ld (ix+4), a
-        ld (ix+7), a            ; ybase (for the sine weave)
+        ld (ix+7), a
         xor a
-        ld (ix+6), a            ; phase
+        ld (ix+6), a
         ret
+
+; designed wave formations (type, y, frames-to-next); 0xFF = loop
+wave_script:
+        db T_ROCK,  40, 26
+        db T_ROCK,  72, 26
+        db T_CRYS,  56, 30
+        db T_ENEMY, 48, 22
+        db T_ENEMY, 80, 22
+        db T_ENEMY,112, 36
+        db T_ROCK, 100, 26
+        db T_ROCK,  60, 26
+        db T_POWER, 70, 40
+        db T_ENEMY, 36, 20
+        db T_ENEMY, 64, 20
+        db T_ENEMY, 92, 20
+        db T_CRYS,  48, 28
+        db T_CRYS, 104, 28
+        db T_ROCK,  84, 24
+        db T_ROCK,  44, 24
+        db T_ENEMY, 96, 30
+        db 0xFF
 
 ; ============================================================================
 ;  STARS  -  x(+0) y(+1) ox(+2) spd(+3)
@@ -2388,6 +2462,12 @@ next_world:
         ld (world), a
         call set_world_attr
         call sfx_zone
+        ld hl, wave_script      ; fresh formations each zone
+        ld (wave_ptr), hl
+        ld a, 1
+        ld (wave_delay), a
+        ld hl, 300              ; short bonus stage between zones
+        ld (bonus_timer), hl
         ld hl, 750
         ld (world_timer), hl
         ret
@@ -2531,6 +2611,16 @@ dz_blank:
         ld a, c
         cp 14
         jr nz, dz_blank
+        ld hl, (bonus_timer)    ; bonus stage label?
+        ld a, h
+        or l
+        jr z, dz_zone
+        ld hl, str_bonus
+        ld b, 1
+        ld c, 0
+        call print_str_at
+        ret
+dz_zone:
         ld a, (world)
         add a, a
         ld e, a
@@ -2684,6 +2774,21 @@ add_score:
         ld hl, (score)
         add hl, bc
         ld (score), hl
+        ; extra life every 1000 points
+        ld de, (next_life)
+        or a
+        sbc hl, de
+        ret c
+        ld a, (lives)
+        inc a
+        ld (lives), a
+        ld hl, (next_life)
+        ld de, 1000
+        add hl, de
+        ld (next_life), hl
+        ld hl, str_1up
+        call set_popup
+        call sfx_power
         ret
 
 ; print_str_at: HL=string(0-term) B=row C=col
@@ -3280,6 +3385,12 @@ pause_prev:   defb 0
 ctrl_scheme:  defb 0
 tctr:         defb 0
 credit_idx:   defb 0
+wave_ptr:     defw 0
+wave_delay:   defb 1
+sp_type:      defb 0
+sp_yv:        defb 0
+bonus_timer:  defw 0
+next_life:    defw 1000
 
 zone_names:   dw zn0, zn1, zn2, zn3
 zn0:          db "ASTEROID BELT",0
@@ -3292,6 +3403,8 @@ str_p10:      db "+10",0
 str_p5:       db "+5",0
 str_p200:     db "+200",0
 str_pwr:      db "PWR!",0
+str_1up:      db "1UP!",0
+str_bonus:    db "BONUS STAGE!",0
 
 life_icon:    db 0,48,60,255,255,60,48,0
 bar_full:     db 0,0,0,255,255,0,0,0

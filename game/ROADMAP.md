@@ -81,13 +81,14 @@ Status legend: ✅ done · ◐ partial · ☐ todo
 
 ## 5. Content & replayability
 
-- ☐ **Named zones with identity** (Asteroid Belt, Nebula, Inferno,
-  Verdant Reach…) each with unique hazards, palette, and music.
-- ☐ **Bonus stages** (collect-'em-all crystal runs).
-- ☐ **Extra life at score thresholds** + the reward jingle.
-- ☐ **Wave/level scripting** so encounters are designed, not purely
-  random (a compact byte-code of "spawn type X at height Y after N
-  frames").
+- ✅ **Named zones with identity** (Asteroid Belt, Nebula, Inferno,
+  Verdant Reach) each with its own palette, border and difficulty.
+- ✅ **Bonus stages** — a crystals-only "collect-'em-all" run between
+  zones (after each boss), shown as BONUS STAGE in the HUD.
+- ✅ **Extra life at score thresholds** (+1 ship every 1000 pts) with a
+  "1UP!" pop-up and jingle.
+- ✅ **Wave/level scripting** — a looping byte-code of (type, y, delay)
+  formations drives spawning, getting denser each zone.
 
 ## 6. Technical & polish
 
