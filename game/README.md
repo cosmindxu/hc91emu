@@ -80,7 +80,9 @@ The whole game is one Z80 source file, `src/game.asm`:
 - **`draw_sprite` / `erase_sprite`** are a masked 16×16 blitter. Each sprite
   row is `(data, mask)`; the routine shifts both right by `x & 7` across three
   bytes and writes `screen = (screen AND mask) OR data`, so sprites move with
-  single-pixel precision and let the background show through.
+  single-pixel precision and let the background show through. The player ship
+  uses a wider **24×16** variant (`draw_ship`) so it can carry detail —
+  antenna, cockpit/panel windows and fins.
 - Everything moving is an entry in a small fixed array (`objs`, `bullets`,
   `stars`); each frame it is erased at its old position, updated, collided, and
   redrawn — the classic flicker-light Spectrum approach.

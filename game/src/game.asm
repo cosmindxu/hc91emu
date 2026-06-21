@@ -174,8 +174,8 @@ play_frame:
         ld (spr_x), a
         ld a, (ship_y)
         ld (spr_y), a
-        call erase_sprite
-        call uncolor_obj        ; clear old ship colour cells
+        call erase_ship
+        call uncolor_ship       ; clear old ship colour cells
         call read_input
         call do_fire
         call do_bullets
@@ -196,9 +196,9 @@ pf_drawship:
         ld (spr_x), a
         ld a, (ship_y)
         ld (spr_y), a
-        call draw_sprite
+        call draw_ship
         ld a, 5                 ; bright cyan ship
-        call color_obj
+        call color_ship
 pf_skipship:
         ld hl, (world_timer)
         dec hl
@@ -345,7 +345,7 @@ fb_free:
         ld a, 1
         ld (ix+0), a
         ld a, (ship_x)
-        add a, 14
+        add a, 22               ; muzzle at the rocket's nose
         ld (ix+1), a
         ld (ix+3), a            ; ox
         ld a, (ship_y)
@@ -548,8 +548,8 @@ ship_hit:
         ld (spr_x), a
         ld a, (ship_y)
         ld (spr_y), a
-        call erase_sprite
-        call uncolor_obj
+        call erase_ship
+        call uncolor_ship
         call sfx_explode
         ld a, (lives)
         dec a
@@ -590,9 +590,10 @@ c_none:
         ret
 
 ; ============================================================================
-;  COLOUR  -  paint/clear a 3x3 attribute block under a sprite
+;  COLOUR  -  paint/clear an attribute block under a sprite
+;  Block is (sab_w) cells wide x 3 cells tall.
 ; ============================================================================
-; set_attr_block: A=attr  B=cell row  C=cell col   (3 wide x 3 tall)
+; set_attr_block: A=attr  B=cell row  C=cell col
 set_attr_block:
         ld (sab_attr), a
         ld a, b
@@ -609,23 +610,35 @@ set_attr_block:
         ld e, a
         ld d, 0
         add hl, de              ; + col
-        ld a, (sab_attr)
-        ld b, 3
+        ld b, 3                 ; rows
 sab_row:
+        push hl
+        ld a, (sab_w)
+        ld c, a
+        ld a, (sab_attr)
+sab_col:
         ld (hl), a
         inc hl
-        ld (hl), a
-        inc hl
-        ld (hl), a
-        ld de, 30
+        dec c
+        jr nz, sab_col
+        pop hl
+        ld de, 32
         add hl, de
         djnz sab_row
         ret
 
-; color_obj: A = ink (0..7); colours the cells under spr_x,spr_y, keeping
-; the zone's paper/bright bits.
+; color_obj / color_ship: A = ink (0..7); paint cells under spr_x,spr_y
+; keeping the zone's paper/bright bits.
 color_obj:
+        ld c, a                 ; save ink
+        ld a, 3
+        ld (sab_w), a
+        jr color_common
+color_ship:
         ld c, a
+        ld a, 4
+        ld (sab_w), a
+color_common:
         ld a, (zone_base)
         and 0xF8
         or c
@@ -644,8 +657,15 @@ color_obj:
         call set_attr_block
         ret
 
-; uncolor_obj: reset the cells under spr_x,spr_y to the plain zone attr
+; uncolor_obj / uncolor_ship: reset cells under spr_x,spr_y to the zone attr
 uncolor_obj:
+        ld a, 3
+        ld (sab_w), a
+        jr uncolor_common
+uncolor_ship:
+        ld a, 4
+        ld (sab_w), a
+uncolor_common:
         ld a, (spr_y)
         srl a
         srl a
@@ -1290,6 +1310,173 @@ es_row:
         ret
 
 ; ============================================================================
+;  WIDE (24x16) MASKED BLITTER  -  player ship only
+;  spr_ptr -> 16 rows of (d0,d1,d2,m0,m1,m2); writes 4 bytes/row.
+; ============================================================================
+draw_ship:
+        ld a, (spr_x)
+        and 7
+        ld (shift_n), a
+        ld a, (spr_x)
+        rrca
+        rrca
+        rrca
+        and 0x1F
+        ld (xc_tmp), a
+        ld a, (spr_y)
+        ld (row_y), a
+        ld b, 16
+dsh_row:
+        push bc
+        ld a, (row_y)
+        ld l, a
+        ld h, 0
+        add hl, hl
+        ld de, addrtab
+        add hl, de
+        ld e, (hl)
+        inc hl
+        ld d, (hl)
+        ld a, (xc_tmp)
+        ld l, a
+        ld h, 0
+        add hl, de
+        ld (scr_addr), hl
+        ld hl, (spr_ptr)
+        ld a, (hl)
+        ld (shbuf2+0), a
+        inc hl
+        ld a, (hl)
+        ld (shbuf2+1), a
+        inc hl
+        ld a, (hl)
+        ld (shbuf2+2), a
+        inc hl
+        ld a, (hl)
+        ld (shbuf2+4), a
+        inc hl
+        ld a, (hl)
+        ld (shbuf2+5), a
+        inc hl
+        ld a, (hl)
+        ld (shbuf2+6), a
+        inc hl
+        ld (spr_ptr), hl
+        xor a
+        ld (shbuf2+3), a        ; data byte 3 = 0
+        ld a, 255
+        ld (shbuf2+7), a        ; mask byte 3 = 255
+        ld a, (shift_n)
+        or a
+        jr z, dsh_noshift
+        ld c, a
+dsh_shloop:
+        ld hl, shbuf2
+        srl (hl)
+        inc hl
+        rr (hl)
+        inc hl
+        rr (hl)
+        inc hl
+        rr (hl)
+        ld hl, shbuf2+4
+        scf
+        rr (hl)
+        inc hl
+        rr (hl)
+        inc hl
+        rr (hl)
+        inc hl
+        rr (hl)
+        dec c
+        jr nz, dsh_shloop
+dsh_noshift:
+        ld hl, (scr_addr)
+        ld a, (shbuf2+4)
+        ld c, a
+        ld a, (hl)
+        and c
+        ld c, a
+        ld a, (shbuf2+0)
+        or c
+        ld (hl), a
+        inc hl
+        ld a, (shbuf2+5)
+        ld c, a
+        ld a, (hl)
+        and c
+        ld c, a
+        ld a, (shbuf2+1)
+        or c
+        ld (hl), a
+        inc hl
+        ld a, (shbuf2+6)
+        ld c, a
+        ld a, (hl)
+        and c
+        ld c, a
+        ld a, (shbuf2+2)
+        or c
+        ld (hl), a
+        inc hl
+        ld a, (shbuf2+7)
+        ld c, a
+        ld a, (hl)
+        and c
+        ld c, a
+        ld a, (shbuf2+3)
+        or c
+        ld (hl), a
+        ld a, (row_y)
+        inc a
+        ld (row_y), a
+        pop bc
+        dec b
+        jp nz, dsh_row
+        ret
+
+erase_ship:
+        ld a, (spr_x)
+        rrca
+        rrca
+        rrca
+        and 0x1F
+        ld (xc_tmp), a
+        ld a, (spr_y)
+        ld (row_y), a
+        ld b, 16
+esh_row:
+        push bc
+        ld a, (row_y)
+        ld l, a
+        ld h, 0
+        add hl, hl
+        ld de, addrtab
+        add hl, de
+        ld e, (hl)
+        inc hl
+        ld d, (hl)
+        ld a, (xc_tmp)
+        ld l, a
+        ld h, 0
+        add hl, de
+        xor a
+        ld (hl), a
+        inc hl
+        ld (hl), a
+        inc hl
+        ld (hl), a
+        inc hl
+        ld (hl), a
+        ld a, (row_y)
+        inc a
+        ld (row_y), a
+        pop bc
+        dec b
+        jr nz, esh_row
+        ret
+
+; ============================================================================
 ;  DATA
 ; ============================================================================
         include "src/sprites.inc"
@@ -1331,6 +1518,8 @@ decbuf:       defs 5
 cur_border:   defb 0
 zone_base:    defb 0x47
 sab_attr:     defb 0
+sab_w:        defb 3
+shbuf2:       defb 0,0,0,0,0,0,0,0
 
 ship_x:   defb 0
 ship_y:   defb 0
