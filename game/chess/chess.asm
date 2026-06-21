@@ -448,8 +448,11 @@ dsP:    ld c,a                 ; save raw piece (colour bit needed below)
         add hl,hl               ; *32
         ld a,c
         and COLBIT
-        jr nz,dsBlack          ; bit set = black -> solid silhouette
-        ld de,glyphsW          ; white -> hollow outline (black keyline)
+        jr nz,dsBlack          ; black -> solid silhouette
+        ld a,(whiteStyle)      ; white: fill mode -> solid, outline mode -> outline
+        or a
+        jr nz,dsBlack          ; fill mode uses the solid glyph (white ink)
+        ld de,glyphsW          ; outline mode -> hollow outline (black keyline)
         jr dsAddGlyph
 dsBlack: ld de,glyphs
 dsAddGlyph:
@@ -489,15 +492,12 @@ mcrCol: ld a,b
         ld (dsRow),a
         ret
 
-; attribute for dsSquare -> A.  Pieces are drawn with black ink: black is a
-; solid silhouette on the square colour.  White pieces use the outline
-; glyph; with whiteStyle=0 (outline) they sit on the square colour so the
-; body shows through, and with whiteStyle=1 (fill) their cell gets white
-; paper so the body fills white (and the cell backdrop turns white too —
-; the ZX ULA only allows one ink + one paper per 8x8 cell, so a dark
-; contour + white fill + the square colour can't share a cell).  Square
-; colours come from the active scheme's schemeTable row:
-; [light, dark, cursor, selected].
+; attribute for dsSquare -> A.  The paper is always the square colour from
+; the active scheme (cursor/selected squares override it); only the ink
+; varies.  Black pieces and outline-mode white pieces use ink 0 (black) —
+; black draws a solid silhouette, white an outline.  In fill mode a white
+; piece uses ink 7 (white) for a solid white silhouette with no contour.
+; schemeTable rows are [light, dark, cursor, selected].
 squareAttr:
         ld b,a
         and 7
@@ -511,26 +511,29 @@ squareAttr:
         add a,c
         and 1                  ; 1 = light square, 0 = dark square
         jr z,saDark
-        xor a                  ; offset 0: light
-        jr saBase
-saDark: ld a,1                 ; offset 1: dark
-saBase: call schemeAttr
-        ld e,a                 ; E = base square attribute
+        xor a                  ; field 0: light
+        jr saPaper
+saDark: ld a,1                 ; field 1: dark
+saPaper:
+        ld b,a                 ; B = light/dark field
         ld a,(dsSquare)
         ld hl,cursorSq
         cp (hl)
-        jr nz,saSel
-        ld a,2                 ; cursor highlight
-        jp schemeAttr
-saSel:  ld a,(dsSquare)
+        ld a,2                 ; cursor field
+        jr z,saField
+        ld a,(dsSquare)
         ld hl,selSq
         cp (hl)
-        jr nz,saWp
-        ld a,3                 ; selected-square highlight
-        jp schemeAttr
-saWp:   ld a,(whiteStyle)      ; fill mode and a white piece here?
+        ld a,3                 ; selected field
+        jr z,saField
+        ld a,b                 ; plain square: light/dark
+saField:
+        call schemeAttr        ; A = paper attribute (bright, ink 0)
+        ld e,a
+        ; white piece in fill mode -> white ink (solid, no contour)
+        ld a,(whiteStyle)
         or a
-        jr z,saEnd             ; outline mode -> keep square colour
+        jr z,saEnd             ; outline mode -> ink 0
         ld a,(dsSquare)
         ld h,0xE0
         ld l,a
@@ -538,8 +541,9 @@ saWp:   ld a,(whiteStyle)      ; fill mode and a white piece here?
         or a
         jr z,saEnd             ; empty
         and COLBIT
-        jr nz,saEnd            ; black piece -> keep square colour
-        ld a,0x78              ; white piece: bright, ink 0, paper 7 (white fill)
+        jr nz,saEnd            ; black piece
+        ld a,e
+        or 0x07                ; white piece, fill mode: ink 7 (white)
         ret
 saEnd:  ld a,e
         ret
