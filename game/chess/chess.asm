@@ -144,6 +144,7 @@ osKF     equ 0xE125      ; killer bump scratch
 osKT     equ 0xE126
 osKScore equ 0xE127
 gameUndoN equ 0xE128     ; plies on the take-back stack
+rfEval   equ 0xE129      ; (2) reverse-futility static eval
 
 killerArr equ 0xD100     ; 4 bytes/ply: k1from,k1to,k2from,k2to
 
