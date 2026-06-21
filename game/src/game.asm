@@ -880,12 +880,42 @@ show_gameover:
         ld b, 13
         ld c, 10
         call print_str_at
+        ld hl, str_kills        ; KILLS <n> (run stat)
+        ld b, 15
+        ld c, 6
+        call print_str_at
+        ld ix, decbuf
+        ld hl, (run_kills)
+        ld de, 10000
+        call sc_digit
+        ld de, 1000
+        call sc_digit
+        ld de, 100
+        call sc_digit
+        ld de, 10
+        call sc_digit
+        ld a, l
+        add a, '0'
+        ld (ix+0), a
+        ld hl, decbuf
+        ld b, 15
+        ld c, 12
+        call print_str_n5
         call hs_qualify         ; new high score?
-        jr nc, go_fire
+        jr nc, go_cont
         ld hl, str_newhi
-        ld b, 16
+        ld b, 17
         ld c, 8
         call print_str_at
+go_cont:
+        ld a, (continued)       ; continue still on offer?
+        or a
+        jr nz, go_fire
+        ld hl, str_cont
+        ld b, 20
+        ld c, 8
+        call print_str_at
+        ret
 go_fire:
         ld hl, str_fire
         ld b, 20
@@ -894,6 +924,36 @@ go_fire:
         ret
 
 gameover_poll:
+        ld a, (continued)       ; continue still available?
+        or a
+        jr nz, gp_normal
+        ld a, (continue_timer)
+        or a
+        jr z, gp_offer_end
+        dec a
+        ld (continue_timer), a
+        call fire_down
+        jr nz, gp_cont_arm
+        ld a, (menu_lock)
+        or a
+        ret nz
+        call continue_game      ; FIRE -> resume at this zone
+        ld a, 1
+        ld (state), a
+        ld (menu_lock), a
+        ret
+gp_cont_arm:
+        xor a
+        ld (menu_lock), a
+        ret
+gp_offer_end:
+        ld a, 1                 ; offer timed out -> normal flow, redraw screen
+        ld (continued), a
+        ld a, 1
+        ld (menu_lock), a
+        call show_gameover
+        ret
+gp_normal:
         call fire_down
         jr z, gp_press
         xor a
@@ -1216,6 +1276,24 @@ fd_yes:
 ;  GAME INIT
 ; ============================================================================
 init_game:
+        xor a
+        ld (world), a
+        ld (continued), a
+        ld (run_bombs), a
+        ld (best_zone), a
+        ld hl, 0
+        ld (score), hl
+        ld (run_kills), hl
+        jr reset_run
+; continue_game: resume at the current zone (one-time), keeping run stats
+continue_game:
+        ld a, 1
+        ld (continued), a
+        ld hl, (score)          ; halve the score as the cost of continuing
+        srl h
+        rr l
+        ld (score), hl
+reset_run:
         call clear_screen
         call zero_objects
         call init_stars
@@ -1265,10 +1343,6 @@ ig_setlives:
         ld a, 50
         ld (planet_y), a
         ld (planet_oy), a
-        ld hl, 0
-        ld (score), hl
-        xor a
-        ld (world), a
         call set_world_attr
         ld a, 24
         ld (ship_x), a
@@ -2897,6 +2971,10 @@ sh_real:
 sh_dead:
         ld a, 2
         ld (state), a
+        ld a, 1
+        ld (menu_lock), a       ; require a fresh press before continue/confirm
+        ld a, 200
+        ld (continue_timer), a
         ret
 
 ; collide: B=ax C=ay D=bx E=by ; Z set if |dx|<col_thr and |dy|<col_thr
@@ -3390,6 +3468,8 @@ do_bomb:
         ret z                   ; none left
         dec a
         ld (bombs), a
+        ld hl, run_bombs        ; run stat: bombs used
+        inc (hl)
         ld a, 12
         ld (shake), a           ; flash
         call detonate_bomb
@@ -3967,15 +4047,29 @@ dm_on:
         ld a, (mus_div)
         inc a
         ld (mus_div), a
-        and 7
-        ret nz                  ; advance the melody every 8 frames
+        ld b, 7                 ; tempo: every 8 frames (boss: every 4)
+        ld a, (boss_active)
+        or a
+        jr z, dm_tempo
+        ld b, 3
+dm_tempo:
+        ld a, (mus_div)
+        and b
+        ret nz
         ld a, (mus_idx)
         inc a
         and 15
         ld (mus_idx), a
         ld e, a
         ld d, 0
+        ld a, (boss_active)     ; boss -> tense theme, else the zone theme
+        or a
+        jr z, dm_zonemus
+        ld hl, music_boss
+        jr dm_addidx
+dm_zonemus:
         ld hl, (music_ptr)
+dm_addidx:
         add hl, de
         ld a, (hl)              ; note index
         add a, a
@@ -4024,6 +4118,7 @@ music2: db 5,4,3,2, 1,2,3,4, 5,6,7,6, 5,3,1,0
 music3: db 0,0,3,3, 5,5,4,2, 1,1,4,4, 6,6,5,3
 music4: db 2,4,6,7, 6,4,2,0, 3,5,7,5, 3,1,3,5
 music5: db 7,5,3,1, 0,2,4,6, 7,5,4,2, 1,3,5,7
+music_boss: db 7,7,6,7, 5,5,4,5, 7,7,6,4, 2,4,6,7   ; tense boss theme
 music_a:
         db 0,2,4,5, 4,2,0,2, 1,3,5,6, 5,3,1,3
 
@@ -4840,6 +4935,11 @@ next_world:
         xor a
 nw_set:
         ld (world), a
+        ld hl, best_zone        ; run stat: deepest zone reached
+        cp (hl)
+        jr c, nw_nobest
+        ld (hl), a
+nw_nobest:
         call set_world_attr
         call set_music_zone     ; switch the AY theme for this zone
         call sfx_zone
@@ -5465,6 +5565,9 @@ ks_done:
 
 ; bump_combo: extend the chain, refresh its timer, recompute the multiplier
 bump_combo:
+        ld hl, (run_kills)      ; run stat: hazards destroyed
+        inc hl
+        ld (run_kills), hl
         ld a, (overdrive)       ; each kill charges the overdrive meter
         cp OD_MAX
         jr nc, bc_odfull
@@ -6379,6 +6482,11 @@ armor_flash:  defb 0          ; armoured-enemy hit flash timer
 gate_col:     defb 0
 gate_val:     defb 0
 gate_addr:    defw 0
+continued:    defb 0          ; 1 once a continue has been used/declined
+continue_timer: defb 0        ; frames left to accept a continue
+run_kills:    defw 0          ; hazards destroyed this run
+run_bombs:    defb 0          ; smart-bombs used this run
+best_zone:    defb 0          ; deepest zone reached this run
 meteor_cd:    defw 600        ; frames until next meteor shower
 meteor_t:     defb 0          ; meteor-shower active frames remaining
 bomb_prev:    defb 0
@@ -6458,6 +6566,8 @@ str_midboss:  db "WARSHIP!",0
 str_demo:     db "DEMO",0
 str_graze:    db "GRZ",0
 str_meteor:   db "METEORS!",0
+str_kills:    db "KILLS",0
+str_cont:     db "CONTINUE?  FIRE",0
 str_defk:     db "D-KEYS S-SAVE L-LOAD",0
 str_defup:    db "PRESS UP KEY   ",0
 str_defdn:    db "PRESS DOWN KEY ",0
