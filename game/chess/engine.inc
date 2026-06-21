@@ -649,6 +649,34 @@ osScore:
         ld de,4
         add hl,de
         djnz osScore
+        ; PV-first: at the root, force the previous iteration's best move
+        ; to the top of the order (drives iterative deepening).
+        ld a,(searchPly)
+        or a
+        jr nz,osNoPv
+        ld a,(pvFrom)
+        cp 0xFF
+        jr z,osNoPv
+        call curMoveBuf
+        ld a,(genCount)
+        ld b,a
+osPvL:  ld a,(pvFrom)
+        cp (hl)
+        jr nz,osPvN
+        inc hl
+        ld a,(pvTo)
+        cp (hl)
+        jr nz,osPvN2
+        inc hl
+        inc hl
+        ld (hl),0xFF
+        jr osNoPv
+osPvN:  inc hl
+osPvN2: inc hl
+        inc hl
+        inc hl
+        djnz osPvL
+osNoPv:
         call curMoveBuf
         ld (osIPtr),hl
         ld a,(genCount)
@@ -725,6 +753,12 @@ osNoSwap:
 ;  aiMove — search from the root and play the best move.
 ; =====================================================================
 aiMove:
+        ld a,0xFF
+        ld (bestFrom),a
+        ld (pvFrom),a            ; no PV hint yet
+        ld a,1
+        ld (aidIter),a           ; iterative deepening: depth 1..aiDepth
+aidLoop:
         xor a
         ld (searchPly),a
         ld bc,-INF
@@ -737,10 +771,22 @@ aiMove:
         ld (hl),c
         inc hl
         ld (hl),b
-        ld a,0xFF
-        ld (bestFrom),a
-        ld a,(aiDepth)
+        ld a,(aidIter)
         call negamax
+        ; remember this iteration's best as the PV hint for the next one
+        ld a,(bestFrom)
+        ld (pvFrom),a
+        ld a,(bestTo)
+        ld (pvTo),a
+        ld a,(aidIter)
+        ld hl,aiDepth
+        cp (hl)
+        jr nc,aidDone            ; aidIter >= aiDepth -> stop
+        ld a,(aidIter)
+        inc a
+        ld (aidIter),a
+        jp aidLoop
+aidDone:
         ld a,(bestFrom)
         cp 0xFF
         ret z

@@ -110,6 +110,10 @@ osOuter  equ 0xE0EB
 osInner  equ 0xE0EC
 nodeLo   equ 0xE0ED      ; node counter (2)
 nodeHi   equ 0xE0EF
+pvFrom   equ 0xE0F1      ; root PV move hint for ordering
+pvTo     equ 0xE0F2
+twoPlayer equ 0xE0F3     ; 1 = human vs human
+aidIter  equ 0xE0F4      ; current iterative-deepening depth
 
 ; per-ply move buffers: base + ply*512 (128 moves * 4 bytes)
 moveBufBase equ 0xB000   ; 0xB000..0xD000 = 16 plies
@@ -995,6 +999,7 @@ msgWmate:    defb "Checkmate! Black wins   SPC=new",0
 msgBmate:    defb "Checkmate! White wins   SPC=new",0
 msgStale:    defb "Stalemate - draw        SPC=new",0
 msgDraw:     defb "Draw (50-move)          SPC=new",0
+msgMat:      defb "Draw - insufficient mtl SPC=new",0
 msgCheck:    defb "Check!             ",0
 
         include "pieces.inc"
