@@ -178,6 +178,7 @@ FRAMES   equ 0x5C78      ; ROM 50 Hz frame counter (3 bytes), low 16 used
 INITCLK  equ 15000       ; starting time per side: 5:00 at 50 Hz
 is128    equ 0xE158      ; 1 on a 128K machine (paging available), else 0
 colorScheme equ 0xE159   ; selected board colour scheme (0..NSCHEMES-1)
+whiteStyle equ 0xE15A    ; white-piece style: 0 = outline, 1 = white fill
 saveBuf  equ 0xE160      ; game-save buffer: 64 board + side/cas/ep + extras
 SAVELEN  equ 71          ; 64 + side + castle + ep + halfmove + moveCount(2) + depth
 SA_BYTES equ 0x04C2      ; ROM tape save  (IX=addr, DE=len, A=flag)
@@ -239,6 +240,7 @@ start:
         call detect128         ; set is128: enables the banked transposition table
         xor a
         ld (colorScheme),a     ; default scheme 0 = Classic (yellow/red)
+        ld (whiteStyle),a      ; default white pieces = outline (contour)
         call seedRng
         call zobInit
         call newGame
@@ -487,12 +489,15 @@ mcrCol: ld a,b
         ld (dsRow),a
         ret
 
-; attribute for dsSquare -> A.  Pieces are drawn with black ink on the
-; square colour (white = hollow outline, black = solid silhouette); the ZX
-; ULA only allows one ink + one paper per 8x8 cell, so a white piece can't
-; have a dark contour AND a white fill AND the square colour beside it.
-; The attribute is therefore just the square's paper, from the active
-; colour scheme's schemeTable row: [light, dark, cursor, selected].
+; attribute for dsSquare -> A.  Pieces are drawn with black ink: black is a
+; solid silhouette on the square colour.  White pieces use the outline
+; glyph; with whiteStyle=0 (outline) they sit on the square colour so the
+; body shows through, and with whiteStyle=1 (fill) their cell gets white
+; paper so the body fills white (and the cell backdrop turns white too —
+; the ZX ULA only allows one ink + one paper per 8x8 cell, so a dark
+; contour + white fill + the square colour can't share a cell).  Square
+; colours come from the active scheme's schemeTable row:
+; [light, dark, cursor, selected].
 squareAttr:
         ld b,a
         and 7
@@ -520,9 +525,22 @@ saBase: call schemeAttr
 saSel:  ld a,(dsSquare)
         ld hl,selSq
         cp (hl)
-        jr nz,saEnd
+        jr nz,saWp
         ld a,3                 ; selected-square highlight
         jp schemeAttr
+saWp:   ld a,(whiteStyle)      ; fill mode and a white piece here?
+        or a
+        jr z,saEnd             ; outline mode -> keep square colour
+        ld a,(dsSquare)
+        ld h,0xE0
+        ld l,a
+        ld a,(hl)
+        or a
+        jr z,saEnd             ; empty
+        and COLBIT
+        jr nz,saEnd            ; black piece -> keep square colour
+        ld a,0x78              ; white piece: bright, ink 0, paper 7 (white fill)
+        ret
 saEnd:  ld a,e
         ret
 
@@ -551,6 +569,9 @@ schemeNames:
         defw nmSchClassic
         defw nmSchMeadow
         defw nmSchClean
+whiteNames:
+        defw nmWOutline
+        defw nmWFilled
 
 ; set 4 attribute cells of square (dsCol,dsRow) to dsAttr
 setAttr2x2:
@@ -837,6 +858,26 @@ drawScheme:
         ld b,16
         ld c,22
         call printStr
+        ; fall through to the white-piece style line
+; drawWhiteStyle — show the white-piece style + its toggle key (W) at row 17
+drawWhiteStyle:
+        ld hl,msgWhiteK
+        ld b,17
+        ld c,20
+        call printStr
+        ld a,(whiteStyle)
+        add a,a
+        ld e,a
+        ld d,0
+        ld hl,whiteNames
+        add hl,de
+        ld a,(hl)
+        inc hl
+        ld h,(hl)
+        ld l,a                 ; HL = style-name string
+        ld b,17
+        ld c,22
+        call printStr
         ret
 
 ; --- analysis info panel (right of the board) ------------------------
@@ -1048,8 +1089,14 @@ sk_t:   ld bc,0xFBFE
 sk_e:   ld bc,0xFBFE           ; Q,W,E,R,T
         in a,(c)
         bit 2,a                ; E = load endgame demo (KRK)
-        jr nz,sk_v
+        jr nz,sk_w
         ld a,'E'
+        ret
+sk_w:   ld bc,0xFBFE
+        in a,(c)
+        bit 1,a                ; W = toggle white-piece style
+        jr nz,sk_v
+        ld a,'W'
         ret
 sk_v:   ld bc,0xFEFE           ; CAPS,Z,X,C,V
         in a,(c)
@@ -1187,6 +1234,8 @@ hmLoop: call clkWaitKey        ; like readKeyDebounced, but ticks the clock
         jp z,hmSetup
         cp 'C'
         jp z,hmColor
+        cp 'W'
+        jp z,hmWhiteStyle
         cp 'G'
         jp z,hmSave
         cp 'L'
@@ -1255,6 +1304,18 @@ hmcSet: ld (colorScheme),a
         ld hl,msgColour
         call setMsg
         call drawScreenFull    ; repaint the board in the new scheme
+        jp hmLoop
+
+hmWhiteStyle:
+        ld a,(whiteStyle)
+        xor 1
+        ld (whiteStyle),a
+        or a
+        ld hl,msgWOut
+        jr z,hwsMsg
+        ld hl,msgWFill
+hwsMsg: call setMsg
+        call drawScreenFull    ; repaint white pieces in the new style
         jp hmLoop
 
 hmTakeBack:
@@ -2047,7 +2108,7 @@ msgThinking: defb "Thinking...        ",0
 msgIllegal:  defb "Illegal move       ",0
 msgPick:     defb "Pick your piece    ",0
 msgDiff:     defb "Difficulty set     ",0
-msgKeys:     defb "QAOP+ENT  C=colour  NTEVZFSGL",0
+msgKeys:     defb "QAOP+ENT  C,W=look  NTEVZFSGL",0
 msgPerftHdr: defb "PERFT self-test (start position)",0
 msgPerftN:   defb "perft",0
 msgOK:       defb "OK",0
@@ -2094,8 +2155,13 @@ nmQGD:       defb "QGD",0
 nmSchClassic: defb "Classic",0
 nmSchMeadow:  defb "Meadow ",0
 nmSchClean:   defb "Clean  ",0
+nmWOutline:   defb "Outline",0
+nmWFilled:    defb "Filled ",0
 msgColK:      defb "C:",0
+msgWhiteK:    defb "W:",0
 msgColour:    defb "Colour scheme (C)  ",0
+msgWOut:      defb "White pieces: outline",0
+msgWFill:     defb "White pieces: filled ",0
 msgCheck:    defb "Check!             ",0
 
         include "pieces.inc"

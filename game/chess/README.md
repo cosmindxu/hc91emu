@@ -86,6 +86,7 @@ ROM character set, so it is fully 48K-compatible.
 | `N` | new game |
 | `S` | open the set-up board editor |
 | `C` | cycle the board colour scheme |
+| `W` | toggle white pieces: outline / white fill |
 | `G` / `L` | save / load the game to / from tape |
 | `T` | run the perft + Zobrist self-test |
 
@@ -174,6 +175,12 @@ one cell. So [pieces.py](pieces.py) emits two glyph sets — a **solid
 silhouette for Black** and a **hollow black-outline ("contour") for
 White** — both inked black, which keeps both sides legible on every square
 colour (white pieces read as an outline with the square showing through).
+
+White pieces have two display modes, toggled in-game with **`W`** (shown on
+the panel as `W:<mode>`): **Outline** (the default — black contour, square
+shows through) or **Filled** (the same outline glyph but on white paper, so
+the body fills white at the cost of the cell's backdrop also turning
+white). Pick whichever reads best for you; only the cell's paper differs.
 
 The board colour scheme is switchable in-game with **`C`** (shown on the
 panel as `C:<name>`): **Classic** (yellow/red, the default), **Meadow**
