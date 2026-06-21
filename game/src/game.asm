@@ -250,7 +250,12 @@ ml_chk2:
         call gameover_poll
         jr main_loop
 ml_chk3:
+        cp 3
+        jr nz, ml_chk4
         call initials_frame     ; state 3: entering initials
+        jr main_loop
+ml_chk4:
+        call show_victory       ; state 4: ending / victory sequence
         jr main_loop
 
 ; check_pause: 'H' toggles pause (edge-detected); paused shows a small menu
@@ -355,9 +360,13 @@ show_title:
         ld c, 9
         call print_str_at
         ld hl, str_tagline      ; story hint, low so it clears the ship preview
+        ld a, (won_flag)        ; once beaten, show the victory badge instead
+        or a
+        jr z, st_tag
+        ld hl, str_won_badge
+st_tag:
         ld b, 21
-        ld c, 1
-        call print_str_at
+        call print_center
         ld hl, str_hiscores
         ld b, 6
         ld c, 9
@@ -889,6 +898,78 @@ sbf_wait:
         halt                    ; then wait for a fresh FIRE to launch
         call fire_down
         jr nz, sbf_wait
+        ret
+
+; show_victory: the ending / outro after the Void Nexus boss falls (state 4).
+; Notes the run (all zones cleared + score), flags the mission complete, then
+; routes into the high-score flow (or the title).
+show_victory:
+        ld a, 1
+        ld (won_flag), a        ; permanent "mission complete" badge on title
+        call sfx_zone           ; a triumphant flourish
+        call clear_screen
+        call draw_title_stars
+        ld hl, str_vic_hd
+        ld b, 2
+        call print_center
+        ld hl, str_vic1
+        ld b, 6
+        call print_center
+        ld hl, str_vic2
+        ld b, 8
+        call print_center
+        ld hl, str_vic3
+        ld b, 9
+        call print_center
+        ld hl, str_vic4
+        ld b, 11
+        call print_center
+        ld hl, str_vic_hon      ; honours: ALL ZONES CLEARED
+        ld b, 14
+        call print_center
+        ld hl, str_score        ; FINAL SCORE label + value
+        ld b, 16
+        call print_center
+        ld ix, decbuf           ; render the 5-digit score
+        ld hl, (score)
+        ld de, 10000
+        call sc_digit
+        ld de, 1000
+        call sc_digit
+        ld de, 100
+        call sc_digit
+        ld de, 10
+        call sc_digit
+        ld a, l
+        add a, '0'
+        ld (ix+0), a
+        ld hl, decbuf
+        ld b, 17
+        ld c, 13
+        call print_str_n5
+        ld hl, str_fire
+        ld b, 20
+        call print_center
+svc_rel:
+        halt                    ; wait for FIRE release
+        call fire_down
+        jr z, svc_rel
+svc_wait:
+        halt                    ; then a fresh press to dismiss
+        call fire_down
+        jr nz, svc_wait
+        ld a, 1
+        ld (menu_lock), a
+        call hs_qualify         ; made the table? -> enter initials
+        jr nc, svc_totitle
+        call ie_setup
+        ld a, 3
+        ld (state), a
+        ret
+svc_totitle:
+        xor a
+        ld (state), a
+        call show_title
         ret
 
 show_gameover:
@@ -3693,9 +3774,24 @@ kill_boss:
         call sfx_explode
         ; big explosion at boss position
         call spawn_explosion
+        ld a, (world)           ; final zone (Void Nexus) cleared?
+        cp NZONES-1
+        jr z, kb_won
         ld hl, str_zclr         ; ZONE CLEAR! flourish (the +200 still scores)
         call set_popup
         call next_world
+        ret
+kb_won:
+        ld a, (demo_active)     ; demo never triggers the ending; just loop on
+        or a
+        jr z, kb_realwin
+        ld hl, str_zclr
+        call set_popup
+        call next_world
+        ret
+kb_realwin:
+        ld a, 4                 ; -> victory / ending sequence (state 4)
+        ld (state), a
         ret
 
 ; grant_power: hand out the next upgrade in the cycle
@@ -6491,6 +6587,13 @@ str_brf5:   db "FLY THE SCOUT DRIFTER",0
 str_brf6:   db "THROUGH EVERY ZONE TO THE",0
 str_brf7:   db "CORE - AND END NEXUS.",0
 str_launch: db "FIRE TO LAUNCH",0
+str_won_badge: db "NEXUS DEFEATED - WELL FLOWN",0
+str_vic_hd: db "MISSION COMPLETE",0
+str_vic1:   db "NEXUS IS DOWN.",0
+str_vic2:   db "THE SIX ZONES ARE OPEN",0
+str_vic3:   db "AND THE COLONIES ARE FREE.",0
+str_vic4:   db "YOU FLEW THE DRIFTER HOME.",0
+str_vic_hon: db "ALL ZONES CLEARED",0
 str_newhi:  db "NEW HIGH SCORE!",0
 str_entini: db "ENTER INITIALS - FIRE",0
 str_schopts: db "1-QAOP   2-CURSOR",0
@@ -6695,6 +6798,7 @@ zone_msg_t:   defb 0
 card_str:     defw 0
 card_t:       defb 0
 card_shown:   defb 0
+won_flag:     defb 0
 wave_delay:   defb 1
 sp_type:      defb 0
 sp_yv:        defb 0
@@ -6805,17 +6909,20 @@ ps_srcbase: defw 0
 ps_si:    defb 0
 ps_sh:    defb 0
 
-objs:     defs MAXOBJ*OBJSZ
-bullets:  defs MAXBUL*4
-ebullets: defs MAXEB*6
-expls:    defs MAXEXPL*3
-debris:   defs DEB*5
-stars:    defs NSTAR*4
+; ---- runtime scratch in the free RAM gap below the load address (0x6000+),
+;      so it is neither stored in the tape image nor placed up against the
+;      stack at 0xFDF0; every one of these is rebuilt at startup. ----
+objs      equ 0x6000
+bullets   equ objs + MAXOBJ*OBJSZ
+ebullets  equ bullets + MAXBUL*4
+expls     equ ebullets + MAXEB*6
+debris    equ expls + MAXEXPL*3
+stars     equ debris + DEB*5
+addrtab   equ stars + NSTAR*4         ; 384 bytes -> ends ~0x626B
 px_x:     defb 0
 px_y:     defb 0
 px_set:   defb 0
 
-addrtab:  defs 384
 psbuf:    defs NSPR*768
 
         end start
