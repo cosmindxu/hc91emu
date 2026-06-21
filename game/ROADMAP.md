@@ -36,11 +36,10 @@ Status legend: ✅ done · ◐ partial · ☐ todo
   descending enemy-fire blip, noise-burst explosion, metallic hit tick.
 - ✅ **In-game beeper engine drone** — a subtle low pulse every 8th frame
   so play is never silent.
-- ☐ **128K AY-3-8912 music & SFX** (HC-128 / `--machine hc128`). The
-  emulator fully emulates the PSG: a title tune and a driving in-game
-  loop on three channels would transform the mood. Detect 128K at boot
-  and fall back to beeper on 48K.
-- ☐ **AY drums/noise channel** for explosions on 128K.
+- ✅ **128K AY-3-8912 music** — a looping melody plays on the PSG; the
+  register writes are harmless on a 48K machine, so no detection is needed
+  (beeper effects still play there).
+- ✅ **AY noise channel** for explosions on 128K (noise burst on channel C).
 
 ## 3. Colour & graphics
 
@@ -92,15 +91,18 @@ Status legend: ✅ done · ◐ partial · ☐ todo
 
 ## 6. Technical & polish
 
-- ☐ **Interrupt-driven (IM2) game clock** for rock-steady 50 Hz and
-  glitch-free audio timing.
-- ☐ **Double-buffered or beam-synced drawing** to eliminate the last
-  flicker (e.g., draw the player last, just behind the raster).
+- ✅ **Interrupt-driven (IM2) game clock** — a 257-byte vector table at
+  0xFE00 routes the 50 Hz interrupt to a light ISR; the main loop HALT-syncs
+  to it, bypassing the ROM ISR's keyboard scan.
+- ✅ **Beam-synced draw order** — the player ship is drawn last each frame
+  (after stars, terrain, hazards, bullets and explosions) so it stays on
+  top with minimal flicker.
 - ✅ **Pre-shifted sprite tables** — all 16x16 sprite shifts are computed
   once at startup into `psbuf`, so drawing is a plain masked copy (no
   per-row shift loop). With HUD redraw caching, a star mask table and
   trimmed entity counts this roughly doubled the frame rate.
-- ☐ **Self-test / cheat keys** behind a build flag for QA.
+- ✅ **Cheat keys** for QA: hold **I** for invincibility, hold **G** to
+  grant all power-ups, press **K** to skip to the next zone.
 - ☐ **CI hook**: assemble the game and run a few headless
   `--frames/--screenshot/--wav` smoke tests on every push (the emulator
   makes this trivial — see how the dev shots were captured).
