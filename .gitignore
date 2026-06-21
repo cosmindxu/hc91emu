@@ -6,6 +6,7 @@ roms/
 core
 tests/vectors/
 dist/
+__pycache__/
 
 # LaTeX build auxiliaries (docs/ARCHITECTURE.pdf is committed)
 docs/ARCHITECTURE.aux
