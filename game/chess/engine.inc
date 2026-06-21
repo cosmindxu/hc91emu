@@ -2090,7 +2090,16 @@ aspOk:
         ld a,(aidIter)
         ld hl,aiDepth
         cp (hl)
-        jr nc,aidDone            ; aidIter >= aiDepth -> stop
+        jr nc,aidDone            ; aidIter >= aiDepth -> stop (depth cap)
+        ; clock-aware stop: once we've already spent the move's time budget,
+        ; don't start another (deeper, much slower) iteration.  Always allow
+        ; at least depth 2 so play stays sensible when very low on time.
+        ld a,(aidIter)
+        cp 2
+        jr c,aidNext
+        call clkBudgetExceeded
+        jr c,aidDone
+aidNext:
         ld a,(aidIter)
         inc a
         ld (aidIter),a
