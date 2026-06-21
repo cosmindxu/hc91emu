@@ -31,11 +31,11 @@ Each zone is a chapter; each boss is one of NEXUS's war-machines.
 
 ## B. Per-chapter flavour
 
-- ☐ **Zone story cards** — a line of flavour text under the zone-name banner
+- ✅ **Zone story cards** — a line of flavour text under the zone-name banner
   on entry (e.g. *"emission clouds hide a warship"*). _Impact: high ·
   Effort: med._
-- ☐ **Boss taunts** — each war-machine announces itself with a one-liner
-  when it appears, in place of the bare "BOSS!!". _Impact: med · Effort:
+- ✅ **Boss taunts** — each war-machine announces itself with a one-liner
+  when it appears, alongside the "BOSS!!" HUD cue. _Impact: med · Effort:
   low._
 
 ## C. Payoff

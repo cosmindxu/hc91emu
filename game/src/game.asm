@@ -1440,6 +1440,7 @@ ig_setlives:
         ld (zone_msg), a
         ld a, 80
         ld (zone_msg_t), a
+        call set_zone_card      ; zone-1 story flavour
         ld hl, 0
         ld (bonus_timer), hl
         ld hl, 1000
@@ -3652,7 +3653,22 @@ sb2_free:
         ld h, (hl)
         ld l, a
         ld (boss_spr), hl
-        ld hl, str_boss
+        ld a, (world)           ; per-zone boss taunt (announces the machine)
+        cp 6
+        jr c, sb_taunt_ok
+        ld a, 5
+sb_taunt_ok:
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, boss_taunts
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
+        call set_card
+        ld hl, str_boss         ; keep the small "BOSS!!" HUD popup too
         call set_popup
         ld a, T_BOSS
         ld (ix+0), a
@@ -5009,6 +5025,7 @@ nw_nobest:
         ld (zone_msg), a
         ld a, 80
         ld (zone_msg_t), a
+        call set_zone_card      ; new zone's story flavour
         ret
 
 ; set_zone_wave: point wave_base/wave_ptr at the current zone's script
@@ -5047,6 +5064,7 @@ show_hud:
         call draw_combo         ; combo multiplier, row1 right
         call draw_bombs         ; smart-bomb count, row1 right
         call draw_zone_banner   ; brief centered zone name on entry
+        call draw_card          ; story flavour / boss taunt line
         ld a, (demo_active)     ; show DEMO while attracting
         or a
         ret z
@@ -5095,6 +5113,82 @@ zb_bl:
         cp 32
         jr nz, zb_bl
         ret
+
+; print_center: HL=string(0-term), B=row -> prints centred on that row
+print_center:
+        push hl
+        ld c, 0
+pcen_len:
+        ld a, (hl)
+        or a
+        jr z, pcen_done
+        inc hl
+        inc c
+        jr pcen_len
+pcen_done:
+        ld a, 32
+        sub c
+        srl a                   ; col = (32-len)/2
+        ld c, a
+        pop hl
+        jp print_str_at
+
+; set_card: HL=string -> centred story line at row 13 for ~90 frames
+set_card:
+        ld (card_str), hl
+        ld a, 90
+        ld (card_t), a
+        ld a, 1
+        ld (card_shown), a
+        ret
+
+; draw_card: the story/taunt line under the banner; blanks once when it ends
+draw_card:
+        ld a, (card_t)
+        or a
+        jr z, dc_chk
+        dec a
+        ld (card_t), a
+        ld hl, (card_str)
+        ld b, 13
+        call print_center
+        ret
+dc_chk:
+        ld a, (card_shown)
+        or a
+        ret z
+        xor a
+        ld (card_shown), a
+        ld b, 13                ; blank the card row once
+        ld c, 0
+dc_bl:
+        ld a, 32
+        push bc
+        call print_char
+        pop bc
+        inc c
+        ld a, c
+        cp 32
+        jr nz, dc_bl
+        ret
+
+; set_zone_card: pick the current zone's flavour line and show it
+set_zone_card:
+        ld a, (world)
+        cp 6
+        jr c, szc_ok
+        ld a, 5
+szc_ok:
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, zone_cards
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
+        jp set_card
 
 ; draw_combo: "x<n>" at row1 col22 (only when a chain is active)
 draw_combo:
@@ -6598,6 +6692,9 @@ wave_base:    defw wave0
 music_ptr:    defw music0
 zone_msg:     defb 0
 zone_msg_t:   defb 0
+card_str:     defw 0
+card_t:       defb 0
+card_shown:   defb 0
 wave_delay:   defb 1
 sp_type:      defb 0
 sp_yv:        defb 0
@@ -6618,6 +6715,20 @@ zn2:          db "SAPPHIRE EXPANSE",0
 zn3:          db "MAGENTA STORM",0
 zn4:          db "EMERALD RIFT",0
 zn5:          db "VOID NEXUS",0
+zone_cards:   dw zc0, zc1, zc2, zc3, zc4, zc5
+zc0:          db "EMISSION CLOUDS HIDE A WARSHIP",0
+zc1:          db "IONISED DUST - WATCH THE WALLS",0
+zc2:          db "OPEN VOID - LONG SIGHT LINES",0
+zc3:          db "STORM CELLS SCRAMBLE SENSORS",0
+zc4:          db "THE RIFT NARROWS - FLY TIGHT",0
+zc5:          db "THE CORE - END NEXUS HERE",0
+boss_taunts:  dw bt0, bt1, bt2, bt3, bt4, bt5
+bt0:          db "SENTINEL: YOU GO NO FURTHER",0
+bt1:          db "REAVER: TURN BACK, SCOUT",0
+bt2:          db "LEVIATHAN STIRS",0
+bt3:          db "WIDOW: YOU ARE PREY NOW",0
+bt4:          db "HYDRA: CUT ONE, FACE TWO",0
+bt5:          db "NEXUS: I AM EVERYWHERE",0
 str_boss:     db "BOSS!!",0
 str_pause:    db "PAUSED",0
 str_pm1:      db "H = RESUME   R = RESTART",0
