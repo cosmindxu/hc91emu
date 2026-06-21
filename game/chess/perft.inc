@@ -82,7 +82,8 @@ prIllegal:
         call unmakeMove
         jp prLoop
 
-; checkKey — verify the incremental key matches a from-scratch recompute
+; checkKey — verify the incremental key AND game phase match a from-scratch
+; recompute (proves the incremental state maintained by make/unmake)
 checkKey:
         ld hl,(hashKey)
         ld (ckSave),hl
@@ -97,6 +98,20 @@ checkKey:
 ckKeep:
         ld hl,(ckSave)
         ld (hashKey),hl
+        ; --- game phase ---
+        ld a,(gamePhase)
+        ld (ckSavePhase),a
+        call computePhase
+        ld a,(gamePhase)
+        ld b,a
+        ld a,(ckSavePhase)
+        cp b
+        jr z,ckPhKeep
+        ld a,0xFF
+        ld (keyMismatch),a
+ckPhKeep:
+        ld a,(ckSavePhase)
+        ld (gamePhase),a
         ret
 
 perftLeaf:
@@ -394,6 +409,7 @@ sbKn:   inc c
         ld hl,1
         ld (moveCount),hl
         call computeKey
+        call computePhase
         ret
 
 ; --- test positions (64 board bytes a1..h8, then side, castling, ep) ---

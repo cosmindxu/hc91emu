@@ -928,6 +928,10 @@ mkTog:
         ld a,(sideToMove)
         xor 8
         ld (sideToMove),a
+        call phaseDelta          ; gamePhase += promoWt - capWt
+        ld hl,gamePhase
+        add a,(hl)
+        ld (hl),a
         call keyUpdate
         ret
 
@@ -1075,6 +1079,11 @@ umDone:
         ld a,(sideToMove)
         xor 8
         ld (sideToMove),a
+        call phaseDelta          ; gamePhase -= (promoWt - capWt)
+        ld b,a
+        ld a,(gamePhase)
+        sub b
+        ld (gamePhase),a
         ret
 
 ; =====================================================================
