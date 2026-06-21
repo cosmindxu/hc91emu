@@ -61,11 +61,16 @@ ZX7-class Z80 depacker realistically lands ~55–60 %.
 
 ## D. Then spend the headroom
 
-Once §A (or enough of §B/§C) frees space, ship the Phase-6/7 deferred items
-in priority order, each independently:
-1. **NG+ / veteran restart** (reuses `difficulty` + a `veteran` flag).
-2. **Rank on GAME OVER** (reuses the Phase-6 S/A/B/C grader).
-3. **Boss-defeat screen flash**, **persistent boss name**, **level-up chirp**.
+With §B's headroom (348 B free) the cheap deferred items already fit; the
+rest wait on more space:
+1. ☐ **NG+ / veteran restart** (reuses `difficulty` + a `veteran` flag).
+2. ✅ **Rank on GAME OVER** — factored the grader into `score_rank` (shared
+   with the victory screen) and graded the failed run by score + a depth
+   bonus (`world*2000`, saturating). Covered by CI on the terrain-crash run.
+3. ✅ **Weapon level-up chirp** — `sfx_levelup` plays a rising chirp when a
+   pickup raises a weapon's level (snapshot of `pw_twin+pw_rapid` around
+   `grant_power`); a fresh grant still plays the normal pickup sound.
+4. ☐ **Boss-defeat screen flash**, **persistent boss name**.
 
 ---
 
