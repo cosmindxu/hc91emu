@@ -19,7 +19,7 @@ jobs:
         run: make
 
       - name: Fetch ROMs (needed to run the emulator)
-        run: tools/get_roms.sh
+        run: bash tools/get_roms.sh
 
       - name: Build the game (.tap/.tzx + loading screen)
         run: cd game && bash build.sh
