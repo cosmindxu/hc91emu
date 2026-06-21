@@ -248,7 +248,8 @@ ml_chk3:
         call initials_frame     ; state 3: entering initials
         jr main_loop
 
-; check_pause: 'H' toggles pause (edge-detected); show PAUSED in the HUD
+; check_pause: 'H' toggles pause (edge-detected); paused shows a small menu
+; with Resume (H) / Restart (R) / Quit (Q).
 check_pause:
         ld bc, 0xBFFE           ; H,J,K,L,Enter row
         in a, (c)
@@ -256,23 +257,81 @@ check_pause:
         jr nz, cp_up
         ld a, (pause_prev)
         or a
-        jr nz, cp_done          ; still held
+        jr nz, cp_poll          ; held: keep polling the menu
         ld a, 1
         ld (pause_prev), a
         ld a, (paused)
         xor 1
         ld (paused), a
         or a
-        jr z, cp_done
-        ld hl, str_pause        ; just paused -> show it
-        ld b, 1
-        ld c, 22
-        call print_str_at
+        jr z, cp_resume         ; just unpaused -> clear the menu
+        call draw_pause_menu
         ret
 cp_up:
         xor a
         ld (pause_prev), a
+cp_poll:
+        ld a, (paused)
+        or a
+        ret z
+        ld bc, 0xFBFE           ; Q,W,E,R,T row
+        in a, (c)
+        bit 3, a                ; R -> restart
+        jr nz, cp_chkq
+        xor a
+        ld (paused), a
+        call init_game
+        ret
+cp_chkq:
+        bit 0, a                ; Q -> quit to title
+        jr nz, cp_done
+        xor a
+        ld (paused), a
+        ld (state), a
+        call show_title
+        ret
+cp_resume:
+        call clear_pause_menu
 cp_done:
+        ret
+
+; draw_pause_menu: a small overlay box (rows 10-13, centred)
+draw_pause_menu:
+        ld hl, str_pause
+        ld b, 10
+        ld c, 13
+        call print_str_at
+        ld hl, str_pm1
+        ld b, 12
+        ld c, 6
+        call print_str_at
+        ld hl, str_pm2
+        ld b, 13
+        ld c, 6
+        call print_str_at
+        ret
+
+; clear_pause_menu: blank the overlay rows so play resumes cleanly
+clear_pause_menu:
+        ld d, 10                ; rows 10..13
+cpm_row:
+        ld c, 6
+cpm_col:
+        ld b, d
+        ld a, 32
+        push bc
+        push de
+        call print_char
+        pop de
+        pop bc
+        inc c
+        ld a, c
+        cp 26
+        jr nz, cpm_col
+        inc d
+        ld a, d
+        cp 14
+        jr nz, cpm_row
         ret
 
 ; ============================================================================
@@ -280,6 +339,7 @@ cp_done:
 ; ============================================================================
 show_title:
         call clear_screen
+        call draw_title_stars   ; star backdrop (text is drawn over it)
         ld hl, 0
         ld (idle_ctr), hl       ; restart the attract-mode idle timer
         xor a
@@ -334,6 +394,28 @@ draw_opts:
         ld b, 19
         ld c, 9
         call print_str_at
+        ret
+
+; draw_title_stars: sprinkle a static star backdrop on the title screen
+draw_title_stars:
+        ld a, 48
+        ld (dts_n), a
+dts_lp:
+        call rnd
+        cp 192
+        jr c, dts_yok
+        sub 64
+dts_yok:
+        ld b, a                 ; y (0..191)
+        call rnd
+        ld c, a                 ; x
+        push bc
+        call set_pixel
+        pop bc
+        ld a, (dts_n)
+        dec a
+        ld (dts_n), a
+        jr nz, dts_lp
         ret
 
 ; set_ship_ptr: spr_ptr = ship_tab[ship_choice*3 + ship_bank]
@@ -5746,9 +5828,9 @@ str_qaop:   db "USING QAOP  ",0
 str_cursor: db "USING CURSOR",0
 str_shipsel: db "M-SHIP",0
 str_diff:    db "3-SKILL:",0
-str_d0:      db "CADET ",0
-str_d1:      db "PILOT ",0
-str_d2:      db "ACE   ",0
+str_d0:      db "[CADET]",0
+str_d1:      db "[PILOT]",0
+str_d2:      db "[ACE]  ",0
 str_opts1:   db "4-MUSIC 5-FLASH 6-SAFE",0
 str_on:      db "ON ",0
 str_off:     db "OFF",0
@@ -5848,6 +5930,7 @@ cf_ptr:       defw 0
 cf_src:       defw 0
 dps_end:      defb 0
 dps_incell:   defb 0
+dts_n:        defb 0
 ss_base:      defb 0
 ss_row:       defb 0
 ss_tile:      defw 0
@@ -5945,6 +6028,8 @@ zn4:          db "EMERALD RIFT",0
 zn5:          db "VOID NEXUS",0
 str_boss:     db "BOSS!!",0
 str_pause:    db "PAUSED",0
+str_pm1:      db "H = RESUME   R = RESTART",0
+str_pm2:      db "Q = QUIT TO TITLE",0
 str_p10:      db "+10",0
 str_p5:       db "+5",0
 str_p200:     db "+200",0
