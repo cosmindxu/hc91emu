@@ -212,12 +212,19 @@ verified.
    with `--keys` by cycling a pawn to a knight and reading the updated
    material display.
 
-7. **Chess clocks.** *What:* per-side countdown timers with flag-fall,
+7. **Chess clocks.** ✅ *What:* per-side countdown timers with flag-fall,
    driven by enabling the 50 Hz frame interrupt (the one subsystem
    currently left off under `DI`). *Value:* makes it a real competitive
    game — blitz, rapid, increment. *Verify:* the emulator models
    interrupts, so run a fixed number of frames and OCR the displayed
-   time.
+   time. *Done:* `start` now installs an IM1 handler (`ld iy,0x5C3A / im 1
+   / ei`) so the ROM ticks `FRAMES` at 0x5C78; each turn's full elapsed
+   time (human thinking *or* AI searching) is charged to the side to move
+   when the move completes, the human's clock also ticking live once per
+   second while they think. Both sides start at 5:00; a clock reaching zero
+   is a flag-fall loss unless the position was already terminal. Verified by
+   screenshot: White's clock counts down on move 1, then freezes when Black
+   is charged its (instant, booked) reply.
 
 8. **Game save / load to tape.** *What:* write the game state (board +
    move history) to a tape block via the ROM `SA-BYTES`, and read it back

@@ -32,10 +32,12 @@ It is a full, rules-correct game against a genuinely searching engine:
 - **perft self-test** (press `T`) proving the move generator against the
   canonical counts — start position to depth 4 plus Kiwipete, an
   en-passant and a promotion position — and verifying the Zobrist key
-- **two-player** mode, **take-back/undo**, a promotion chooser, beeper
-  move sound, an **analysis readout** (opening name, the engine's last
-  move, its evaluation and the material balance), and an endgame demo
-  loader — selectable strength (depth 1–5), board flip, new game
+- **two-player** mode, **take-back/undo**, a promotion chooser, a
+  cursor-driven **set-up board editor**, beeper move sound, an **analysis
+  readout** (opening name, the engine's last move, its evaluation and the
+  material balance), per-side **chess clocks** with flag-fall, and an
+  endgame demo loader — selectable strength (depth 1–5), board flip, new
+  game
 
 See [ROADMAP.md](ROADMAP.md) for the phase-by-phase status and the
 remaining "excellence" items (opening book, KQK/KRK endgame logic,
