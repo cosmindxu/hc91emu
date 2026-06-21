@@ -189,10 +189,14 @@ mainLoop:
         ld a,(gameState)
         or a
         jp nz,gameOverLoop
+        ld a,(twoPlayer)
+        or a
+        jr nz,humanTurn        ; both sides human
         ld a,(sideToMove)
         ld hl,humanSide
         cp (hl)
         jr nz,aiTurn
+humanTurn:
         ld hl,msgYourMove
         call setMsg
         call drawStatus
@@ -204,6 +208,7 @@ aiTurn:
         call drawStatus
         call aiMove
 afterMove:
+        call recordGameKey
         call updateTerminal
         call drawScreenFull
         jp mainLoop
@@ -254,6 +259,7 @@ ngFile: ld a,(hl)
         ld (humanSide),a
         ld (gameState),a
         ld (flipFlag),a
+        ld (twoPlayer),a
         ld (halfmove),a
         ld a,0x0F
         ld (castling),a
@@ -275,6 +281,7 @@ ngFile: ld a,(hl)
         call computeKey
         xor a
         ld (gameKeyN),a
+        call recordGameKey     ; record the initial position
         call ttClear
         ret
 
@@ -737,8 +744,14 @@ scanKeys:
 sk_t:   ld bc,0xFBFE
         in a,(c)
         bit 4,a                ; T = perft self-test
-        jr nz,sk_a
+        jr nz,sk_v
         ld a,'T'
+        ret
+sk_v:   ld bc,0xFEFE           ; CAPS,Z,X,C,V
+        in a,(c)
+        bit 4,a                ; V = toggle two-player
+        jr nz,sk_a
+        ld a,'V'
         ret
 sk_a:   ld bc,0xFDFE           ; A,S,D,F,G
         in a,(c)
@@ -813,23 +826,25 @@ humanMove:
         call drawScreenFull
 hmLoop: call readKeyDebounced
         cp 'Q'
-        jr z,hmUp
+        jp z,hmUp
         cp 'A'
-        jr z,hmDown
+        jp z,hmDown
         cp 'O'
-        jr z,hmLeft
+        jp z,hmLeft
         cp 'P'
-        jr z,hmRight
+        jp z,hmRight
         cp 13
-        jr z,hmSel
+        jp z,hmSel
         cp ' '
-        jr z,hmSel
+        jp z,hmSel
         cp 'F'
-        jr z,hmFlip
+        jp z,hmFlip
         cp 'N'
         jp z,hmNew
         cp 'T'
-        jr z,hmPerft
+        jp z,hmPerft
+        cp 'V'
+        jp z,hmTwoP
         cp '1'
         jp c,hmLoop
         cp '6'
@@ -875,6 +890,15 @@ hmPerft:
         call drawScreenFull
         jp hmLoop
 
+hmTwoP:
+        ld a,(twoPlayer)
+        xor 1
+        ld (twoPlayer),a
+        ld hl,msgTwoP
+        call setMsg
+        call drawStatus
+        jp hmLoop
+
 hmSel:  ld a,(selSq)
         cp 0xFF
         jr nz,hmHave
@@ -886,7 +910,7 @@ hmSel:  ld a,(selSq)
         or a
         jp z,hmBad
         and COLBIT
-        ld hl,humanSide
+        ld hl,sideToMove
         cp (hl)
         jp nz,hmBad
         ld a,(cursorSq)
@@ -911,7 +935,7 @@ hmTry:  ; if cursor is own piece, reselect
         or a
         jr z,hmTry2
         and COLBIT
-        ld hl,humanSide
+        ld hl,sideToMove
         cp (hl)
         jr nz,hmTry2
         ld a,(cursorSq)
@@ -1052,6 +1076,8 @@ msgBmate:    defb "Checkmate! White wins   SPC=new",0
 msgStale:    defb "Stalemate - draw        SPC=new",0
 msgDraw:     defb "Draw (50-move)          SPC=new",0
 msgMat:      defb "Draw - insufficient mtl SPC=new",0
+msgRep:      defb "Draw - repetition       SPC=new",0
+msgTwoP:     defb "Two-player mode toggled",0
 msgCheck:    defb "Check!             ",0
 
         include "pieces.inc"
