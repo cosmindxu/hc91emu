@@ -73,10 +73,10 @@ perft + Zobrist-key self-test) or by a documented manual check.
 - **Move ordering**: MVV-LVA + **killer moves** + TT/PV move first. ✅
 - **Tapered evaluation**: middlegame/endgame king tables switched by
   game phase (king centralises in the endgame); **bishop-pair bonus**;
-  **doubled/isolated pawn** penalties. ✅
+  **doubled/isolated pawn** penalties; **king-safety pawn shield**. ✅
 - **Difficulty levels** 1–5 (search depth, `1`–`5` keys). ✅
-- *Remaining:* history heuristic, opening book, explicit king-safety /
-  mobility / passed-pawn terms, beginner weakening.
+- *Remaining:* history heuristic, opening book, mobility / passed-pawn
+  terms, explicit beginner weakening (depth already differentiates).
 
 ---
 
@@ -85,12 +85,15 @@ perft + Zobrist-key self-test) or by a documented manual check.
 - **Iterative deepening** with the previous iteration's best move
   carried forward as a PV hint. ✅
 - **Alpha-beta** with overflow-correct signed bounds. ✅
+- **Aspiration windows** around the previous score, with full-window
+  re-search on a fail-high/low. ✅
 - **Null-move pruning** (depth≥3, not in check, phase-guarded). ✅
+- **Reverse-futility pruning** at shallow depth. ✅
 - **Transposition table**: 8 KB / 1024 buckets keyed by the 16-bit
   Zobrist hash; depth-bounded exact/lower/upper cutoffs and a stored
   best move fed (per-ply) to the move ordering. ✅
-- *Remaining:* PVS + aspiration windows, LMR / futility, incremental
-  eval, and using the 128K models' extra banks for a much larger TT.
+- *Remaining:* late-move reductions, incremental (make/unmake)
+  evaluation, and using the 128K models' extra banks for a larger TT.
 
 ---
 
