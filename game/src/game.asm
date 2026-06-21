@@ -360,15 +360,15 @@ set_ship_ptr:
 
 ; draw_shipsel: show the chosen ship preview + label on the title
 draw_shipsel:
-        ld a, 116
+        ld a, 116               ; preview sits in the gap under the title
         ld (spr_x), a
-        ld a, 104
+        ld a, 28
         ld (spr_y), a
         call erase_ship
         call set_ship_ptr
         ld a, 116
         ld (spr_x), a
-        ld a, 104
+        ld a, 28
         ld (spr_y), a
         call draw_ship
         ld hl, str_shipsel
