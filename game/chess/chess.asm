@@ -136,6 +136,10 @@ ttEntScore equ 0xE11A    ; (2)
 bestScoreTmp equ 0xE11C  ; (2) score to store in the TT
 osTtF    equ 0xE11E      ; orderMoves TT-move scratch
 osTtT    equ 0xE11F
+lastScore equ 0xE120     ; (2) engine score of the last AI move
+lastFrom equ 0xE122
+lastTo   equ 0xE123
+haveLast equ 0xE124      ; 1 once the engine has moved
 
 ; per-ply search arrays (continued, page 0xD4/0xD5)
 origAlphaArr equ 0xD4F0  ; 16 * 2 = original alpha for TT bound flags
@@ -260,6 +264,7 @@ ngFile: ld a,(hl)
         ld (gameState),a
         ld (flipFlag),a
         ld (twoPlayer),a
+        ld (haveLast),a
         ld (halfmove),a
         ld a,0x0F
         ld (castling),a
@@ -308,6 +313,7 @@ drawScreenFull:
         call drawBoard
         call drawLabels
         call drawStatus
+        call drawInfo
         ret
 
 clearScreen:
@@ -729,6 +735,91 @@ setMsg:                        ; HL = string
         ld (msgPtr),hl
         ret
 
+; --- analysis info panel (right of the board) ------------------------
+drawInfo:
+        ld hl,msgLevel
+        ld b,3
+        ld c,20
+        call printStr
+        ld a,(aiDepth)
+        add a,'0'
+        ld b,3
+        ld c,26
+        call printChar
+        ld a,(twoPlayer)
+        or a
+        jr z,diNo2p
+        ld hl,msg2pL
+        ld b,4
+        ld c,20
+        call printStr
+diNo2p:
+        ld a,(haveLast)
+        or a
+        ret z
+        ld hl,msgMoveL
+        ld b,6
+        ld c,20
+        call printStr
+        ld a,(lastFrom)
+        ld b,6
+        ld c,25
+        call printSq
+        ld a,(lastTo)
+        ld b,6
+        ld c,27
+        call printSq
+        ld hl,msgEval
+        ld b,7
+        ld c,20
+        call printStr
+        ld hl,(lastScore)
+        ld b,7
+        ld c,25
+        call printScore
+        ret
+
+; printSq(A=square, B=row, C=col) — coordinate like "e4"
+printSq:
+        push af
+        and 7
+        add a,'a'
+        push bc
+        call printChar
+        pop bc
+        inc c
+        pop af
+        rrca
+        rrca
+        rrca
+        rrca
+        and 7
+        add a,'1'
+        call printChar
+        ret
+
+; printScore(HL=signed value, B=row, C=col)
+printScore:
+        bit 7,h
+        jr z,psPos
+        push hl
+        push bc
+        ld a,'-'
+        call printChar
+        pop bc
+        pop hl
+        inc c
+        ex de,hl
+        ld hl,0
+        or a
+        sbc hl,de
+psPos:
+        ld (perftCnt),hl
+        ld hl,0
+        ld (perftCnt+2),hl
+        call printDec32
+        ret
+
 ; =====================================================================
 ;  KEYBOARD
 ;  Returns a code in A: 'Q''A''O''P' cursor, 13 enter, 32 space,
@@ -1060,7 +1151,7 @@ msgThinking: defb "Thinking...        ",0
 msgIllegal:  defb "Illegal move       ",0
 msgPick:     defb "Pick your piece    ",0
 msgDiff:     defb "Difficulty set     ",0
-msgKeys:     defb "QAOP move ENT pick N new T perft",0
+msgKeys:     defb "QAOP=move ENT=pick N T V F 1-5",0
 msgPerftHdr: defb "PERFT self-test (start position)",0
 msgPerftN:   defb "perft",0
 msgOK:       defb "OK",0
@@ -1078,6 +1169,10 @@ msgDraw:     defb "Draw (50-move)          SPC=new",0
 msgMat:      defb "Draw - insufficient mtl SPC=new",0
 msgRep:      defb "Draw - repetition       SPC=new",0
 msgTwoP:     defb "Two-player mode toggled",0
+msgLevel:    defb "Level",0
+msg2pL:      defb "2-player",0
+msgMoveL:    defb "Move",0
+msgEval:     defb "Eval",0
 msgCheck:    defb "Check!             ",0
 
         include "pieces.inc"
