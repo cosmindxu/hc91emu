@@ -856,6 +856,8 @@ tp_press:
         call show_briefing      ; mission briefing (skippable, FIRE to launch)
         call init_game
 IF VTEST
+        ld hl, VSCORE           ; VTEST: seed a score so the ending rank path
+        ld (score), hl          ; can be exercised end to end, then jump to it
         ld a, 4                 ; VTEST build: jump straight to the ending
 ELSE
         ld a, 1

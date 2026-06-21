@@ -94,12 +94,16 @@ jobs:
       - name: Story - victory ending screen (VTEST fast-path build)
         run: |
           # a test-only build (VTEST=1) jumps straight to the ending so the
-          # victory screen + state-4 flow are exercised without a full playthrough
-          ( cd game && pasmo --equ VTEST=1 src/game.asm /tmp/vtest.bin \
+          # victory screen + state-4 flow are exercised without a full
+          # playthrough; VSCORE seeds a final score so the rank path is
+          # exercised end to end (9999 -> top grade S, not the C fallback)
+          ( cd game && pasmo --equ VTEST=1 --equ VSCORE=9999 src/game.asm \
+            /tmp/vtest.bin \
             && python3 tools/mktap.py /tmp/vtest.bin /tmp/vtest.tap 32768 stellar )
           ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
             --joy "1750-1758:F" --joy "1850-1858:F" --frames 1980 --text \
             /tmp/vtest.tap | tee /tmp/vic.txt
           grep -q "MISSION COMPLETE" /tmp/vic.txt
           grep -q "ALL ZONES CLEARED" /tmp/vic.txt
-          grep -q "RANK" /tmp/vic.txt
+          grep -q "09999" /tmp/vic.txt
+          grep -q "RANK  S" /tmp/vic.txt
