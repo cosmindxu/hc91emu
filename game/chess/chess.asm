@@ -99,6 +99,17 @@ pdCurCol equ 0xE0D9
 rpBoard  equ 0xE0DA      ; perft test: position pointer (0 = start)
 rpDepth  equ 0xE0DC
 rpExp    equ 0xE0DD      ; pointer to 4-byte expected count
+nmScore  equ 0xE0DF      ; search: negated child score (2)
+nmCd     equ 0xE0E1      ; search: child depth
+qStand   equ 0xE0E2      ; quiescence stand-pat (2)
+osIPtr   equ 0xE0E4      ; move-order scratch (2)
+osJPtr   equ 0xE0E6      ; (2)
+osMaxPtr equ 0xE0E8      ; (2)
+osMaxScore equ 0xE0EA
+osOuter  equ 0xE0EB
+osInner  equ 0xE0EC
+nodeLo   equ 0xE0ED      ; node counter (2)
+nodeHi   equ 0xE0EF
 
 ; per-ply move buffers: base + ply*512 (128 moves * 4 bytes)
 moveBufBase equ 0xB000   ; 0xB000..0xD000 = 16 plies

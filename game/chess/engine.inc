@@ -44,6 +44,20 @@ ptrMptr:
         ld l,a
         ld h,0xD4
         ret
+ptrAlpha:
+        ld a,(searchPly)
+        add a,a
+        add a,0xB0
+        ld l,a
+        ld h,0xD4
+        ret
+ptrBeta:
+        ld a,(searchPly)
+        add a,a
+        add a,0xD0
+        ld l,a
+        ld h,0xD4
+        ret
 
 ; cmpDEgtBC: CF=1 if DE > BC  (signed 16-bit, overflow-correct)
 cmpDEgtBC:
@@ -169,12 +183,14 @@ evWhiteRet:
         ret
 
 ; =====================================================================
-;  negamax(A=depth) -> HL=score (side-to-move relative).
+;  negamax(A=depth) -> HL=score.  Alpha-beta over a searchPly-indexed
+;  frame; the caller presets alphaArr[ply]/betaArr[ply].  Depth 0 falls
+;  into the quiescence search.
 ; =====================================================================
 negamax:
         or a
-        jp z,eval                ; leaf: static eval
-        ld b,a                   ; B = depth (ptrDepth clobbers A)
+        jp z,quiesce
+        ld b,a
         call ptrDepth
         ld (hl),b
         ld bc,-INF
@@ -183,14 +199,15 @@ negamax:
         inc hl
         ld (hl),b
         call ptrLegal
-        ld (hl),0                ; legalArr[ply] = 0
+        ld (hl),0
         call genMoves
+        call orderMoves
         ld a,(genCount)
-        ld b,a                   ; B = count (ptrCnt clobbers A)
+        ld b,a
         call ptrCnt
         ld (hl),b
         call curMoveBuf
-        ex de,hl                 ; DE = buffer base
+        ex de,hl
         call ptrMptr
         ld (hl),e
         inc hl
@@ -202,13 +219,12 @@ nmLoop:
         jp z,nmDone
         dec a
         ld (hl),a
-        ; load current move from mptr
         call ptrMptr
         ld a,(hl)
         ld e,a
         inc hl
         ld a,(hl)
-        ld d,a                   ; DE = move ptr
+        ld d,a
         ld a,(de)
         ld (mvFrom),a
         inc de
@@ -225,17 +241,16 @@ nmLoop:
         ld (hl),e
         inc hl
         ld (hl),d
-        ; save root move
         ld a,(searchPly)
         or a
-        jr nz,nmNoRootSave
+        jr nz,nmNoRoot
         ld a,(mvFrom)
         ld (rootFrom),a
         ld a,(mvTo)
         ld (rootTo),a
         ld a,(mvFlag)
         ld (rootFlag),a
-nmNoRootSave:
+nmNoRoot:
         call makeMove
         call moverInCheck
         or a
@@ -245,60 +260,103 @@ nmNoRootSave:
 nmLegal:
         call ptrLegal
         inc (hl)
+        call ptrBeta
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        ld hl,0
+        or a
+        sbc hl,bc
+        push hl                  ; childAlpha = -parentBeta
+        call ptrAlpha
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        ld hl,0
+        or a
+        sbc hl,bc
+        push hl                  ; childBeta = -parentAlpha
         call ptrDepth
         ld a,(hl)
         dec a
-        ld b,a                   ; child depth
+        ld (nmCd),a
         ld a,(searchPly)
         inc a
         ld (searchPly),a
-        ld a,b
-        call negamax             ; HL = child score
+        pop de                   ; childBeta
+        call ptrBeta
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        pop de                   ; childAlpha
+        call ptrAlpha
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        ld a,(nmCd)
+        call negamax
         ex de,hl
         ld hl,0
         or a
-        sbc hl,de                ; HL = -child = our score
-        push hl
+        sbc hl,de                ; HL = -child = score
+        ld (nmScore),hl
         ld a,(searchPly)
         dec a
         ld (searchPly),a
         call unmakeMove
-        pop hl
-        ; compare with best
-        ex de,hl                 ; DE = score
+        ld de,(nmScore)
         call ptrBest
         ld c,(hl)
         inc hl
-        ld b,(hl)                ; BC = best
+        ld b,(hl)
         call cmpDEgtBC
-        jp nc,nmLoop
-        ; new best
+        jp nc,nmLoop             ; score <= best
         call ptrBest
         ld (hl),e
         inc hl
         ld (hl),d
         ld a,(searchPly)
         or a
-        jp nz,nmLoop
-        ; root: record best move
+        jr nz,nmTryA
         ld a,(rootFrom)
         ld (bestFrom),a
         ld a,(rootTo)
         ld (bestTo),a
         ld a,(rootFlag)
         ld (bestFlag),a
-        jp nmLoop
+nmTryA:
+        ld de,(nmScore)
+        call ptrAlpha
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        call cmpDEgtBC
+        jp nc,nmLoop             ; score <= alpha
+        ld de,(nmScore)
+        call ptrAlpha
+        ld (hl),e
+        inc hl
+        ld (hl),d                ; alpha = score
+        call ptrAlpha
+        ld c,(hl)
+        inc hl
+        ld b,(hl)                ; BC = alpha
+        call ptrBeta
+        ld e,(hl)
+        inc hl
+        ld d,(hl)                ; DE = beta
+        call cmpDEgtBC
+        jp c,nmLoop              ; beta > alpha -> keep going
+        jp nmRetBest             ; alpha >= beta -> cutoff
 nmDone:
         call ptrLegal
         ld a,(hl)
         or a
         jp nz,nmRetBest
-        ; no legal moves
         ld a,(sideToMove)
         call inCheckSide
         or a
         jp z,nmStale
-        ; checkmated: -(MATE - ply)
         ld a,(searchPly)
         ld e,a
         ld d,0
@@ -322,18 +380,370 @@ nmRetBest:
         ret
 
 ; =====================================================================
+;  quiesce -> HL=score.  Stand-pat + capture/promotion search to settle
+;  the position before evaluating (kills the horizon effect).
+; =====================================================================
+quiesce:
+        ld a,(searchPly)
+        cp MAXPLY
+        jp nc,eval               ; too deep -> static eval
+        call eval
+        ld (qStand),hl
+        ; if stand >= beta -> return beta
+        ld de,(qStand)
+        call ptrBeta
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        push bc
+        push de
+        pop bc                   ; BC = stand
+        pop de                   ; DE = beta
+        call cmpDEgtBC           ; beta > stand ?
+        jr c,qNoFH
+        call ptrBeta
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        ex de,hl
+        ret                      ; return beta
+qNoFH:
+        ; if stand > alpha -> alpha = stand
+        ld de,(qStand)
+        call ptrAlpha
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        call cmpDEgtBC
+        jr nc,qGen
+        ld de,(qStand)
+        call ptrAlpha
+        ld (hl),e
+        inc hl
+        ld (hl),d
+qGen:
+        call genMoves
+        call orderMoves
+        ld a,(genCount)
+        ld b,a
+        call ptrCnt
+        ld (hl),b
+        call curMoveBuf
+        ex de,hl
+        call ptrMptr
+        ld (hl),e
+        inc hl
+        ld (hl),d
+qLoop:
+        call ptrCnt
+        ld a,(hl)
+        or a
+        jp z,qRetA
+        dec a
+        ld (hl),a
+        call ptrMptr
+        ld a,(hl)
+        ld e,a
+        inc hl
+        ld a,(hl)
+        ld d,a
+        ld a,(de)
+        ld (mvFrom),a
+        inc de
+        ld a,(de)
+        ld (mvTo),a
+        inc de
+        ld a,(de)
+        ld (mvFlag),a
+        inc de
+        inc de
+        push de
+        call ptrMptr
+        pop de
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        ; only captures / promotions
+        ld a,(mvTo)
+        ld l,a
+        ld h,0xE0
+        ld a,(hl)
+        or a
+        jr nz,qIsCap
+        ld a,(mvFlag)
+        and 7
+        cp SP_EP
+        jr z,qIsCap
+        ld a,(mvFlag)
+        and 0xF0
+        jp z,qLoop               ; quiet, non-promotion -> skip
+qIsCap:
+        call makeMove
+        call moverInCheck
+        or a
+        jr z,qLegal
+        call unmakeMove
+        jp qLoop
+qLegal:
+        call ptrBeta
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        ld hl,0
+        or a
+        sbc hl,bc
+        push hl                  ; childAlpha = -beta
+        call ptrAlpha
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        ld hl,0
+        or a
+        sbc hl,bc
+        push hl                  ; childBeta = -alpha
+        ld a,(searchPly)
+        inc a
+        ld (searchPly),a
+        pop de
+        call ptrBeta
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        pop de
+        call ptrAlpha
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        call quiesce
+        ex de,hl
+        ld hl,0
+        or a
+        sbc hl,de
+        ld (nmScore),hl
+        ld a,(searchPly)
+        dec a
+        ld (searchPly),a
+        call unmakeMove
+        ld de,(nmScore)
+        ; if score >= beta -> return beta
+        call ptrBeta
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        push bc
+        push de
+        pop bc                   ; BC = score
+        pop de                   ; DE = beta
+        call cmpDEgtBC           ; beta > score ?
+        jr c,qNoCut
+        call ptrBeta
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        ex de,hl
+        ret
+qNoCut:
+        ld de,(nmScore)
+        call ptrAlpha
+        ld c,(hl)
+        inc hl
+        ld b,(hl)
+        call cmpDEgtBC
+        jp nc,qLoop
+        ld de,(nmScore)
+        call ptrAlpha
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        jp qLoop
+qRetA:
+        call ptrAlpha
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        ex de,hl
+        ret
+
+; =====================================================================
+;  move ordering — MVV-LVA score per move, then selection sort.
+; =====================================================================
+scoreMoveHL:                     ; HL=record; stores score byte at [HL+3]
+        push hl
+        ld a,(hl)
+        ld e,a                   ; from
+        inc hl
+        ld a,(hl)
+        ld d,a                   ; to
+        inc hl
+        ld a,(hl)
+        ld c,a                   ; flag
+        push hl
+        ld h,0xE0
+        ld l,d
+        ld a,(hl)
+        and 7
+        ld b,a                   ; victim type
+        pop hl
+        ld a,c
+        and 7
+        cp SP_EP
+        jr nz,smv1
+        ld b,1                   ; ep captures a pawn
+smv1:
+        ld a,c
+        and 0xF0
+        ld c,a                   ; promo flag
+        ld a,b
+        or a
+        jr nz,smvCap
+        ld a,c
+        or a
+        jr nz,smvCap
+        xor a                    ; quiet move
+        jr smvStore
+smvCap:
+        ld a,b
+        add a,a
+        add a,a
+        add a,a                  ; victim*8
+        add a,0x80
+        ld b,a
+        push hl
+        ld h,0xE0
+        ld l,e
+        ld a,(hl)
+        and 7
+        pop hl
+        ld d,a                   ; attacker type
+        ld a,b
+        sub d                    ; victim-weighted minus attacker
+        ld d,a
+        ld a,c
+        or a
+        ld a,d
+        jr z,smvStore
+        add a,8                  ; promotion bonus
+smvStore:
+        pop hl
+        push hl
+        inc hl
+        inc hl
+        inc hl
+        ld (hl),a
+        pop hl
+        ret
+
+orderMoves:
+        ld a,(genCount)
+        cp 2
+        ret c
+        call curMoveBuf
+        ld a,(genCount)
+        ld b,a
+osScore:
+        push bc
+        push hl
+        call scoreMoveHL
+        pop hl
+        pop bc
+        ld de,4
+        add hl,de
+        djnz osScore
+        call curMoveBuf
+        ld (osIPtr),hl
+        ld a,(genCount)
+        dec a
+        ld (osOuter),a
+osOut:
+        ld a,(osOuter)
+        or a
+        ret z
+        ld (osInner),a
+        ld hl,(osIPtr)
+        ld (osMaxPtr),hl
+        ld de,3
+        add hl,de
+        ld a,(hl)
+        ld (osMaxScore),a
+        ld hl,(osIPtr)
+        ld de,4
+        add hl,de
+        ld (osJPtr),hl
+osIn:
+        ld hl,(osJPtr)
+        ld de,3
+        add hl,de
+        ld a,(hl)
+        ld hl,osMaxScore
+        cp (hl)
+        jr c,osInNext
+        jr z,osInNext
+        ld (osMaxScore),a
+        ld hl,(osJPtr)
+        ld (osMaxPtr),hl
+osInNext:
+        ld hl,(osJPtr)
+        ld de,4
+        add hl,de
+        ld (osJPtr),hl
+        ld a,(osInner)
+        dec a
+        ld (osInner),a
+        jr nz,osIn
+        ; swap record iPtr <-> maxPtr if different
+        ld hl,(osIPtr)
+        ld de,(osMaxPtr)
+        ld a,h
+        cp d
+        jr nz,osSwap
+        ld a,l
+        cp e
+        jr z,osNoSwap
+osSwap:
+        ld b,4
+osSw1:
+        ld a,(hl)
+        ld c,a
+        ld a,(de)
+        ld (hl),a
+        ld a,c
+        ld (de),a
+        inc hl
+        inc de
+        djnz osSw1
+osNoSwap:
+        ld hl,(osIPtr)
+        ld de,4
+        add hl,de
+        ld (osIPtr),hl
+        ld a,(osOuter)
+        dec a
+        ld (osOuter),a
+        jp osOut
+
+; =====================================================================
 ;  aiMove — search from the root and play the best move.
 ; =====================================================================
 aiMove:
         xor a
         ld (searchPly),a
+        ld bc,-INF
+        call ptrAlpha
+        ld (hl),c
+        inc hl
+        ld (hl),b
+        ld bc,INF
+        call ptrBeta
+        ld (hl),c
+        inc hl
+        ld (hl),b
         ld a,0xFF
         ld (bestFrom),a
         ld a,(aiDepth)
         call negamax
         ld a,(bestFrom)
         cp 0xFF
-        ret z                    ; no move (terminal); caller handles
+        ret z
         ld a,(bestFrom)
         ld (mvFrom),a
         ld a,(bestTo)
