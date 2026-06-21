@@ -6,13 +6,13 @@ engines work, then re-deriving the same ideas under the constraints of a
 3.5 MHz 8-bit CPU with 48 KB of RAM.
 
 The plan is organised as five phases — **Foundation → Stabilization →
-Improvement → Optimization → Excellence**. Phases 1–4 are complete;
-Phase 5 is substantially implemented, with the largest hardware-dependent
-"excellence" items (tape save/load, a serial UCI bridge, 128K AY voices
-and a banked TT) tracked as remaining work. Every claim marked ✅ is
-exercised by the headless test harness (`make test`: golden board, engine
-reply, and a perft + Zobrist-key self-test) or by a documented manual
-check.
+Improvement → Optimization → Excellence**. Phases 1–4 are complete and
+Phase 5 is substantially implemented; the leftover work is then split
+into **Phase A** (feasible *and* headlessly verifiable here) and
+**Phase B** (valuable but not verifiable in this environment — the UCI
+bridge). Every claim marked ✅ is exercised by the headless test harness
+(`make test`: golden board, engine reply, and a perft + Zobrist-key
+self-test) or by a documented manual check.
 
 > **Reference frame.** "What Stockfish/Leela/lichess do" is the north
 > star, but almost none of it ports verbatim. A Z80 has no 64-bit
@@ -124,6 +124,107 @@ check.
   save/load to tape, chess clocks (needs an interrupt time-base), a
   serial **UCI bridge**, and AY voices / a 128K-banked TT on the 128K
   family.
+
+---
+
+## Remaining work, split by verifiability
+
+The leftover items fall into two groups, decided by one question: *can it
+be built with `pasmo` **and proven headlessly** on the emulator?* The
+verification surface here is screenshots / OCR text, recorded `--wav`
+audio, scripted `--keys` / `--type` input, the `--machine hc128` (AY +
+128K banking) and `--save-tape` features, and on-device self-test
+screens.
+
+### Phase A — feasible *and* verifiable here
+
+Roughly in value-per-risk order. Each line is *what it is — why it brings
+value — how it would be proven.*
+
+1. **Incremental evaluation.** *What:* keep the material + piece-square
+   score up to date inside make/unmake (add the moved piece on its new
+   square, subtract its old one, handle captures/promotions/castling)
+   instead of re-scanning all 64 squares at every leaf. *Value:*
+   evaluation is the hottest code in the search, so this is potentially a
+   several-fold speedup — and on a fixed-time move that speed converts
+   directly into extra search depth, i.e. playing strength, for free.
+   *Verify:* compare the incremental score against a from-scratch
+   recompute at every node of the perft tree — the exact technique that
+   already proved the Zobrist key — so a refactor this large stays
+   low-risk.
+
+2. **Mobility term.** *What:* a small bonus per legal move available to a
+   side. *Value:* mobility is one of the cheapest positional signals that
+   tracks who is better; it discourages the cramped, passive positions
+   that material + piece-square tables can't perceive. *Verify:* it never
+   touches move generation, so perft is unaffected; confirmed by sane
+   evals and visibly better play (gated by cost, since it re-counts
+   moves).
+
+3. **Deeper opening book.** *What:* extend the current one-reply book to
+   a handful of principal variations several plies deep, keyed by the
+   position's Zobrist hash. *Value:* instant, theory-sound openings save
+   search time and dodge early inaccuracies — the role lichess fills with
+   its cloud opening database. *Verify:* pure data; play the lines and
+   check the booked replies appear.
+
+4. **AY voices on the 128K family.** *What:* drive the AY-3-8912 (ports
+   `0xFFFD`/`0xBFFD`) for distinct move / capture / check / mate cues and
+   simple jingles. *Value:* far richer feedback than the 1-bit beeper,
+   using the genuine sound chip of the HC-128 / HC-2000. *Verify:* run
+   `--machine hc128` and inspect the recorded `--wav` for the expected
+   tones (the emulator mixes the PSG into the audio path).
+
+5. **128K-banked transposition table.** *What:* on 128K machines, page
+   the spare 16 KB RAM banks through port `0x7FFD` to host a much larger
+   TT than the 8 KB that fits in 48 KB. *Value:* a bigger table means
+   more cache hits and fewer re-searched transpositions — measurably
+   deeper search on the same clock. *Verify:* run on `--machine hc128`;
+   perft / play confirm correctness and the hit-rate confirms the gain.
+
+6. **FEN / set-up position screen.** *What:* enter an arbitrary position,
+   either with a cursor-driven board editor or by typing a FEN string, on
+   top of the existing `setupBoard` / `loadGamePos`. *Value:* lets you
+   analyse real games, compose puzzles, or resume a position — table
+   stakes for chess *software* rather than just an engine. *Verify:*
+   drive the editor with `--keys`, or type a FEN with `--type`, then
+   screenshot the resulting board.
+
+7. **Chess clocks.** *What:* per-side countdown timers with flag-fall,
+   driven by enabling the 50 Hz frame interrupt (the one subsystem
+   currently left off under `DI`). *Value:* makes it a real competitive
+   game — blitz, rapid, increment. *Verify:* the emulator models
+   interrupts, so run a fixed number of frames and OCR the displayed
+   time.
+
+8. **Game save / load to tape.** *What:* write the game state (board +
+   move history) to a tape block via the ROM `SA-BYTES`, and read it back
+   with `LD-BYTES`. *Value:* persistence — the authentic Spectrum way to
+   keep a game between sessions. *Verify:* capture the save with
+   `--save-tape`, then load the resulting `.tap` in a second run.
+
+### Phase B — valuable, but not verifiable in this environment
+
+1. **Serial UCI bridge.** *What:* speak the Universal Chess Interface —
+   the text protocol every modern engine and GUI uses (`uci`,
+   `position`, `go`, `bestmove`, …) — over an RS-232 link such as the
+   Interface 1 / HC-2000 serial port. *Value:* this is the big one for
+   reach. It would let the *same* 8-bit engine be driven by desktop GUIs
+   (Arena, Cute Chess), entered into engine tournaments, or wired to a
+   lichess-bot adapter — turning a retro curiosity into a real engine you
+   can measure against others. The internal hooks already suit it: search
+   is a single `aiMove` entry point over `mvFrom/mvTo/mvFlag`, so a UCI
+   front-end is a *parser*, not an engine rewrite. *Why it's Phase B:*
+   the emulator models no RS-232/UART, and there is no stdin/stdout
+   channel to carry UCI traffic, so the protocol code could be written
+   but **could not be driven or tested here**. It belongs on real
+   hardware, or on an emulator that exposes a serial pipe.
+
+This split keeps the project honest: Phase A is a backlog that can
+actually be finished *and proven*; Phase B records the one genuinely
+valuable feature whose verification is blocked by the toolchain, with
+enough design notes that it is a small job wherever a serial channel
+exists.
 
 ---
 
