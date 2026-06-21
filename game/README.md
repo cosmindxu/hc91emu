@@ -7,6 +7,11 @@ asteroids and enemy fire, **shoot** what you can, **collect** crystals and
 power-ups, and **beat the zone boss** — with beeper sound effects on 48K and
 an AY soundtrack on 128K.
 
+The rogue AI **NEXUS** has sealed the six nebula zones; you fly the scout
+**DRIFTER** from Orion Drift to the Void Nexus to reach the core and end it.
+A mission briefing opens the game, each zone carries a story card and each
+boss a taunt, and clearing the final zone plays a victory ending.
+
 ![title](docs/title.png)
 ![gameplay](docs/play.png)
 
