@@ -699,7 +699,8 @@ nmTryA:
         ld d,(hl)                ; DE = beta
         call cmpDEgtBC
         jp c,nmLoop              ; beta > alpha -> keep going
-        jp nmRetBest             ; alpha >= beta -> cutoff
+        call updateKiller        ; alpha >= beta -> cutoff; record killer
+        jp nmRetBest
 nmDone:
         call ptrLegal
         ld a,(hl)
@@ -1089,6 +1090,27 @@ osTtN2: inc hl
         inc hl
         djnz osTtL
 osNoTt:
+        ; killer-move bump (quiet moves that caused cutoffs at this ply)
+        call ptrKiller
+        ld a,(hl)
+        ld (osKF),a
+        inc hl
+        ld a,(hl)
+        ld (osKT),a
+        ld a,0x70
+        ld (osKScore),a
+        call bumpKiller
+        call ptrKiller
+        inc hl
+        inc hl
+        ld a,(hl)
+        ld (osKF),a
+        inc hl
+        ld a,(hl)
+        ld (osKT),a
+        ld a,0x68
+        ld (osKScore),a
+        call bumpKiller
         call curMoveBuf
         ld (osIPtr),hl
         ld a,(genCount)
@@ -1161,10 +1183,96 @@ osNoSwap:
         ld (osOuter),a
         jp osOut
 
+; bumpKiller — if (osKF,osKT) is a quiet move in the list, raise its
+; ordering score to (osKScore).  Does not override a capture's score.
+bumpKiller:
+        ld a,(osKF)
+        cp 0xFF
+        ret z
+        call curMoveBuf
+        ld a,(genCount)
+        ld b,a
+bkLp:   push hl
+        ld a,(osKF)
+        cp (hl)
+        jr nz,bkNext
+        inc hl
+        ld a,(osKT)
+        cp (hl)
+        jr nz,bkNext
+        pop hl
+        push hl
+        inc hl
+        inc hl
+        inc hl
+        ld a,(hl)
+        or a
+        jr nz,bkDone             ; already scored (capture) -> leave
+        ld a,(osKScore)
+        ld (hl),a
+bkDone:
+        pop hl
+        ret
+bkNext:
+        pop hl
+        ld de,4
+        add hl,de
+        djnz bkLp
+        ret
+
 ; =====================================================================
 ;  aiMove — search from the root and play the best move.
 ; =====================================================================
+; updateKiller — record a quiet cutoff move as a killer for this ply.
+updateKiller:
+        ld a,(mvTo)
+        ld l,a
+        ld h,0xE0
+        ld a,(hl)
+        or a
+        ret nz                   ; capture
+        ld a,(mvFlag)
+        and 7
+        cp SP_EP
+        ret z
+        ld a,(mvFlag)
+        and 0xF0
+        ret nz                   ; promotion
+        call ptrKiller
+        ld a,(mvFrom)
+        cp (hl)
+        jr nz,ukShift
+        inc hl
+        ld a,(mvTo)
+        cp (hl)
+        ret z                    ; already killer 1
+        dec hl
+ukShift:
+        ld d,(hl)                ; old k1from
+        inc hl
+        ld e,(hl)                ; old k1to
+        inc hl
+        ld (hl),d                ; k2from
+        inc hl
+        ld (hl),e                ; k2to
+        call ptrKiller
+        ld a,(mvFrom)
+        ld (hl),a
+        inc hl
+        ld a,(mvTo)
+        ld (hl),a
+        ret
+
+clearKillers:
+        ld hl,killerArr
+        ld b,64
+ckLp:   ld (hl),0xFF
+        inc hl
+        djnz ckLp
+        ret
+
 aiMove:
+        call clearKillers
         ld a,0xFF
         ld (bestFrom),a
         ld (pvFrom),a            ; no PV hint yet

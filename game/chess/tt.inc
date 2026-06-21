@@ -36,6 +36,13 @@ ptrTtMvTo:
         ld l,a
         ld h,0xD5
         ret
+ptrKiller:
+        ld a,(searchPly)
+        add a,a
+        add a,a                  ; ply*4
+        ld l,a
+        ld h,0xD1
+        ret
 
 ; ttAddr -> HL = entry address for the current hashKey
 ttAddr:
