@@ -142,6 +142,12 @@ Roughly in value-per-risk order. Each line is *what it is — why it brings
 value — how it would be proven.* Items marked ✅ are now implemented and
 verified.
 
+**Status: Phase A is complete.** Items 1, 3, 4, 5, 6, 7 and 8 are
+implemented and verified (the 48K smoke + perft, the tape save/load
+round-trip and the 128K banked-TT check all run from `make test`). Item 2
+(mobility) is the one line deliberately left undone — see its rationale
+below.
+
 1. **Incremental evaluation.** ✅ *What:* keep the material + piece-square
    score up to date inside make/unmake (add the moved piece on its new
    square, subtract its old one, handle captures/promotions/castling)
@@ -157,13 +163,19 @@ verified.
    at every node; depth-4 search dropped from ~18000 to ~14000 frames with
    identical play.
 
-2. **Mobility term.** *What:* a small bonus per legal move available to a
-   side. *Value:* mobility is one of the cheapest positional signals that
-   tracks who is better; it discourages the cramped, passive positions
-   that material + piece-square tables can't perceive. *Verify:* it never
-   touches move generation, so perft is unaffected; confirmed by sane
-   evals and visibly better play (gated by cost, since it re-counts
-   moves).
+2. **Mobility term.** ⏸ *Deliberately deferred.* *What:* a small bonus
+   per legal move available to a side. *Value:* mobility is one of the
+   cheapest positional signals that tracks who is better; it discourages
+   the cramped, passive positions that material + piece-square tables
+   can't perceive. *Why deferred:* every other Phase A item was a net win,
+   but a mobility term must re-count moves at each leaf — exactly the
+   per-node scan that item 1 (incremental evaluation) just removed from the
+   hot path. Re-introducing a full move-count at every leaf would give back
+   most of that speedup (and on a fixed clock, depth = strength), so the
+   trade is poor *as a plain leaf term*. It is worth revisiting only in a
+   cheaper form — e.g. folded into the attack tables the move generator
+   already builds, or limited to a few piece types — which is really a new
+   design rather than this line item. Left unticked on purpose.
 
 3. **Deeper opening book.** ✅ *What:* extend the current one-reply book to
    a handful of principal variations several plies deep, keyed by the
