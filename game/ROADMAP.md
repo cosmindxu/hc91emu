@@ -13,31 +13,29 @@ Status legend: ✅ done · ◐ partial · ☐ todo
 ## 1. Feel & game-play (the core loop)
 
 - ✅ Up/down/left/right flight, auto-fire, dodge + shoot + collect.
-- ☐ **Momentum / inertia on the ship.** A little acceleration and drift
-  makes piloting feel like a craft, not a cursor. (Add `vx`/`vy` with
-  friction.)
-- ☐ **Enemy movement patterns.** Right now hazards only drift left. Add
-  sine-wave flyers, homing drones, and aimed shots so dodging has
-  texture. Table-driven per enemy type.
-- ☐ **Enemy bullets / return fire.** Turns "avoid the walls" into a real
-  bullet-dodging duel.
-- ☐ **Power-ups.** Collect to upgrade: twin shot, rapid fire, shield,
-  speed-up — the classic Nemesis/Zynaps progression bar.
-- ☐ **End-of-zone bosses.** A big multi-hit sprite gates each zone for a
-  memorable spike. Uses the existing blitter with a wider composite.
-- ☐ **Difficulty curve & rubber-banding.** Smooth ramp within a zone, not
-  just a step at the boundary.
-- ☐ **Collision fairness.** Tighten hit-boxes to the visible hull
-  (current boxes are generous 13px squares) and add a few frames of
-  coyote-time.
+- ✅ **Momentum / inertia on the ship.** Velocity-based flight: input
+  accelerates `vx`/`vy` (capped) and they decay to rest — tight but with
+  a little drift.
+- ✅ **Enemy movement patterns.** Enemy craft weave on a sine table while
+  drifting left; boss oscillates with doubled amplitude.
+- ✅ **Enemy bullets / return fire.** Enemies fire aimed tracers; the boss
+  fires a 3-way spread. `do_ebullets` moves and collides them.
+- ✅ **Power-ups.** Red pods grant, in sequence, spread shot / rapid fire /
+  shield / speed-up; volatile ones are lost on death.
+- ✅ **End-of-zone bosses.** A 24-wide multi-hit boss ends each zone;
+  destroying it scores a bonus and advances the zone.
+- ✅ **Difficulty curve.** Spawn period tightens within a zone (floored)
+  and starts lower each zone.
+- ✅ **Collision fairness.** Ship-vs-hazard uses a tight 9px box (variable
+  `col_thr`), plus invulnerability frames after a hit.
 
 ## 2. Audio (huge for immersion)
 
 - ✅ Beeper SFX: shoot, explosion, pickup, zone-change sweep.
-- ☐ **Richer beeper effects** with pitch envelopes (descending boom for
-  explosions, sparkly arpeggio for pickups).
-- ☐ **In-game beeper engine drone** between effects so it never feels
-  silent (very period-correct — think Cobra/Sabre Wulf).
+- ✅ **Richer beeper effects**: arpeggio pickup, rising power-up chime,
+  descending enemy-fire blip, noise-burst explosion, metallic hit tick.
+- ✅ **In-game beeper engine drone** — a subtle low pulse every 8th frame
+  so play is never silent.
 - ☐ **128K AY-3-8912 music & SFX** (HC-128 / `--machine hc128`). The
   emulator fully emulates the PSG: a title tune and a driving in-game
   loop on three channels would transform the mood. Detect 128K at boot
@@ -54,8 +52,8 @@ Status legend: ✅ done · ◐ partial · ☐ todo
   bright-bit, not just speed.
 - ☐ **Sprite animation.** Engine-exhaust flicker on the ship, spinning
   asteroids, pulsing crystals — 2–3 frames each.
-- ☐ **Explosion animation** (expanding ring sprite) instead of a plain
-  erase.
+- ✅ **Explosion animation** — a 3-frame expanding burst plays where
+  hazards, the player and the boss are destroyed.
 - ☐ **Scrolling foreground terrain** (cave walls top & bottom) to lean
   fully into the cave-flyer fantasy. Hardest item; do as a
   character-cell scroll first.
@@ -80,8 +78,8 @@ Status legend: ✅ done · ◐ partial · ☐ todo
   at pickups.
 - ☐ **HUD polish**: shield/energy bar, zone name (not just number),
   distance-to-next-zone indicator.
-- ☐ **Screen-shake / border flash** on hits and explosions (border flash
-  is one `OUT` and very period-authentic).
+- ✅ **Screen-shake / border flash** on hits and explosions (`shake`
+  counter flashes the border white for a few frames).
 
 ## 5. Content & replayability
 
