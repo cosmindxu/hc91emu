@@ -399,6 +399,9 @@ evWhiteRet:
 ; adjacent files (a safe subset of "passed"), scaled by advancement.
 PASSED equ 8
 passedPawns:
+        ld a,(gamePhase)
+        cp 12
+        ret nc                  ; middlegame: skip (passers matter in endgames)
         ld c,0                  ; square
 ppLoop:
         ld a,c
