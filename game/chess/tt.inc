@@ -72,12 +72,12 @@ setBetaDE:
         ld (hl),d
         ret
 
-; ttAddr -> HL = 48K entry address (0x6000 table) for the current hashKey
+; ttAddr -> HL = 48K entry address (TT_BASE table) for the current hashKey
 ttAddr:
         ld hl,(hashKey)
         ld a,h
-        and 0x03
-        ld h,a                  ; HL = key & 0x3FF
+        and 0x01
+        ld h,a                  ; HL = key & 0x1FF (512 buckets)
         add hl,hl
         add hl,hl
         add hl,hl               ; *8
@@ -173,7 +173,7 @@ ttClear:
         jr nz,ttClear128
         ld hl,TT_BASE
         ld de,TT_BASE+1
-        ld bc,0x1FFF
+        ld bc,0x0FFF            ; 4 KB (512 entries * 8 bytes)
         ld (hl),0
         ldir
         ret
