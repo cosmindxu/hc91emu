@@ -48,6 +48,7 @@ T_MIDBOSS equ 10            ; multi-hit mini-boss (hp in +7)
 T_ARMOR equ 11              ; armoured enemy (multi-hit, hp in +7)
 T_FORMV equ 12              ; wave marker: spawn a V-formation of enemies
 T_GATE  equ 13              ; pulsing laser-gate barrier
+T_SPLIT equ 14              ; splitter rock: breaks into 2 fast shards when shot
 NZONES  equ 6               ; number of named zones in the cycle
 
 ; Sprite pixel data (data only - masks are ~data, regenerated at runtime) is
@@ -1646,6 +1647,7 @@ pf_demoin:
 pf_inputdone:
         call do_fire
         call do_bullets
+        call do_splits          ; spawn shards from any splitter killed above
         call do_objects
         call do_ebullets
         call do_explosions
@@ -2408,6 +2410,43 @@ sb_free:
         ld (ix+2), a
         ret
 
+; do_splits: if a splitter died this frame, break it into 2 fast rock shards.
+; Deferred out of the bullet loop so it never disturbs that loop's IX/IY.
+do_splits:
+        ld a, (split_pending)
+        or a
+        ret z
+        xor a
+        ld (split_pending), a
+        ld a, (split_py)
+        sub 6
+        call spawn_frag         ; shard above
+        ld a, (split_py)
+        add a, 6
+        call spawn_frag         ; shard below
+        ret
+spawn_frag:                     ; A = y; spawn a fast rock at split_px
+        push af
+        call sp_find_slot       ; -> IX free slot (carry set if none)
+        jr c, sf_done
+        ld a, T_ROCK
+        ld (ix+0), a
+        ld a, (split_px)
+        ld (ix+1), a
+        ld (ix+3), a
+        pop af
+        push af                 ; A = y again
+        ld (ix+2), a
+        ld (ix+4), a
+        ld a, 2                 ; fast drift
+        ld (ix+5), a
+        xor a
+        ld (ix+6), a
+        ld (ix+7), a
+sf_done:
+        pop af
+        ret
+
 do_bullets:
         ld ix, bullets
         ld a, MAXBUL
@@ -2464,6 +2503,16 @@ db_objloop:
         cp T_ARMOR
         jp z, db_hit_mb
         ; normal target destroyed
+        ld a, (iy+0)            ; splitter? record a pending split (spawned later)
+        cp T_SPLIT
+        jr nz, db_nosplit
+        ld a, 1
+        ld (split_pending), a
+        ld a, (iy+1)
+        ld (split_px), a
+        ld a, (iy+2)
+        ld (split_py), a
+db_nosplit:
         ld a, (iy+3)
         ld (spr_x), a
         ld a, (iy+4)
@@ -2829,6 +2878,8 @@ obj_draw:
         jr z, obj_spr_mb
         cp T_ARMOR
         jr z, obj_spr_ar
+        cp T_SPLIT
+        jr z, obj_spr_sp
         ; rock: spin between two frames
         ld a, (ix+6)
         and 4
@@ -2840,6 +2891,16 @@ obj_rk0:
 obj_rkd:
         ld (spr_idx), a
         ld a, 7                 ; rock: white
+        jp obj_spr_set
+obj_spr_sp:                     ; splitter: rock frames, cyan to telegraph it
+        ld a, (ix+6)
+        and 4
+        ld a, SI_ROCK
+        jr z, obj_sp_set
+        ld a, SI_ROCK2
+obj_sp_set:
+        ld (spr_idx), a
+        ld a, 5                 ; cyan
         jr obj_spr_set
 obj_spr_e:
         ld a, SI_ENEMY
@@ -4539,6 +4600,19 @@ dw_setd:
         call sp_find_slot
         ret c
         ld a, (sp_type)
+        cp T_ROCK               ; zones 3+: ~1 in 4 rocks becomes a splitter
+        jr nz, dw_typeset
+        ld a, (world)
+        cp 2
+        jr c, dw_rock
+        call rnd
+        and 3
+        jr nz, dw_rock
+        ld a, T_SPLIT
+        jr dw_typeset
+dw_rock:
+        ld a, T_ROCK
+dw_typeset:
         ld (ix+0), a
         cp T_ENEMY              ; fast movers: enemies, divers, drones
         jr z, dw_fast
@@ -6888,6 +6962,9 @@ opt_shake:    defb 1          ; 1 = full border flash; 0 = soft (photosensitive)
 opt_practice: defb 0          ; 1 = practice mode (no life loss)
 bossrush:     defb 0          ; 1 = boss-rush mode (zone boss spawns at once)
 zone_hit:     defb 0          ; 1 = lost a life this zone (clears the perfect bonus)
+split_pending: defb 0         ; a splitter died this frame -> spawn 2 shards
+split_px:     defb 0
+split_py:     defb 0
 difficulty:   defb 1          ; 0 Cadet, 1 Pilot, 2 Ace
 combo:        defb 0          ; current chain length
 combo_mult:   defb 1          ; score multiplier (1..)
