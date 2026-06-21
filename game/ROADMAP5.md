@@ -40,11 +40,12 @@ Each zone is a chapter; each boss is one of NEXUS's war-machines.
 
 ## C. Payoff
 
-- ☐ **Ending sequence** — beating the final zone (Void Nexus) plays a
-  victory/outro screen instead of silently looping, then returns to the
-  title. _Impact: high · Effort: med._
-- ☐ **Victory honours** — the outro notes the run (zone cleared, score) and
-  flags a completed mission. _Impact: low · Effort: low._
+- ✅ **Ending sequence** — beating the final zone (Void Nexus) plays a
+  victory/outro screen instead of silently looping, then routes into the
+  high-score flow / title. _Impact: high · Effort: med._
+- ✅ **Victory honours** — the outro notes the run (all zones cleared, final
+  score) and flags a completed mission with a permanent title badge.
+  _Impact: low · Effort: low._
 
 ---
 
@@ -56,5 +57,8 @@ Each zone is a chapter; each boss is one of NEXUS's war-machines.
 
 ## Status
 
-To be ticked off as each item lands and is headless-tested
-(`.github/workflows/game.yml`).
+All Phase-5 items are implemented in src/game.asm and headless-tested
+(`.github/workflows/game.yml`). This phase also relocated the runtime
+scratch buffers (objects/bullets/addrtab) into the free RAM gap below the
+load address, reclaiming high memory so the growing image stays clear of
+the stack at 0xFDF0.
