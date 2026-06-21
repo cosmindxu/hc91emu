@@ -431,7 +431,8 @@ drawSquare:
         ld hl,blankCell        ; 8 zeros; reused for 4 cells
         call drawBlank2x2
         ret
-dsP:    and TYPEMASK
+dsP:    ld c,a                 ; save raw piece (colour bit needed below)
+        and TYPEMASK
         dec a
         ld l,a
         ld h,0
@@ -440,7 +441,13 @@ dsP:    and TYPEMASK
         add hl,hl
         add hl,hl
         add hl,hl               ; *32
-        ld de,glyphs
+        ld a,c
+        and COLBIT
+        jr nz,dsBlack          ; bit set = black -> solid silhouette
+        ld de,glyphsW          ; white -> hollow outline (black keyline)
+        jr dsAddGlyph
+dsBlack: ld de,glyphs
+dsAddGlyph:
         add hl,de
         call drawGlyph2x2
         ret
@@ -491,42 +498,23 @@ squareAttr:
         add a,c
         and 1
         jr z,saDark
-        ld d,0x30              ; light: paper 6 (yellow)
-        jr saInk
-saDark: ld d,0x10              ; dark: paper 2 (red)
-saInk:  ld a,(dsSquare)
-        ld h,0xE0
-        ld l,a
-        ld a,(hl)
-        or a
-        jr z,saNo
-        and COLBIT
-        jr z,saWhite
-        ld a,d                 ; black piece: ink 0 + paper
+        ld e,0x70              ; light: bright, ink 0, paper 6 (yellow)
         jr saCur
-saWhite:
-        ld a,0x47              ; white piece: bright + ink 7
-        or d
-        jr saCur
-saNo:   ld a,d
-saCur:  ld e,a                 ; base attr in E
-        ld a,(dsSquare)
+saDark: ld e,0x60              ; dark:  bright, ink 0, paper 4 (green)
+        ; Pieces are drawn with black ink on the square colour: white pieces
+        ; as a hollow outline (black keyline), black pieces as a solid
+        ; silhouette, so the attribute is simply the square's paper colour.
+saCur:  ld a,(dsSquare)
         ld hl,cursorSq
         cp (hl)
         jr nz,saSel
-        ld a,e
-        and 0x47               ; keep ink+bright
-        or 0x28                ; paper cyan(5)
-        or 0x40
+        ld a,0x68              ; cursor: bright, ink 0, paper 5 (cyan)
         ret
 saSel:  ld a,(dsSquare)
         ld hl,selSq
         cp (hl)
         jr nz,saEnd
-        ld a,e
-        and 0x47
-        or 0x20                ; paper green(4)
-        or 0x40
+        ld a,0x58              ; selected: bright, ink 0, paper 3 (magenta)
         ret
 saEnd:  ld a,e
         ret

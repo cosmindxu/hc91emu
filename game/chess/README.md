@@ -164,11 +164,16 @@ Added on top: a **bishop-pair** bonus and **doubled / isolated** pawn
 penalties.
 
 ### Display
-The 8×8 board is drawn as 2×2 character cells per square (128×128 px),
-with hand-designed **16×16 piece silhouettes** ([pieces.py](pieces.py)
-turns ASCII art into the glyph data). Piece colour is just the cell ink
-attribute, so one glyph set serves both sides. Text uses the ROM
-character set, so nothing here depends on paging the ROM out.
+The 8×8 board is drawn as 2×2 character cells per square (128×128 px) on a
+yellow/green checkerboard, with hand-designed **16×16 piece glyphs**
+([pieces.py](pieces.py) turns ASCII art into the data). Because a ZX cell
+has a single ink + paper, solid white pieces would vanish on light
+squares; instead [pieces.py](pieces.py) emits two glyph sets — a **solid
+silhouette for Black** and a **hollow black-outline ("contour") for
+White** — both inked black, so pieces stay legible on every square colour.
+The cursor square is highlighted cyan and the picked-up square magenta.
+Text uses the ROM character set, so nothing here depends on paging the
+ROM out.
 
 ## Files
 
