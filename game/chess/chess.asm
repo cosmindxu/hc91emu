@@ -158,6 +158,7 @@ wAny     equ 0xE138      ; white has a non-king piece
 bAny     equ 0xE139
 wHeavy   equ 0xE13A      ; white has a rook or queen
 bHeavy   equ 0xE13B
+ckSavePhase equ 0xE13C   ; perft self-test: saved gamePhase
 
 killerArr equ 0xD100     ; 4 bytes/ply: k1from,k1to,k2from,k2to
 inChkArr  equ 0xD140     ; 1/ply: side-to-move in check at this node
@@ -312,6 +313,7 @@ ngFile: ld a,(hl)
         ld a,0x74
         ld (bking),a
         call computeKey
+        call computePhase
         xor a
         ld (gameKeyN),a
         ld (gameUndoN),a
@@ -1417,7 +1419,7 @@ msgPerftBad: defb "PERFT BAD - movegen error",0
 msgKiwi:     defb "kiwipete d3",0
 msgEpT:      defb "enpassant d4",0
 msgPromo:    defb "promotion d3",0
-msgZob:      defb "zobrist key",0
+msgZob:      defb "incr key+phase",0
 msgWmate:    defb "Checkmate! Black wins   SPC=new",0
 msgBmate:    defb "Checkmate! White wins   SPC=new",0
 msgStale:    defb "Stalemate - draw        SPC=new",0

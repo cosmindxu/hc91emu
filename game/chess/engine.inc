@@ -98,6 +98,35 @@ cgNo:   or a
 ;  in the endgame), a bishop-pair bonus, and doubled/isolated pawn
 ;  penalties.
 ; =====================================================================
+; non-pawn material weight by piece type (0=empty..6=K)
+phaseWtTbl: defb 0,0,1,1,2,4,0
+
+; phaseDelta -> A = (promotion weight) - (captured weight), for the move in
+; (mvFlag)/(mkCaptured).  make adds it to gamePhase; unmake subtracts it.
+phaseDelta:
+        ld a,(mvFlag)
+        rrca
+        rrca
+        rrca
+        rrca
+        and 0x0F                ; promotion piece type (0 = none)
+        ld e,a
+        ld d,0
+        ld hl,phaseWtTbl
+        add hl,de
+        ld c,(hl)               ; promotion weight
+        ld a,(mkCaptured)
+        and 7
+        ld e,a
+        ld hl,phaseWtTbl
+        add hl,de
+        ld a,(hl)               ; captured weight
+        ld b,a
+        ld a,c
+        sub b
+        ret
+
+; computePhase — full scan, used to seed gamePhase and to self-test it
 computePhase:
         ld c,0
         ld b,0                  ; phase
@@ -139,7 +168,6 @@ cpNext:
         ret
 
 eval:
-        call computePhase
         ld hl,0
         ld (evalAcc),hl
         xor a
@@ -876,8 +904,7 @@ noRevFut:
         call inCheckSide
         or a
         jp nz,noNull
-        call computePhase
-        ld a,(gamePhase)
+        ld a,(gamePhase)         ; maintained incrementally
         cp 3
         jp c,noNull
         ld a,(epSquare)
