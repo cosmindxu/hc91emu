@@ -24,15 +24,18 @@ easiest to move: it's consumed *only* by `build_preshift` at startup. Measured
 compressibility of the live bytes: **48 % with zlib, 20 % are zero** — a
 ZX7-class Z80 depacker realistically lands ~55–60 %.
 
-- ☐ **Pack sprite data + depack at boot** — store the block compressed in the
-  image; at startup decompress it into the free low-RAM gap (`0x62F2–0x8000`,
-  7.4 KB free; the 5.3 KB fits), then point `build_preshift` at the unpacked
-  copy. Needs a ~70–150-byte Z80 depacker and a Python packer in `tools/`
-  (ZX7 has both freely; or a compact LZSS). **Net headroom ≈ 1.5–2 KB**, one
-  tape, loader untouched. _Impact: high · Effort: high._
-  - CI: the existing gameplay screenshot must stay **pixel-identical** before
-    vs. after (proves the unpacked sprites match), plus 48K + 128K still boot.
-  - Bonus: a smaller image also means a **smaller, faster-loading tape**.
+- ✅ **Pack sprite data + depack at boot** — sprite labels are now EQUs into a
+  fixed low-RAM block at `SPRBASE` (0x6300); the bytes live LZSS-packed in
+  `sprpack.inc` and `unpack_sprites` depacks them at boot before
+  `build_preshift`. The three `dw` tables (`ship_tab`, boss table, `sprtab`)
+  resolve through the EQUs, so no draw code changed. **Raw 3360 → packed 1611
+  (48 %); net −1651 B in the image** (16830 → 15179). One tape, loader
+  untouched. _Impact: high · Effort: high._
+  - Tooling: a self-written LZSS packer in `mksprites.py` (with a Python
+    round-trip self-check) and a ~60-byte Z80 depacker.
+  - CI: `check_unpack.py` boots, snapshots RAM and asserts the depacked block
+    is **byte-identical** to the source art — stronger than a screenshot diff.
+  - Bonus: the smaller image is also a smaller, faster-loading tape.
 
 ## B. Code-size wins (low risk, do first)
 
@@ -78,8 +81,8 @@ rest wait on more space:
 
 1. ✅ **"Trim the obvious"** — score-render fold + dead-code sweep (§B/§C, all
    low-risk, no tooling). **Done: reclaimed 322 B; headroom 26 → 348 B free.**
-2. ☐ **"The big squeeze"** — sprite-data compression (§A) for the ~2 KB. The
-   one item that needs new tooling and careful verification.
+2. ✅ **"The big squeeze"** — sprite-data compression (§A). **Done: −1651 B;
+   headroom now ~1.9 KB free.** Verified byte-identical in CI.
 3. ☐ **"Spend it"** — the deferred features (§D), cheapest/highest-impact
    first. With 348 B free, the cheapest (rank on GAME OVER, level-up chirp)
    already fit without §A.
