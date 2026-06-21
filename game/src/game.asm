@@ -1876,6 +1876,7 @@ df_setcd:
         ld (bullet_type), a
         ld a, 7
         call spawn_bullet
+        call muzzle_flash
         call sfx_power
         ret
 df_normal:
@@ -1891,7 +1892,24 @@ df_normal:
         ld a, 13
         call spawn_bullet
 df_done:
+        call muzzle_flash
         call sfx_shoot
+        ret
+
+; muzzle_flash: a short bright dash just past the ship's nose.  It lands in
+; the ship's own erase region, so the next frame's erase_ship clears it.
+muzzle_flash:
+        ld a, (ship_y)
+        add a, 7
+        ld b, a
+        ld a, (ship_x)
+        add a, 24
+        ld c, a
+        call set_pixel
+        inc c
+        call set_pixel
+        inc c
+        call set_pixel
         ret
 
 ; spawn_bullet: A = y-offset from the ship top; muzzle at the nose
@@ -1991,8 +2009,7 @@ db_objloop:
         ld (iy+0), a
         ld bc, 5
         call add_kill_score
-        ld hl, str_p5
-        call set_popup
+        call set_kill_popup     ; "+5" or "+5 xN" with the combo multiplier
         call sfx_explode
         ld a, (ix+0)            ; piercing bolt keeps going
         cp 2
@@ -2024,6 +2041,8 @@ dhb_keep:
         call add_score
         ld a, 3
         ld (shake), a
+        ld a, 2
+        ld (boss_flash), a      ; white hit-flash
         call sfx_hit
         ld a, (boss_hp)
         or a
@@ -2468,6 +2487,17 @@ boss_draw:
         jr nc, boss_ink
         ld a, 2                 ; phase 2: red (enraged)
 boss_ink:
+        ld c, a                 ; hold base colour
+        ld a, (boss_flash)      ; flash white briefly on each hit
+        or a
+        jr z, boss_ink2
+        dec a
+        ld (boss_flash), a
+        ld a, 7
+        jr boss_inkset
+boss_ink2:
+        ld a, c
+boss_inkset:
         call color_ship
         ld a, (ix+1)
         ld (ix+3), a
@@ -2820,7 +2850,12 @@ dx_setspr:
         ld a, (ix+2)
         ld (spr_y), a
         call draw_sprite_ps
-        ld a, 6                 ; yellow blast
+        ld a, (ix+0)            ; first frames flash white, then yellow
+        cp 4
+        ld a, 7
+        jr nc, dx_col
+        ld a, 6
+dx_col:
         call color_obj
 dx_next:
         ld de, 3
@@ -3108,7 +3143,7 @@ sb2_free:
         ld (ix+4), a
         ld a, 0
         ld (ix+6), a
-        call sfx_zone
+        call sfx_klaxon         ; boss-approach alarm
         ret
 
 kill_boss:
@@ -3374,6 +3409,27 @@ sfx_efire:                      ; enemy shot: quick descending blip
         call sfx_tone
         ld c, 34
         ld de, 8
+        call sfx_tone
+        ret
+
+sfx_klaxon:                     ; boss alarm: two-tone warble
+        ld b, 4
+skx_lp:
+        push bc
+        ld c, 30
+        ld de, 10
+        call sfx_tone
+        ld c, 50
+        ld de, 10
+        call sfx_tone
+        pop bc
+        djnz skx_lp
+        ret
+
+; sfx_heart: a soft low "thump" for the low-health alert
+sfx_heart:
+        ld c, 90
+        ld de, 6
         call sfx_tone
         ret
 
@@ -3828,6 +3884,10 @@ ds_e1:
         ld a, 255
 ds_star_okx:
         ld (ix+0), a
+        ld a, (anim_ctr)        ; twinkle: blink some stars off this frame
+        add a, (ix+0)
+        and 0x0F
+        jr z, ds_d1
         ld a, (ix+1)
         ld b, a
         ld a, (ix+0)
@@ -4613,6 +4673,31 @@ set_popup:
         ld a, 24
         ld (poptimer), a
         ret
+
+; set_kill_popup: "+5" normally, or "+5 x<mult>" while a combo is running
+set_kill_popup:
+        ld a, (combo_mult)
+        cp 2
+        jr nc, skp_combo
+        ld hl, str_p5
+        jp set_popup
+skp_combo:
+        ld hl, popbuf           ; build "+5 xN"
+        ld (hl), '+'
+        inc hl
+        ld (hl), '5'
+        inc hl
+        ld (hl), ' '
+        inc hl
+        ld (hl), 'x'
+        inc hl
+        ld a, (combo_mult)
+        add a, '0'
+        ld (hl), a
+        inc hl
+        ld (hl), 0
+        ld hl, popbuf
+        jp set_popup
 
 draw_popup:
         ld a, (poptimer)
@@ -5585,7 +5670,9 @@ boss_active:  defb 0
 boss_hp:      defb 0
 boss_hp_max:  defb 16
 boss_spr:     defw 0
+boss_flash:   defb 0
 midboss_flag: defb 0
+popbuf:       defs 8
 shake:        defb 0
 anim_ctr:     defb 0
 terr_div:     defb 0
