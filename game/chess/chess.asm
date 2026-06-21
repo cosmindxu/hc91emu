@@ -159,6 +159,12 @@ bAny     equ 0xE139
 wHeavy   equ 0xE13A      ; white has a rook or queen
 bHeavy   equ 0xE13B
 ckSavePhase equ 0xE13C   ; perft self-test: saved gamePhase
+pstScore equ 0xE13D      ; (2) incremental material+PST, non-king, white-rel
+pdAcc    equ 0xE13F      ; (2) pst delta accumulator
+pdTmp    equ 0xE141      ; (2)
+pdRookFrom equ 0xE143
+pdRookTo equ 0xE144
+ckSavePst equ 0xE145     ; (2) perft self-test: saved pstScore
 
 killerArr equ 0xD100     ; 4 bytes/ply: k1from,k1to,k2from,k2to
 inChkArr  equ 0xD140     ; 1/ply: side-to-move in check at this node
@@ -314,6 +320,7 @@ ngFile: ld a,(hl)
         ld (bking),a
         call computeKey
         call computePhase
+        call computePstScore
         xor a
         ld (gameKeyN),a
         ld (gameUndoN),a
@@ -1419,7 +1426,7 @@ msgPerftBad: defb "PERFT BAD - movegen error",0
 msgKiwi:     defb "kiwipete d3",0
 msgEpT:      defb "enpassant d4",0
 msgPromo:    defb "promotion d3",0
-msgZob:      defb "incr key+phase",0
+msgZob:      defb "incr key/phase/pst",0
 msgWmate:    defb "Checkmate! Black wins   SPC=new",0
 msgBmate:    defb "Checkmate! White wins   SPC=new",0
 msgStale:    defb "Stalemate - draw        SPC=new",0

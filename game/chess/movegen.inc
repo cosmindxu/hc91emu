@@ -932,6 +932,10 @@ mkTog:
         ld hl,gamePhase
         add a,(hl)
         ld (hl),a
+        call pstDelta            ; pstScore += delta
+        ld hl,(pstScore)
+        add hl,de
+        ld (pstScore),hl
         call keyUpdate
         ret
 
@@ -974,6 +978,18 @@ unmakeMove:
         inc hl
         ld a,(hl)
         ld (mkPiece),a
+        and 8
+        ld (mkSide),a            ; restore side (pstDelta/castle need it)
+        ld a,(mvFlag)            ; restore special + promo (pstDelta needs them)
+        and 7
+        ld (mkSpecial),a
+        ld a,(mvFlag)
+        rrca
+        rrca
+        rrca
+        rrca
+        and 0x0F
+        ld (mkPromo),a
         inc hl
         ld a,(hl)
         ld (mkCaptured),a
@@ -1084,6 +1100,11 @@ umDone:
         ld a,(gamePhase)
         sub b
         ld (gamePhase),a
+        call pstDelta            ; pstScore -= delta
+        ld hl,(pstScore)
+        or a
+        sbc hl,de
+        ld (pstScore),hl
         ret
 
 ; =====================================================================

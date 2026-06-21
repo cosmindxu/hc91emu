@@ -126,6 +126,256 @@ phaseDelta:
         sub b
         ret
 
+; pieceValSigned(B=piece, C=square) -> HL = signed white-relative value
+; (material + piece-square), 0 for a king or empty square.
+pieceValSigned:
+        ld a,b
+        or a
+        jr z,pvsZero
+        and 7
+        cp 6
+        jr z,pvsZero
+        add a,a
+        ld e,a
+        ld d,0
+        ld hl,materialTbl
+        add hl,de
+        ld e,(hl)
+        inc hl
+        ld d,(hl)
+        ld (matVal),de
+        ld a,c
+        and 0x70
+        rrca
+        ld e,a
+        ld a,c
+        and 7
+        or e
+        ld e,a
+        ld a,b
+        and 8
+        jr z,pvsIdx
+        ld a,e
+        xor 0x38
+        ld e,a
+pvsIdx:
+        ld a,b
+        and 7
+        dec a
+        ld l,a
+        ld h,0
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        ld d,0
+        add hl,de
+        ld de,pstTables
+        add hl,de
+        ld a,(hl)
+        ld l,a
+        rla
+        sbc a,a
+        ld h,a
+        ld de,(matVal)
+        add hl,de
+        ld a,b
+        and 8
+        ret z
+        ex de,hl
+        ld hl,0
+        or a
+        sbc hl,de
+        ret
+pvsZero:
+        ld hl,0
+        ret
+
+; kingPstSigned(B=king piece, C=square) -> HL signed tapered king-PST value
+kingPstSigned:
+        ld a,(gamePhase)
+        cp PHASE_EG
+        jr nc,kpsMg
+        ld hl,pstKingEG
+        jr kpsTbl
+kpsMg:  ld hl,pstTables+5*64
+kpsTbl:
+        ld a,c
+        and 0x70
+        rrca
+        ld e,a
+        ld a,c
+        and 7
+        or e
+        ld e,a
+        ld a,b
+        and 8
+        jr z,kpsIdx
+        ld a,e
+        xor 0x38
+        ld e,a
+kpsIdx:
+        ld d,0
+        add hl,de
+        ld a,(hl)
+        ld l,a
+        rla
+        sbc a,a
+        ld h,a
+        ld a,b
+        and 8
+        ret z
+        ex de,hl
+        ld hl,0
+        or a
+        sbc hl,de
+        ret
+
+; addKingPst — add both kings' tapered PST to evalAcc
+addKingPst:
+        ld a,(wking)
+        ld c,a
+        ld b,WK
+        call kingPstSigned
+        ld de,(evalAcc)
+        add hl,de
+        ld (evalAcc),hl
+        ld a,(bking)
+        ld c,a
+        ld b,BK
+        call kingPstSigned
+        ld de,(evalAcc)
+        add hl,de
+        ld (evalAcc),hl
+        ret
+
+; computePstScore — rebuild pstScore from scratch (seed + self-test)
+computePstScore:
+        ld hl,0
+        ld (pstScore),hl
+        ld c,0
+cpsLoop:
+        ld a,c
+        and 0x88
+        jr nz,cpsNext
+        ld h,0xE0
+        ld l,c
+        ld a,(hl)
+        or a
+        jr z,cpsNext
+        ld b,a
+        push bc
+        call pieceValSigned
+        pop bc
+        ld de,(pstScore)
+        add hl,de
+        ld (pstScore),hl
+cpsNext:
+        inc c
+        ld a,c
+        cp 0x78
+        jr nz,cpsLoop
+        ret
+
+; pstDelta -> DE = change to pstScore for the move in mk*/(mvFrom/mvTo/mvFlag)
+pstDelta:
+        ld a,(mkPromo)
+        or a
+        jr z,pdNoProm
+        ld b,a
+        ld a,(mkSide)
+        or b
+        jr pdPlaced
+pdNoProm:
+        ld a,(mkPiece)
+pdPlaced:
+        ld b,a
+        ld a,(mvTo)
+        ld c,a
+        call pieceValSigned
+        ld (pdAcc),hl
+        ld a,(mkPiece)
+        ld b,a
+        ld a,(mvFrom)
+        ld c,a
+        call pieceValSigned
+        ld de,(pdAcc)
+        ex de,hl
+        or a
+        sbc hl,de
+        ld (pdAcc),hl
+        ld a,(mkCaptured)
+        ld b,a
+        ld a,(mkCapSq)
+        ld c,a
+        call pieceValSigned
+        ld de,(pdAcc)
+        ex de,hl
+        or a
+        sbc hl,de
+        ld (pdAcc),hl
+        ld a,(mkSpecial)
+        cp SP_OO
+        jr z,pdOO
+        cp SP_OOO
+        jr z,pdOOO
+        jr pdDone
+pdOO:
+        ld a,(mkSide)
+        or a
+        jr nz,pdOOb
+        ld a,0x07
+        ld (pdRookFrom),a
+        ld a,0x05
+        ld (pdRookTo),a
+        jr pdRook
+pdOOb:
+        ld a,0x77
+        ld (pdRookFrom),a
+        ld a,0x75
+        ld (pdRookTo),a
+        jr pdRook
+pdOOO:
+        ld a,(mkSide)
+        or a
+        jr nz,pdOOOb
+        ld a,0x00
+        ld (pdRookFrom),a
+        ld a,0x03
+        ld (pdRookTo),a
+        jr pdRook
+pdOOOb:
+        ld a,0x70
+        ld (pdRookFrom),a
+        ld a,0x73
+        ld (pdRookTo),a
+pdRook:
+        ld a,(mkSide)
+        or WR
+        ld b,a
+        ld a,(pdRookTo)
+        ld c,a
+        call pieceValSigned
+        ld (pdTmp),hl
+        ld a,(mkSide)
+        or WR
+        ld b,a
+        ld a,(pdRookFrom)
+        ld c,a
+        call pieceValSigned
+        ld de,(pdTmp)
+        ex de,hl
+        or a
+        sbc hl,de
+        ld de,(pdAcc)
+        add hl,de
+        ld (pdAcc),hl
+pdDone:
+        ld de,(pdAcc)
+        ret
+
 ; computePhase — full scan, used to seed gamePhase and to self-test it
 computePhase:
         ld c,0
@@ -168,8 +418,9 @@ cpNext:
         ret
 
 eval:
-        ld hl,0
+        ld hl,(pstScore)         ; incremental material + PST (non-king)
         ld (evalAcc),hl
+        call addKingPst          ; + tapered king tables
         xor a
         ld (wBish),a
         ld (bBish),a
@@ -253,86 +504,8 @@ evMatB:
         ld a,1
         ld (bHeavy),a
 evMatDone:
-        ; --- material ---
-        ld a,b
-        and 7
-        add a,a
-        ld e,a
-        ld d,0
-        ld hl,materialTbl
-        add hl,de
-        ld e,(hl)
-        inc hl
-        ld d,(hl)
-        ld (matVal),de
-        ; --- pst index (white) ---
-        ld a,(tmpSq)
-        ld c,a
-        and 0x70
-        rrca
-        ld l,a
-        ld a,c
-        and 7
-        or l
-        ld c,a
-        ld a,b
-        and 8
-        jr z,evWi
-        ld a,c
-        xor 0x38
-        ld c,a
-evWi:
-        ; --- choose PST table ---
-        ld a,b
-        and 7
-        cp 6
-        jr nz,evNorm
-        ld a,(gamePhase)
-        cp PHASE_EG
-        jr nc,evKmg
-        ld hl,pstKingEG
-        jr evTbl
-evKmg:  ld hl,pstTables+5*64
-        jr evTbl
-evNorm:
-        ld a,b
-        and 7
-        dec a
-        ld l,a
-        ld h,0
-        add hl,hl
-        add hl,hl
-        add hl,hl
-        add hl,hl
-        add hl,hl
-        add hl,hl
-        ld de,pstTables
-        add hl,de
-evTbl:
-        ld a,c
-        ld e,a
-        ld d,0
-        add hl,de
-        ld a,(hl)               ; signed PST byte
-        ld l,a
-        rla
-        sbc a,a
-        ld h,a
-        ld de,(matVal)
-        add hl,de               ; total
-        ld a,b
-        and 8
-        jr nz,evBlack
-        ld de,(evalAcc)
-        add hl,de
-        ld (evalAcc),hl
-        jr evNext
-evBlack:
-        ex de,hl
-        ld hl,(evalAcc)
-        or a
-        sbc hl,de
-        ld (evalAcc),hl
+        ; material + piece-square score comes from the incremental pstScore
+        ; (non-king pieces) plus the two kings, added once below.
 evNext:
         ld a,(tmpSq)
         inc a
