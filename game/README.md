@@ -20,20 +20,28 @@ an AY soundtrack on 128K.
 | Right  | **P** | **8** | right|
 | Fire   | **Space** | **Space** | fire |
 
-Pick **QAOP** or **Cursor** keys on the title (keys **1** / **2**); the
-Kempston joystick is always live. Press **M** on the title to choose your
-**ship** from six designs (A–F; A is the default). **H** pauses. Press
-**Fire** to start and to continue after **GAME OVER**; hold Fire to stream
-shots.
+Pick **QAOP** or **Cursor** keys on the title (keys **1** / **2**), or press
+**D** to **define your own** keys; the Kempston joystick is always live.
+Press **M** to choose your **ship** from six designs (A–F; A is the default),
+**3** to set the skill (Cadet/Pilot/Ace), and **4**/**5**/**6** to toggle
+music, the screen-flash (photosensitivity) and a slow practice mode. **S**/
+**L** save/load the high-score table to tape. **H** pauses. Press **Fire**
+to start and to continue after **GAME OVER**; hold Fire to stream shots (and
+to charge a piercing bolt). Press **B** for a screen-clearing **smart-bomb**.
+
+If left idle, the title runs an **attract-mode demo**.
 
 *Cheat keys (QA):* hold **I** for invincibility, hold **G** for all
 power-ups, press **K** to skip a zone.
 
 ## Gameplay
 
-- **Asteroids** and **enemy craft** arrive in scripted waves; enemies weave
-  and shoot back. Touching a hazard or being hit costs a life (you respawn
-  with brief invulnerability).
+- **Asteroids** and **enemy craft** (weavers, swooping divers, drifting
+  mines, homing drones and wall turrets) arrive in per-zone scripted waves;
+  enemies weave and shoot back. Touching a hazard, taking a hit, **or flying
+  into the cave walls** costs a life (you respawn with brief invulnerability).
+- Chain kills for a **combo multiplier**, and skim enemy fire for **graze**
+  bonuses. Later zones throw in a multi-hit **warship** mini-boss.
 - **Crystals** are **+10**; shooting a hazard is **+5**; the boss is **+200**.
 - **Power-up pods** grant, in turn: spread shot, rapid fire, a shield, and a
   speed boost (shown as **T R S F** in the HUD).

@@ -226,6 +226,14 @@ ml_not_title:
         or a
         jr nz, main_loop        ; frozen while paused
         call play_frame
+        ld a, (opt_practice)    ; slow/practice mode: run at half speed
+        or a
+        jr z, ml_nospeed
+        ld a, (demo_active)
+        or a
+        jr nz, ml_nospeed
+        halt                    ; extra frame wait -> ~25fps
+ml_nospeed:
         ld a, (state)
         cp 2
         jr nz, main_loop
@@ -2685,7 +2693,32 @@ deb_alive:
         ld a, (ix+2)
         ld e, a
         call collide
+        jr z, deb_shiphit
+        ; near miss? award a graze bonus (rate-limited)
+        ld a, 15
+        ld (col_thr), a
+        ld a, (ship_x)
+        add a, 4
+        ld b, a
+        ld a, (ship_y)
+        ld c, a
+        ld a, (ix+1)
+        ld d, a
+        ld a, (ix+2)
+        ld e, a
+        call collide
         jr nz, deb_draw
+        ld a, (graze_prev)
+        or a
+        jr nz, deb_draw
+        ld a, 10
+        ld (graze_prev), a      ; cooldown
+        ld bc, 1
+        call add_score
+        ld hl, str_graze
+        call set_popup
+        jr deb_draw
+deb_shiphit:
         call ship_hit
         xor a
         ld (ix+0), a
@@ -4731,8 +4764,14 @@ reset_combo:
         ld (combo_mult), a
         ret
 
-; tick_combo: per-frame chain decay
+; tick_combo: per-frame chain decay + graze cooldown
 tick_combo:
+        ld a, (graze_prev)
+        or a
+        jr z, tc_combo
+        dec a
+        ld (graze_prev), a
+tc_combo:
         ld a, (combo_timer)
         or a
         ret z
@@ -5666,6 +5705,7 @@ str_p200:     db "+200",0
 str_p50:      db "+50",0
 str_midboss:  db "WARSHIP!",0
 str_demo:     db "DEMO",0
+str_graze:    db "GRZ",0
 str_defk:     db "D-KEYS S-SAVE L-LOAD",0
 str_defup:    db "PRESS UP KEY   ",0
 str_defdn:    db "PRESS DOWN KEY ",0
