@@ -1374,10 +1374,22 @@ seedRng:
         ld (rngState),hl
         ret
 
-; moveSound — a short beeper click on the 48K speaker (port 0xFE bit 4).
-; On the 128K family this is where an AY blip would go.
+; moveSound — a short move cue: an AY-3-8912 blip (audible on the 128K
+; family, harmless no-op on 48K) layered over a beeper click.
 moveSound:
-        ld b,90                 ; half-periods (duration)
+        xor a
+        ld e,0
+        call ayWrite            ; R0 tone fine = 0
+        ld a,1
+        ld e,1
+        call ayWrite            ; R1 tone coarse = 1  (period 0x100, ~430 Hz)
+        ld a,7
+        ld e,0xFE
+        call ayWrite            ; R7 mixer: tone A enabled
+        ld a,8
+        ld e,0x0F
+        call ayWrite            ; R8 channel-A amplitude (max)
+        ld b,90                 ; beeper click (AY note plays alongside)
         ld a,0x17               ; border 7 + speaker bit set
 msLoop:
         out (0xFE),a
@@ -1389,6 +1401,22 @@ msDelay:
         djnz msLoop
         ld a,7
         out (0xFE),a            ; restore border
+        ld de,9000              ; brief pure-AY tail (silent on 48K)
+msTail: dec de
+        ld a,d
+        or e
+        jr nz,msTail
+        ld a,8
+        ld e,0
+        call ayWrite            ; silence channel A
+        ret
+
+; ayWrite(A=register, E=value) — select via 0xFFFD, write via 0xBFFD
+ayWrite:
+        ld bc,0xFFFD
+        out (c),a
+        ld bc,0xBFFD
+        out (c),e
         ret
 
 ; 16-bit xorshift-ish PRNG -> A
