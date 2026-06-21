@@ -50,10 +50,11 @@ T_FORMV equ 12              ; wave marker: spawn a V-formation of enemies
 T_GATE  equ 13              ; pulsing laser-gate barrier
 NZONES  equ 6               ; number of named zones in the cycle
 
-; Sprite pixel data is stored LZSS-packed (sprpack.inc) and depacked at boot
-; into this fixed low-RAM block (just above the scratch BSS, below 0x8000).
-; sprites.inc EQUs every sprite label to SPRBASE + offset. SPR_END = SPRBASE
-; + SPR_RAWLEN must stay below 0x8000 (currently ends ~0x7020).
+; Sprite pixel data (data only - masks are ~data, regenerated at runtime) is
+; stored LZSS-packed (sprpack.inc) and depacked at boot into this fixed low-RAM
+; block (just above the scratch BSS, below 0x8000). sprites.inc EQUs every
+; sprite label to SPRBASE + offset. SPR_END = SPRBASE + SPR_RAWLEN must stay
+; below 0x8000 (currently ends ~0x6990).
 SPRBASE equ 0x6300
 
 ; pre-shifted 16x16 sprite indices (into sprtab / psbuf)
@@ -6395,18 +6396,16 @@ bp_sh:
         ld b, 16
 bp_row:
         push bc
-        ld hl, (ps_src)
+        ld hl, (ps_src)         ; 2 data bytes/row; masks are ~data (generated)
         ld a, (hl)
         ld (shbuf+0), a
+        cpl
+        ld (shbuf+3), a         ; mask_hi = ~data_hi
         inc hl
         ld a, (hl)
         ld (shbuf+1), a
-        inc hl
-        ld a, (hl)
-        ld (shbuf+3), a
-        inc hl
-        ld a, (hl)
-        ld (shbuf+4), a
+        cpl
+        ld (shbuf+4), a         ; mask_lo = ~data_lo
         inc hl
         ld (ps_src), hl
         xor a
@@ -6597,8 +6596,8 @@ dsh_row:
         inc hl
         ld a, (hl)
         ld (shbuf2+2), a
-        ld de, 4
-        add hl, de              ; skip the 3 mask bytes (+6 total per row)
+        ld de, 1
+        add hl, de              ; data-only: advance to the next row (3 bytes)
         ld (spr_ptr), hl
         xor a
         ld (shbuf2+3), a        ; data byte 3 = 0

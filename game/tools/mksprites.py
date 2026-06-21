@@ -602,11 +602,18 @@ def row_bytes(line, w):
 
 
 def sprite_bytes(name, art):
-    """Flat byte list for one sprite: 16 rows x (width/8 data + width/8 mask)."""
+    """Data-only bytes for one sprite: 16 rows x (width/8) data bytes.
+
+    Masks are NOT stored - they are exactly ~data, so the Z80 side regenerates
+    them at runtime (build_preshift `cpl`s each data byte; the 24-wide ship/boss
+    blitter is a pure-OR draw that never needs a mask). This halves the raw
+    sprite block. row_bytes still returns data+mask; we keep only the data half.
+    """
     w = max(16, ((max(len(r) for r in art) + 7) // 8) * 8)
+    nb = w // 8
     out = []
     for line in art:
-        out += row_bytes(line, w)
+        out += row_bytes(line, w)[:nb]      # data bytes only (drop the masks)
     return out, w
 
 
