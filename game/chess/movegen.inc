@@ -11,11 +11,11 @@ rookDirs:   defb 0x01,0x10,0xFF,0xF0
 promoFlags: defb 0x50,0x40,0x30,0x20   ; Q,R,B,N promotions
 
 ; --- per-ply move buffer pointer --------------------------------------
-; HL = moveBufBase + ply*512  (high = 0xB0 + ply*2, low = 0)
+; HL = moveBufBase + ply*512  (high = 0x60 + ply*2, low = 0)
 curMoveBuf:
         ld a,(searchPly)
         add a,a
-        add a,0xB0
+        add a,0x60
         ld h,a
         ld l,0
         ret
