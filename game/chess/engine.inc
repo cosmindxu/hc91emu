@@ -523,8 +523,45 @@ ttpNoCut:
         ld (hl),b
         ld a,(ttCurDepth)
         ld b,a                   ; restore B = depth (ttProbe clobbered it)
-        ; --- null-move pruning (depth>=3, not in check, has pieces) ---
+        ; --- reverse futility: at shallow depth, if a static eval already
+        ;     beats beta by a depth-scaled margin, prune (return eval) ---
         ld a,b
+        cp 3
+        jr nc,noRevFut
+        ld a,(sideToMove)
+        call inCheckSide
+        or a
+        jr nz,noRevFut
+        call eval
+        ld (rfEval),hl
+        ld a,(ttCurDepth)
+        ld b,a
+        ld de,110
+        ld hl,0
+rfMarg: add hl,de
+        djnz rfMarg              ; HL = depth*110
+        ex de,hl
+        ld hl,(rfEval)
+        or a
+        sbc hl,de                ; HL = eval - margin
+        ld d,h
+        ld e,l                   ; DE = threshold
+        call ptrBeta
+        ld c,(hl)
+        inc hl
+        ld b,(hl)                ; BC = beta
+        push bc
+        push de
+        pop bc                   ; BC = threshold
+        pop de                   ; DE = beta
+        call cmpDEgtBC           ; beta > threshold ?
+        jr c,noRevFut
+        ld hl,(rfEval)           ; prune: fail-high, return eval
+        ret
+noRevFut:
+        ; --- null-move pruning (depth>=3, not in check, has pieces) ---
+        ld a,(ttCurDepth)
+        ld b,a
         cp 3
         jp c,noNull
         ld a,(sideToMove)
