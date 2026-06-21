@@ -102,3 +102,4 @@ jobs:
             /tmp/vtest.tap | tee /tmp/vic.txt
           grep -q "MISSION COMPLETE" /tmp/vic.txt
           grep -q "ALL ZONES CLEARED" /tmp/vic.txt
+          grep -q "RANK" /tmp/vic.txt

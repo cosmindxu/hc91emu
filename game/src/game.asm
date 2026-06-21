@@ -920,7 +920,7 @@ sbf_wait:
 show_victory:
         ld a, 1
         ld (won_flag), a        ; permanent "mission complete" badge on title
-        call sfx_zone           ; a triumphant flourish
+        call sfx_victory        ; dedicated ending fanfare
         call clear_screen
         call draw_title_stars
         ld hl, str_vic_hd
@@ -961,6 +961,31 @@ show_victory:
         ld b, 17
         ld c, 13
         call print_str_n5
+        ; end-of-run rank: grade the final score S / A / B / C
+        ld a, 'C'
+        ld hl, (score)
+        ld de, 3000
+        or a
+        sbc hl, de
+        jr c, svc_rank
+        ld a, 'B'
+        ld hl, (score)
+        ld de, 5000
+        or a
+        sbc hl, de
+        jr c, svc_rank
+        ld a, 'A'
+        ld hl, (score)
+        ld de, 8000
+        or a
+        sbc hl, de
+        jr c, svc_rank
+        ld a, 'S'
+svc_rank:
+        ld (str_rank+6), a
+        ld hl, str_rank
+        ld b, 18
+        call print_center
         ld hl, str_fire
         ld b, 20
         call print_center
@@ -3786,6 +3811,7 @@ kill_boss:
         ld a, 12
         ld (shake), a
         call sfx_explode
+        call sfx_bossdn         ; triumphant motif over the blast
         ; big explosion at boss position
         call spawn_explosion
         ld a, (world)           ; final zone (Void Nexus) cleared?
@@ -4098,6 +4124,33 @@ sfx_heart:
         ld de, 6
         call sfx_tone
         ret
+
+; play_notes: HL -> table of (pitch, half-cycles) byte pairs; a 0 pitch ends.
+; A compact melody player built on sfx_tone (works on 48K + 128K beeper).
+play_notes:
+pn_lp:
+        ld c, (hl)
+        inc hl
+        ld a, c
+        or a
+        ret z
+        ld e, (hl)
+        inc hl
+        ld d, 0
+        push hl
+        call sfx_tone
+        pop hl
+        jr pn_lp
+
+sfx_victory:                    ; ascending "you did it" jingle for the ending
+        ld hl, vic_notes
+        jr play_notes
+sfx_bossdn:                     ; short triumphant motif when a boss falls
+        ld hl, bdn_notes
+        jr play_notes
+
+vic_notes:    db 60,18, 48,18, 40,18, 30,22, 24,30, 20,40, 0
+bdn_notes:    db 36,14, 26,14, 18,26, 0
 
 sfx_power:                      ; power-up: bright rising arpeggio
         ld c, 50
@@ -6608,6 +6661,7 @@ str_vic2:   db "THE SIX ZONES ARE OPEN",0
 str_vic3:   db "AND THE COLONIES ARE FREE.",0
 str_vic4:   db "YOU FLEW THE DRIFTER HOME.",0
 str_vic_hon: db "ALL ZONES CLEARED",0
+str_rank:    db "RANK  ?",0     ; the '?' is overwritten with the grade
 str_newhi:  db "NEW HIGH SCORE!",0
 str_entini: db "ENTER INITIALS - FIRE",0
 str_schopts: db "1-QAOP   2-CURSOR",0

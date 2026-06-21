@@ -116,7 +116,8 @@ The whole game is one Z80 source file, `src/game.asm`:
 - **IM2** interrupt clock; the HUD only repaints values that changed.
 - Input reads the keyboard half-rows directly and the Kempston port `$1F`.
 
-See **`ROADMAP.md`** — every item is implemented (✅).
+See **`ROADMAP.md`** through **`ROADMAP6.md`** for the feature history —
+gameplay depth, a story layer, a victory fanfare and an end-of-run rank.
 
 ## Files
 
