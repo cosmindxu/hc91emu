@@ -96,8 +96,10 @@ Status legend: ✅ done · ◐ partial · ☐ todo
   glitch-free audio timing.
 - ☐ **Double-buffered or beam-synced drawing** to eliminate the last
   flicker (e.g., draw the player last, just behind the raster).
-- ☐ **Pre-shifted sprite tables** to speed the blitter if object counts
-  grow.
+- ✅ **Pre-shifted sprite tables** — all 16x16 sprite shifts are computed
+  once at startup into `psbuf`, so drawing is a plain masked copy (no
+  per-row shift loop). With HUD redraw caching, a star mask table and
+  trimmed entity counts this roughly doubled the frame rate.
 - ☐ **Self-test / cheat keys** behind a build flag for QA.
 - ☐ **CI hook**: assemble the game and run a few headless
   `--frames/--screenshot/--wav` smoke tests on every push (the emulator

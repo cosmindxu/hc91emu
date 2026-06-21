@@ -14,9 +14,9 @@ ATTR    equ 0x5800          ; attribute memory
 MAXOBJ  equ 8               ; rocks / enemies / crystals / power-ups / boss
 OBJSZ   equ 8               ; bytes per object
 MAXBUL  equ 6               ; player bullets in flight
-MAXEB   equ 6               ; enemy bullets in flight
-MAXEXPL equ 4               ; simultaneous explosions
-NSTAR   equ 24              ; parallax stars (3 depth layers)
+MAXEB   equ 4               ; enemy bullets in flight
+MAXEXPL equ 3               ; simultaneous explosions
+NSTAR   equ 18              ; parallax stars (3 depth layers)
 FONT    equ 0x3C00          ; ROM font base (char*8 + FONT)
 
 ; object types
@@ -26,6 +26,20 @@ T_CRYS  equ 3
 T_POWER equ 4
 T_BOSS  equ 5
 
+; pre-shifted 16x16 sprite indices (into sprtab / psbuf)
+NSPR    equ 11
+SI_ROCK equ 0
+SI_ROCK2 equ 1
+SI_ENEMY equ 2
+SI_CRYS equ 3
+SI_CRYS2 equ 4
+SI_POWER equ 5
+SI_BULLET equ 6
+SI_EBUL equ 7
+SI_EX1  equ 8
+SI_EX2  equ 9
+SI_EX3  equ 10
+
 ; ============================================================================
 ;  ENTRY
 ; ============================================================================
@@ -33,6 +47,7 @@ start:
         di
         ld sp, 0xEFFF
         call build_addrtab
+        call build_preshift
         ld a, r
         ld (seed), a
         call init_hiscores
@@ -670,6 +685,15 @@ init_game:
         ld (paused), a
         ld (pause_prev), a
         ld (poptimer), a
+        ld (pop_shown), a
+        ld hl, 0xFFFF           ; force a full HUD redraw on the first frame
+        ld (hud_score), hl
+        ld a, 0xFF
+        ld (hud_lives), a
+        ld (hud_pow), a
+        ld a, 0xFE
+        ld (hud_bar), a
+        ld (hud_zone), a
         ld a, (spawn_period)
         ld (spawn_timer), a
         ld hl, wave_script      ; reset the wave script
@@ -1205,13 +1229,13 @@ db_objnext:
         ld (ocount), a
         jp nz, db_objloop
         ; survived: draw bullet
-        ld hl, spr_bullet
-        ld (spr_ptr), hl
+        ld a, SI_BULLET
+        ld (spr_idx), a
         ld a, (ix+1)
         ld (spr_x), a
         ld a, (ix+2)
         ld (spr_y), a
-        call draw_sprite
+        call draw_sprite_ps
         ld a, (ix+1)
         ld (ix+3), a
 db_next:
@@ -1339,15 +1363,17 @@ obj_draw:
         ld a, (ix+6)
         and 4
         jr z, obj_rk0
-        ld hl, spr_rock2
+        ld a, SI_ROCK2
         jr obj_rkd
 obj_rk0:
-        ld hl, spr_rock
+        ld a, SI_ROCK
 obj_rkd:
+        ld (spr_idx), a
         ld a, 7                 ; rock: white
         jr obj_spr_set
 obj_spr_e:
-        ld hl, spr_enemy
+        ld a, SI_ENEMY
+        ld (spr_idx), a
         ld a, 4                 ; enemy: green
         jr obj_spr_set
 obj_spr_c:
@@ -1355,24 +1381,25 @@ obj_spr_c:
         ld a, (ix+6)
         and 4
         jr z, obj_cr0
-        ld hl, spr_crystal2
+        ld a, SI_CRYS2
         jr obj_crd
 obj_cr0:
-        ld hl, spr_crystal
+        ld a, SI_CRYS
 obj_crd:
+        ld (spr_idx), a
         ld a, 6                 ; crystal: yellow
         jr obj_spr_set
 obj_spr_p:
-        ld hl, spr_power
+        ld a, SI_POWER
+        ld (spr_idx), a
         ld a, 2                 ; power-up: red
 obj_spr_set:
         ld (obj_ink), a
-        ld (spr_ptr), hl
         ld a, (ix+1)
         ld (spr_x), a
         ld a, (ix+2)
         ld (spr_y), a
-        call draw_sprite
+        call draw_sprite_ps
         ld a, (obj_ink)
         call color_obj
         ld a, (ix+1)
@@ -1672,13 +1699,13 @@ deb_kill:
         ld (ix+0), a
         jp deb_next
 deb_draw:
-        ld hl, spr_ebullet
-        ld (spr_ptr), hl
+        ld a, SI_EBUL
+        ld (spr_idx), a
         ld a, (ix+1)
         ld (spr_x), a
         ld a, (ix+2)
         ld (spr_y), a
-        call draw_sprite
+        call draw_sprite_ps
         ld a, 6                 ; yellow tracer
         call color_obj
         ld a, (ix+1)
@@ -1746,20 +1773,20 @@ dx_loop:
         jr nc, dx_f1
         cp 2
         jr nc, dx_f2
-        ld hl, spr_expl3
+        ld a, SI_EX3
         jr dx_setspr
 dx_f1:
-        ld hl, spr_expl1
+        ld a, SI_EX1
         jr dx_setspr
 dx_f2:
-        ld hl, spr_expl2
+        ld a, SI_EX2
 dx_setspr:
-        ld (spr_ptr), hl
+        ld (spr_idx), a
         ld a, (ix+1)
         ld (spr_x), a
         ld a, (ix+2)
         ld (spr_y), a
-        call draw_sprite
+        call draw_sprite_ps
         ld a, 6                 ; yellow blast
         call color_obj
 dx_next:
@@ -2523,6 +2550,11 @@ dg_loop:
         ret
 
 draw_lives:
+        ld a, (lives)           ; only redraw when it changed
+        ld hl, hud_lives
+        cp (hl)
+        ret z
+        ld (hl), a
         ld b, 0                 ; blank cols 27..31
         ld c, 27
 dl_blank:
@@ -2558,22 +2590,31 @@ dl_icon:
         ret
 
 draw_distbar:
-        ld a, (boss_active)
+        ld a, (boss_active)     ; compute a one-byte signature
         or a
-        jr z, db_bar
+        jr z, db_calc
+        ld a, 0xFF              ; boss marker
+        jr db_cmp
+db_calc:
+        ld hl, (world_timer)
+        add hl, hl
+        ld a, h                 ; world_timer / 128
+        cp 7
+        jr c, db_cmp
+        ld a, 6
+db_cmp:
+        ld hl, hud_bar
+        cp (hl)
+        ret z
+        ld (hl), a
+        cp 0xFF
+        jr nz, db_bar
         ld hl, str_boss
         ld b, 0
         ld c, 20
         call print_str_at
         ret
 db_bar:
-        ld hl, (world_timer)
-        add hl, hl
-        ld a, h                 ; world_timer / 128
-        cp 7
-        jr c, db_cap
-        ld a, 6
-db_cap:
         ld d, a                 ; filled cells
         ld e, 6                 ; total
         ld c, 20
@@ -2600,6 +2641,19 @@ db_put:
         ret
 
 draw_zonename:
+        ld hl, (bonus_timer)    ; signature: 0xFF in bonus, else world
+        ld a, h
+        or l
+        jr z, dz_sigw
+        ld a, 0xFF
+        jr dz_sigc
+dz_sigw:
+        ld a, (world)
+dz_sigc:
+        ld hl, hud_zone
+        cp (hl)
+        ret z
+        ld (hl), a
         ld b, 1                 ; blank cols 0..13
         ld c, 0
 dz_blank:
@@ -2639,6 +2693,32 @@ dz_zone:
 ; show one power-up letter if its flag is set, advancing the column
 ; (helper used by draw_powers): A=flag value, used with (dp_col),(dp_chr)
 draw_powers:
+        ld c, 0                 ; build a signature of active power-ups
+        ld a, (pw_twin)
+        or a
+        jr z, dpw1
+        set 0, c
+dpw1:
+        ld a, (pw_rapid)
+        or a
+        jr z, dpw2
+        set 1, c
+dpw2:
+        ld a, (pw_speed)
+        or a
+        jr z, dpw3
+        set 2, c
+dpw3:
+        ld a, (pw_shield)
+        or a
+        jr z, dpw4
+        set 3, c
+dpw4:
+        ld a, c
+        ld hl, hud_pow
+        cp (hl)
+        ret z
+        ld (hl), a
         ld b, 1                 ; blank cols 15..20
         ld c, 15
 dp_blank:
@@ -2701,14 +2781,22 @@ set_popup:
 draw_popup:
         ld a, (poptimer)
         or a
-        jr z, dpop_blank
+        jr z, dpop_chk
         dec a
         ld (poptimer), a
+        ld a, 1
+        ld (pop_shown), a
         ld hl, (pop_str)
         ld b, 0
         ld c, 6
         call print_str_at
         ret
+dpop_chk:
+        ld a, (pop_shown)       ; only blank once, when it expires
+        or a
+        ret z
+        xor a
+        ld (pop_shown), a
 dpop_blank:
         ld b, 0                 ; clear the popup cells
         ld c, 6
@@ -2724,7 +2812,13 @@ dpop_b:
         ret
 
 show_score:
+        ld hl, (score)          ; only redraw when the score changed
+        ld de, (hud_score)
+        or a
+        sbc hl, de
+        ret z
         ld hl, (score)
+        ld (hud_score), hl
         ld ix, decbuf
         ld de, 10000
         call sc_digit
@@ -2934,16 +3028,15 @@ pixel_addr:                     ; -> HL=byte addr, A=bit mask
         add hl, de
         ld a, c
         and 7
-        ld b, a
-        ld a, 0x80
-        inc b
-pa_rl:
-        dec b
-        jr z, pa_done
-        rrca
-        jr pa_rl
-pa_done:
+        push hl
+        ld e, a
+        ld d, 0
+        ld hl, maskt
+        add hl, de
+        ld a, (hl)              ; bit mask from table
+        pop hl
         ret
+maskt:  db 0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01
 
 set_pixel:
         call pixel_addr
@@ -3103,6 +3196,190 @@ es_row:
         pop bc
         dec b
         jr nz, es_row
+        ret
+
+; ============================================================================
+;  PRE-SHIFTED SPRITES  -  the 16x16 blitter's shift loop, done once at
+;  startup into psbuf, so drawing is a plain masked copy (much faster).
+; ============================================================================
+build_preshift:
+        ld hl, psbuf
+        ld (ps_dst), hl
+        xor a
+        ld (ps_si), a
+bp_si:
+        ld a, (ps_si)           ; src = sprtab[ps_si]
+        add a, a
+        ld e, a
+        ld d, 0
+        ld hl, sprtab
+        add hl, de
+        ld a, (hl)
+        inc hl
+        ld h, (hl)
+        ld l, a
+        ld (ps_srcbase), hl
+        xor a
+        ld (ps_sh), a
+bp_sh:
+        ld hl, (ps_srcbase)
+        ld (ps_src), hl
+        ld b, 16
+bp_row:
+        push bc
+        ld hl, (ps_src)
+        ld a, (hl)
+        ld (shbuf+0), a
+        inc hl
+        ld a, (hl)
+        ld (shbuf+1), a
+        inc hl
+        ld a, (hl)
+        ld (shbuf+3), a
+        inc hl
+        ld a, (hl)
+        ld (shbuf+4), a
+        inc hl
+        ld (ps_src), hl
+        xor a
+        ld (shbuf+2), a
+        ld a, 255
+        ld (shbuf+5), a
+        ld a, (ps_sh)
+        or a
+        jr z, bp_noshift
+        ld c, a
+bp_shloop:
+        ld hl, shbuf
+        srl (hl)
+        inc hl
+        rr (hl)
+        inc hl
+        rr (hl)
+        ld hl, shbuf+3
+        scf
+        rr (hl)
+        inc hl
+        rr (hl)
+        inc hl
+        rr (hl)
+        dec c
+        jr nz, bp_shloop
+bp_noshift:
+        ld hl, (ps_dst)
+        ld a, (shbuf+0)
+        ld (hl), a
+        inc hl
+        ld a, (shbuf+1)
+        ld (hl), a
+        inc hl
+        ld a, (shbuf+2)
+        ld (hl), a
+        inc hl
+        ld a, (shbuf+3)
+        ld (hl), a
+        inc hl
+        ld a, (shbuf+4)
+        ld (hl), a
+        inc hl
+        ld a, (shbuf+5)
+        ld (hl), a
+        inc hl
+        ld (ps_dst), hl
+        pop bc
+        dec b
+        jp nz, bp_row
+        ld a, (ps_sh)
+        inc a
+        ld (ps_sh), a
+        cp 8
+        jp nz, bp_sh
+        ld a, (ps_si)
+        inc a
+        ld (ps_si), a
+        cp NSPR
+        jp nz, bp_si
+        ret
+
+; draw_sprite_ps: spr_idx, spr_x, spr_y ; fast masked draw from psbuf
+draw_sprite_ps:
+        push ix
+        ld a, (spr_idx)         ; base = psbuf + idx*768 + (x&7)*96
+        ld b, a
+        add a, a
+        add a, b                ; idx*3
+        ld h, a
+        ld l, 0                 ; idx*768
+        ld de, psbuf
+        add hl, de
+        ld a, (spr_x)
+        and 7
+        jr z, dps_base
+        ld b, a
+        ld de, 96
+dps_sh:
+        add hl, de
+        djnz dps_sh
+dps_base:
+        push hl
+        pop ix
+        ld a, (spr_x)
+        rrca
+        rrca
+        rrca
+        and 0x1F
+        ld (xc_tmp), a
+        ld a, (spr_y)
+        ld (row_y), a
+        ld b, 16
+dps_row:
+        ld a, (row_y)
+        ld l, a
+        ld h, 0
+        add hl, hl
+        ld de, addrtab
+        add hl, de
+        ld e, (hl)
+        inc hl
+        ld d, (hl)
+        ld a, (xc_tmp)
+        ld l, a
+        ld h, 0
+        add hl, de              ; HL = screen address
+        ld a, (ix+3)
+        ld c, a
+        ld a, (hl)
+        and c
+        ld c, a
+        ld a, (ix+0)
+        or c
+        ld (hl), a
+        inc hl
+        ld a, (ix+4)
+        ld c, a
+        ld a, (hl)
+        and c
+        ld c, a
+        ld a, (ix+1)
+        or c
+        ld (hl), a
+        inc hl
+        ld a, (ix+5)
+        ld c, a
+        ld a, (hl)
+        and c
+        ld c, a
+        ld a, (ix+2)
+        or c
+        ld (hl), a
+        ld de, 6
+        add ix, de
+        ld a, (row_y)
+        inc a
+        ld (row_y), a
+        dec b
+        jp nz, dps_row
+        pop ix
         ret
 
 ; ============================================================================
@@ -3380,6 +3657,12 @@ dg_ptr:       defw 0
 dp_col:       defb 0
 poptimer:     defb 0
 pop_str:      defw 0
+pop_shown:    defb 0
+hud_score:    defw 0xFFFF
+hud_lives:    defb 0xFF
+hud_bar:      defb 0xFE
+hud_zone:     defb 0xFE
+hud_pow:      defb 0xFF
 paused:       defb 0
 pause_prev:   defb 0
 ctrl_scheme:  defb 0
@@ -3439,6 +3722,17 @@ row_y:    defb 0
 scr_addr: defw 0
 shbuf:    defb 0,0,0,0,0,0
 
+sprtab:
+        dw spr_rock, spr_rock2, spr_enemy, spr_crystal, spr_crystal2
+        dw spr_power, spr_bullet, spr_ebullet, spr_expl1, spr_expl2, spr_expl3
+
+spr_idx:  defb 0
+ps_dst:   defw 0
+ps_src:   defw 0
+ps_srcbase: defw 0
+ps_si:    defb 0
+ps_sh:    defb 0
+
 objs:     defs MAXOBJ*OBJSZ
 bullets:  defs MAXBUL*4
 ebullets: defs MAXEB*6
@@ -3446,5 +3740,6 @@ expls:    defs MAXEXPL*3
 stars:    defs NSTAR*4
 
 addrtab:  defs 384
+psbuf:    defs NSPR*768
 
         end start
