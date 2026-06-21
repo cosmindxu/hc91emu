@@ -5,7 +5,21 @@ cd "$(dirname "$0")"
 EMU=../build/hc91emu
 
 python3 tools/mksprites.py
-pasmo src/game.asm build/game.bin
+pasmo --equ VTEST=0 src/game.asm build/game.bin
+
+# Guard: psbuf (NSPR*768 = 14592 bytes of runtime scratch) sits right after
+# the loaded image, and its end must stay below the stack at 0xFDF0 with a
+# safe margin. So the image (org 0x8000) must not exceed this ceiling. Fail
+# loudly if it does, instead of corrupting the stack at runtime.
+#   limit = 0xFDF0 - STACK_MARGIN(542) - psbuf(14592) - org(0x8000) = 17106
+LIMIT=17106
+SIZE=$(wc -c < build/game.bin)
+if [ "$SIZE" -gt "$LIMIT" ]; then
+    echo "ERROR: game.bin is $SIZE bytes, over the $LIMIT-byte limit" \
+         "(psbuf would overrun the stack at 0xFDF0)." >&2
+    exit 1
+fi
+echo "image: $SIZE / $LIMIT bytes (free: $((LIMIT - SIZE)))"
 
 # Pass 1: a code-only tap we can boot to grab the title as a loading screen.
 python3 tools/mktap.py build/game.bin build/game_nl.tap 32768 stellar

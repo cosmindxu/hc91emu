@@ -4,6 +4,16 @@
 ;  from the right past a ship the player steers up/down/left/right.
 ;  Controls: Q/A/O/P + Space, or a Kempston joystick.
 ;  Written in Z80 assembly, assembled with pasmo.
+;
+;  Memory map (48K; the lower 0x4000-0x7FFF is always mapped on 128K too):
+;    0x4000-0x5AFF  screen + attributes
+;    0x6000-0x626B  runtime scratch BSS (objs/bullets/.../addrtab) - EQU,
+;                   not emitted, rebuilt at startup
+;    0x8000-~0xC2D2 game code + data (the emitted/loaded image)
+;    0xC4F0-0xFDF0  psbuf pre-shift scratch - EQU, not emitted, built at
+;                   startup; pinned just below the stack
+;    0xFDF0         stack top (grows down); IM2 ISR vector at 0xFDFD/0xFE00
+;  build.sh guards that code+data stays below psbuf at 0xC4F0.
 ; ============================================================================
 
         org 32768
@@ -845,7 +855,11 @@ tp_press:
         ret nz                  ; wait for a fresh press
         call show_briefing      ; mission briefing (skippable, FIRE to launch)
         call init_game
+IF VTEST
+        ld a, 4                 ; VTEST build: jump straight to the ending
+ELSE
         ld a, 1
+ENDIF
         ld (state), a
         ld (menu_lock), a
         ret
@@ -6614,9 +6628,6 @@ credits_msg: db "STELLAR DRIFT - A CAVE FLYER FOR THE HC-91 - DODGE, "
 hs_def_names:  db "ACE","ZAP","HC9","FOX","BEE"
 hs_def_scores: dw 500,400,300,200,100
 
-hs_names:   defs 15
-hs_scores:  defs 10
-ie_buf:     defs 3
 ie_pos:     defb 0
 ie_letter:  defb 0
 ie_prevud:  defb 0
@@ -6642,14 +6653,11 @@ pc_char:      defb 0
 pc_col:       defb 0
 pc_prow:      defb 0
 pc_font:      defw 0
-decbuf:       defs 5
 cur_border:   defb 0
 zone_base:    defb 0x47
 zb_sky:       defb 0x47
 zb_mid:       defb 0x47
 zb_gnd:       defb 0x47
-zb_band:      defs 6
-attr_row:     defs 24
 sab_attr:     defb 0
 sab_keep:     defb 0xF8
 sab_or:       defb 0
@@ -6682,13 +6690,10 @@ boss_hp_max:  defb 16
 boss_spr:     defw 0
 boss_flash:   defb 0
 midboss_flag: defb 0
-popbuf:       defs 8
 shake:        defb 0
 anim_ctr:     defb 0
 terr_div:     defb 0
 terr_tile:    defb 0
-ceil_h:       defs 32
-floor_h:      defs 32
 cave_ct:      defb 2
 cave_ft:      defb 2
 cave_amp:     defb 4
@@ -6918,11 +6923,25 @@ ebullets  equ bullets + MAXBUL*4
 expls     equ ebullets + MAXEB*6
 debris    equ expls + MAXEXPL*3
 stars     equ debris + DEB*5
-addrtab   equ stars + NSTAR*4         ; 384 bytes -> ends ~0x626B
+addrtab   equ stars + NSTAR*4         ; 384 bytes
+; more runtime-built scratch in the same low gap (all rebuilt/loaded at start)
+hs_names  equ addrtab + 384
+hs_scores equ hs_names + 15
+ie_buf    equ hs_scores + 10
+decbuf    equ ie_buf + 3
+zb_band   equ decbuf + 5
+attr_row  equ zb_band + 6
+popbuf    equ attr_row + 24
+ceil_h    equ popbuf + 8
+floor_h   equ ceil_h + 32             ; ends ~0x62F2
 px_x:     defb 0
 px_y:     defb 0
 px_set:   defb 0
 
-psbuf:    defs NSPR*768
+; psbuf is runtime-built pre-shift scratch (build_preshift); place it right
+; after the loaded image as a non-emitted EQU so it is NOT stored in the tape
+; (saves ~14 KB / faster load). build.sh guards that psbuf's end stays below
+; the stack at 0xFDF0 with margin to spare.
+psbuf     equ $                       ; ~0xC24B .. (+NSPR*768)
 
         end start
