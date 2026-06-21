@@ -154,6 +154,10 @@ lmrPB    equ 0xE131      ; (2) parent beta
 lmrReduced equ 0xE133    ; 1 if the current child was searched reduced
 matBalTmp equ 0xE134     ; (2) material-balance accumulator
 openingNamePtr equ 0xE136 ; (2) opening name string, 0 = none
+wAny     equ 0xE138      ; white has a non-king piece
+bAny     equ 0xE139
+wHeavy   equ 0xE13A      ; white has a rook or queen
+bHeavy   equ 0xE13B
 
 killerArr equ 0xD100     ; 4 bytes/ply: k1from,k1to,k2from,k2to
 inChkArr  equ 0xD140     ; 1/ply: side-to-move in check at this node
@@ -962,8 +966,14 @@ scanKeys:
 sk_t:   ld bc,0xFBFE
         in a,(c)
         bit 4,a                ; T = perft self-test
-        jr nz,sk_v
+        jr nz,sk_e
         ld a,'T'
+        ret
+sk_e:   ld bc,0xFBFE           ; Q,W,E,R,T
+        in a,(c)
+        bit 2,a                ; E = load endgame demo (KRK)
+        jr nz,sk_v
+        ld a,'E'
         ret
 sk_v:   ld bc,0xFEFE           ; CAPS,Z,X,C,V
         in a,(c)
@@ -1071,6 +1081,8 @@ hmLoop: call readKeyDebounced
         jp z,hmTwoP
         cp 'Z'
         jp z,hmTakeBack
+        cp 'E'
+        jp z,hmEndgame
         cp '1'
         jp c,hmLoop
         cp '6'
@@ -1131,6 +1143,41 @@ hmTakeBack:
         call setMsg
         call drawScreenFull
         jp hmLoop
+
+hmEndgame:
+        ld hl,krkPos
+        call loadGamePos
+        ld sp,0xFFF0           ; unwind back to a clean main loop
+        jp mainLoop
+
+; loadGamePos(HL=ptr) — set up an arbitrary position and reset game state
+loadGamePos:
+        call setupBoard        ; board, side, castling, ep, kings, key
+        xor a
+        ld (gameState),a
+        ld (haveLast),a
+        ld (gameKeyN),a
+        ld (gameUndoN),a
+        ld (openingNamePtr),a
+        ld (openingNamePtr+1),a
+        ld a,0xFF
+        ld (selSq),a
+        call recordGameKey
+        call ttClear
+        call clearHistory
+        ret
+
+; KRK endgame demo: white Ke1 (lone), black Ke8 + Ra8, black (engine) to move
+krkPos:
+        defb 0,0,0,0,WK,0,0,0       ; rank1: white Ke1
+        defb 0,0,0,0,0,0,0,0
+        defb 0,0,0,0,0,0,0,0
+        defb 0,0,0,0,0,0,0,0
+        defb 0,0,0,0,0,0,0,0
+        defb 0,0,0,0,0,0,0,0
+        defb 0,0,0,0,0,0,0,0
+        defb BR,0,0,0,BK,0,0,0      ; rank8: black Ra8, Ke8
+        defb 8,0,0xFF              ; side=black, no castling, no ep
 
 hmSel:  ld a,(selSq)
         cp 0xFF
@@ -1360,7 +1407,7 @@ msgThinking: defb "Thinking...        ",0
 msgIllegal:  defb "Illegal move       ",0
 msgPick:     defb "Pick your piece    ",0
 msgDiff:     defb "Difficulty set     ",0
-msgKeys:     defb "QAOP=move ENT=pick N T V F 1-5",0
+msgKeys:     defb "QAOP move ENT=pick NTEVZF 1-5",0
 msgPerftHdr: defb "PERFT self-test (start position)",0
 msgPerftN:   defb "perft",0
 msgOK:       defb "OK",0
