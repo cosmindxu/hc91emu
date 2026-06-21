@@ -74,3 +74,31 @@ jobs:
             --joy "1750-1770:F" --joy "1800-2600:F" --frames 2600 \
             --wav /tmp/ay.wav game/build/game.tap
           test -s /tmp/ay.wav
+
+      - name: Story - mission briefing shows on a new game
+        run: |
+          # the first FIRE opens the briefing; before launching, it must show
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --frames 1820 --text game/build/game.tap \
+            | tee /tmp/brief.txt
+          grep -q "MISSION BRIEFING" /tmp/brief.txt
+
+      - name: Story - zone card flavour shows on zone entry
+        run: |
+          # after launching, the first zone shows its story line under the banner
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1800-1808:F" --frames 1850 --text \
+            game/build/game.tap | tee /tmp/card.txt
+          grep -q "WARSHIP" /tmp/card.txt
+
+      - name: Story - victory ending screen (VTEST fast-path build)
+        run: |
+          # a test-only build (VTEST=1) jumps straight to the ending so the
+          # victory screen + state-4 flow are exercised without a full playthrough
+          ( cd game && pasmo --equ VTEST=1 src/game.asm /tmp/vtest.bin \
+            && python3 tools/mktap.py /tmp/vtest.bin /tmp/vtest.tap 32768 stellar )
+          ./build/hc91emu --rom roms/hc91.rom --autoload --turbo --kempston \
+            --joy "1750-1758:F" --joy "1850-1858:F" --frames 1980 --text \
+            /tmp/vtest.tap | tee /tmp/vic.txt
+          grep -q "MISSION COMPLETE" /tmp/vic.txt
+          grep -q "ALL ZONES CLEARED" /tmp/vic.txt
