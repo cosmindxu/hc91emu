@@ -140,6 +140,11 @@ lastScore equ 0xE120     ; (2) engine score of the last AI move
 lastFrom equ 0xE122
 lastTo   equ 0xE123
 haveLast equ 0xE124      ; 1 once the engine has moved
+osKF     equ 0xE125      ; killer bump scratch
+osKT     equ 0xE126
+osKScore equ 0xE127
+
+killerArr equ 0xD100     ; 4 bytes/ply: k1from,k1to,k2from,k2to
 
 ; per-ply search arrays (continued, page 0xD4/0xD5)
 origAlphaArr equ 0xD4F0  ; 16 * 2 = original alpha for TT bound flags
