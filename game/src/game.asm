@@ -811,7 +811,15 @@ tp_optpress:
         jr nz, tp_o4
         ld a, (difficulty)      ; key 3: cycle skill
         inc a
-        cp 3
+        ld c, a
+        ld b, 3                 ; Cadet/Pilot/Ace
+        ld a, (won_flag)        ; mission beaten -> Veteran 4th tier unlocked
+        or a
+        jr z, tp_dcap
+        ld b, 4
+tp_dcap:
+        ld a, c
+        cp b
         jr c, tp_dset
         xor a
 tp_dset:
@@ -3743,6 +3751,15 @@ sb2_free:
         add a, a
         add a, a
         add a, 16               ; hp = 16 + world*4
+        ld b, a                 ; veteran (skill 3): +25% boss HP
+        ld a, (difficulty)
+        cp 3
+        ld a, b
+        jr nz, sb2_hp
+        srl b
+        srl b                   ; b = hp/4
+        add a, b                ; a = hp*5/4
+sb2_hp:
         ld (boss_hp), a
         ld (boss_hp_max), a
         ld a, (world)           ; pick the zone's boss silhouette (cycle 4)
@@ -5101,6 +5118,15 @@ set_world_attr:
         out (254), a
         inc hl
         ld a, (hl)              ; spawn period
+        ld b, a                 ; veteran (skill 3): spawn ~25% faster
+        ld a, (difficulty)
+        cp 3
+        ld a, b
+        jr nz, swa_sp
+        srl b
+        srl b                   ; b = period/4
+        sub b                   ; a = period*3/4
+swa_sp:
         ld (spawn_period), a
         inc hl
         ld a, (hl)              ; first band = nominal zone_base
@@ -6625,7 +6651,7 @@ str_brf5:   db "FLY THE SCOUT DRIFTER",0
 str_brf6:   db "THROUGH EVERY ZONE TO THE",0
 str_brf7:   db "CORE - AND END NEXUS.",0
 str_launch: db "FIRE TO LAUNCH",0
-str_won_badge: db "NEXUS DEFEATED - WELL FLOWN",0
+str_won_badge: db "NEXUS DOWN - VETERAN UNLOCKED",0
 str_vic_hd: db "MISSION COMPLETE",0
 str_vic1:   db "NEXUS IS DOWN.",0
 str_vic2:   db "THE SIX ZONES ARE OPEN",0
@@ -6640,11 +6666,12 @@ str_qaop:   db "USING QAOP  ",0
 str_cursor: db "USING CURSOR",0
 str_shipsel: db "M-SHIP",0
 str_diff:    db "3-SKILL:",0
-str_d0:      db "[CADET]",0
-str_d1:      db "[PILOT]",0
-str_d2:      db "[ACE]  ",0
+str_d0:      db "[CADET]  ",0    ; padded to 9 so cycling overwrites cleanly
+str_d1:      db "[PILOT]  ",0
+str_d2:      db "[ACE]    ",0
+str_d3:      db "[VETERAN]",0    ; unlocked once the mission is beaten
 str_opts1:   db "4-MUSIC 5-FLASH 6-SAFE",0
-diff_tab:    dw str_d0, str_d1, str_d2
+diff_tab:    dw str_d0, str_d1, str_d2, str_d3
 credits_msg: db "STELLAR DRIFT - A CAVE FLYER FOR THE HC-91 - DODGE, "
              db "SHOOT, COLLECT - BEAT THE ZONE BOSSES - GOOD LUCK PILOT     ",0
 

@@ -64,9 +64,11 @@ ZX7-class Z80 depacker realistically lands ~55–60 %.
 
 ## D. Then spend the headroom
 
-With §B's headroom (348 B free) the cheap deferred items already fit; the
-rest wait on more space:
-1. ☐ **NG+ / veteran restart** (reuses `difficulty` + a `veteran` flag).
+With §B/§A's headroom the deferred items now fit:
+1. ✅ **NG+ / veteran restart** — beating the mission unlocks a 4th skill tier
+   `[VETERAN]` (gated on `won_flag`) that spawns ~25 % faster and gives bosses
+   +25 % HP. The title badge advertises the unlock. CI covers both the gate
+   and the unlock.
 2. ✅ **Rank on GAME OVER** — factored the grader into `score_rank` (shared
    with the victory screen) and graded the failed run by score + a depth
    bonus (`world*2000`, saturating). Covered by CI on the terrain-crash run.
@@ -83,9 +85,9 @@ rest wait on more space:
    low-risk, no tooling). **Done: reclaimed 322 B; headroom 26 → 348 B free.**
 2. ✅ **"The big squeeze"** — sprite-data compression (§A). **Done: −1651 B;
    headroom now ~1.9 KB free.** Verified byte-identical in CI.
-3. ☐ **"Spend it"** — the deferred features (§D), cheapest/highest-impact
-   first. With 348 B free, the cheapest (rank on GAME OVER, level-up chirp)
-   already fit without §A.
+3. ◐ **"Spend it"** — the deferred features (§D). **Done: rank on GAME OVER,
+   level-up chirp, and NG+/Veteran restart.** Remaining: boss-defeat flash and
+   the persistent boss name.
 
 ## Risks & notes
 
