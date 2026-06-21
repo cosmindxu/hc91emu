@@ -1120,7 +1120,7 @@ vhmL:   push hl
         inc hl
         ld a,(hl)              ; flag
         ld (mvFlag),a
-        call maybeForceQueen   ; auto-queen promotions
+        call maybeForceQueen   ; promotion piece chooser
         scf
         ret
 vhmSkip:
@@ -1145,10 +1145,56 @@ maybeForceQueen:
         jr z,mfqYes            ; rank 0
         cp 0x70
         ret nz                 ; not last rank
-mfqYes: ld a,(mvFlag)
+mfqYes: call promptPromo        ; A = chosen piece type (2..5)
+        add a,a
+        add a,a
+        add a,a
+        add a,a                ; type << 4
+        ld b,a
+        ld a,(mvFlag)
         and 0x0F               ; keep special bits
-        or 0x50                ; promo = queen (5<<4)
+        or b
         ld (mvFlag),a
+        ret
+
+; promptPromo — ask the human for the promotion piece; A = 2(N)..5(Q)
+promptPromo:
+        ld hl,msgPromote
+        call setMsg
+        call drawStatus
+ppRel:  call ppScan
+        or a
+        jr nz,ppRel            ; wait release
+ppWait: call ppScan
+        or a
+        jr z,ppWait            ; wait a Q/R/B/N press
+        ret
+ppScan:
+        ld bc,0xFBFE           ; Q -> queen
+        in a,(c)
+        bit 0,a
+        jr nz,pps1
+        ld a,5
+        ret
+pps1:   ld bc,0xFBFE           ; R -> rook
+        in a,(c)
+        bit 3,a
+        jr nz,pps2
+        ld a,4
+        ret
+pps2:   ld bc,0x7FFE           ; B -> bishop
+        in a,(c)
+        bit 4,a
+        jr nz,pps3
+        ld a,3
+        ret
+pps3:   ld bc,0x7FFE           ; N -> knight
+        in a,(c)
+        bit 3,a
+        jr nz,pps4
+        ld a,2
+        ret
+pps4:   xor a
         ret
 
         include "movegen.inc"
@@ -1226,6 +1272,7 @@ msgMat:      defb "Draw - insufficient mtl SPC=new",0
 msgRep:      defb "Draw - repetition       SPC=new",0
 msgTwoP:     defb "Two-player mode toggled",0
 msgTaken:    defb "Take back done",0
+msgPromote:  defb "Promote: Q=Queen R B N",0
 msgLevel:    defb "Level",0
 msg2pL:      defb "2-player",0
 msgMoveL:    defb "Move",0
