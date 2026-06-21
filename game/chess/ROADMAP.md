@@ -165,12 +165,20 @@ verified.
    evals and visibly better play (gated by cost, since it re-counts
    moves).
 
-3. **Deeper opening book.** *What:* extend the current one-reply book to
+3. **Deeper opening book.** ✅ *What:* extend the current one-reply book to
    a handful of principal variations several plies deep, keyed by the
    position's Zobrist hash. *Value:* instant, theory-sound openings save
    search time and dodge early inaccuracies — the role lichess fills with
    its cloud opening database. *Verify:* pure data; play the lines and
-   check the booked replies appear.
+   check the booked replies appear. *Done:* the book is now keyed by the
+   position's 16-bit Zobrist hash (probed against the live `hashKey`), so a
+   single table follows transpositions and fires at any ply instead of only
+   Black's first move. `bookgen.py` mirrors the engine's PRNG + key scheme
+   on the host to generate the entry keys; the Ruy Lopez / Italian / Queen's
+   Gambit / QGD mainlines are booked several plies deep. Verified by playing
+   1.e4 (→ ...e5, "Open game") and 1.e4 e5 2.Nf3 (→ ...Nc6, "King's
+   Knight") — a deep hit that also confirms the host-computed keys match the
+   Z80's incrementally-maintained key bit-for-bit.
 
 4. **AY voices on the 128K family.** ✅ *What:* drive the AY-3-8912 (ports
    `0xFFFD`/`0xBFFD`) for distinct move / capture / check / mate cues and

@@ -1641,6 +1641,12 @@ nmClosed:    defb "Closed game",0
 nmReti:      defb "Reti",0
 nmEnglish:   defb "English",0
 nmBird:      defb "Bird",0
+nmKK:        defb "King's Knight",0
+nmRuy:       defb "Ruy Lopez",0
+nmItalian:   defb "Italian Game",0
+nmQG:        defb "Queen's Gambit",0
+nmQP:        defb "Queen's Pawn",0
+nmQGD:       defb "QGD",0
 msgCheck:    defb "Check!             ",0
 
         include "pieces.inc"
