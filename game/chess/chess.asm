@@ -181,6 +181,10 @@ colorScheme equ 0xE159   ; selected board colour scheme (0..NSCHEMES-1)
 whiteStyle equ 0xE15A    ; white-piece style: 0 = outline, 1 = white fill
 seeTo    equ 0xE15B      ; SEE capture-ordering: target square scratch
 seeBad   equ 0xE15C      ; SEE capture-ordering: 1 if capture loses material
+moveLogN equ 0xE15D      ; plies recorded in the full move history (cap 255)
+blackDepth equ 0xE15E    ; Black's search depth (odds / handicap play)
+effDepth equ 0xE15F      ; effective depth for the side currently moving
+moveLog  equ 0xE200      ; full game move history: 2 bytes/ply (from,to)
 saveBuf  equ 0xE160      ; game-save buffer: 64 board + side/cas/ep + extras
 SAVELEN  equ 71          ; 64 + side + castle + ep + halfmove + moveCount(2) + depth
 SA_BYTES equ 0x04C2      ; ROM tape save  (IX=addr, DE=len, A=flag)
@@ -203,8 +207,8 @@ zobCastle equ 0xDB40     ; 16 * 2
 zobEp     equ 0xDB60     ; 8 * 2
 zobSide   equ 0xDB70     ; 2
 historyTbl equ 0xDC00    ; 6 piece types * 64 squares (quiet-move history)
-TT_BASE   equ 0x6000     ; 1024 entries * 8 bytes = 8 KB
-TT_MASK   equ 0x03FF
+TT_BASE   equ 0xC000     ; 512 entries * 8 bytes = 4 KB (0xC000..0xCFFF)
+TT_MASK   equ 0x01FF
 gameKeys  equ 0x5B00     ; game position-key history (2 bytes/ply)
 gameUndo  equ 0x5D00     ; take-back stack: 48 plies * 16-byte undo records
 
@@ -213,8 +217,10 @@ DOUBLED  equ 12
 ISOLATED equ 14
 BISHOP_PAIR equ 30
 
-; per-ply move buffers: base + ply*512 (128 moves * 4 bytes)
-moveBufBase equ 0xB000   ; 0xB000..0xD000 = 16 plies
+; per-ply move buffers: base + ply*512 (128 moves * 4 bytes).  Placed at
+; 0x6000 (below the program) so the search never overwrites the program's
+; glyphs/strings, which now extend past 0xB000.
+moveBufBase equ 0x6000   ; 0x6000..0x7FFF = 16 plies
 undoBase    equ 0xD000   ; base + ply*16
 
 MV_REC  equ 4
@@ -274,6 +280,7 @@ afterMove:
         call moveSound
         call pushGameUndo      ; save undo[0] for take-back
         call recordGameKey
+        call recordMoveLog     ; full move history (from,to per ply)
         call updateTerminal
         call clkCommit         ; charge the finished turn; may flag-fall
         call drawScreenFull
@@ -337,6 +344,7 @@ ngFile: ld a,(hl)
         ld (selSq),a
         ld a,2
         ld (aiDepth),a
+        ld (blackDepth),a       ; symmetric by default (Black matches White)
         xor a
         ld (searchPly),a
         ld a,0x14
@@ -353,6 +361,7 @@ ngFile: ld a,(hl)
         xor a
         ld (gameKeyN),a
         ld (gameUndoN),a
+        ld (moveLogN),a
         call recordGameKey     ; record the initial position
         call ttClear
         call clearHistory
@@ -1274,9 +1283,10 @@ hmLoop: call clkWaitKey        ; like readKeyDebounced, but ticks the clock
         jp c,hmLoop
         cp '6'
         jp nc,hmLoop
-        ; set difficulty 1..5
+        ; set difficulty 1..5 (both sides; odds play sets blackDepth apart)
         sub '0'
         ld (aiDepth),a
+        ld (blackDepth),a
         ld hl,msgDiff
         call setMsg
         call drawStatus
@@ -1618,6 +1628,7 @@ resetGameState:
         ld (haveLast),a
         ld (gameKeyN),a
         ld (gameUndoN),a
+        ld (moveLogN),a
         ld (openingNamePtr),a
         ld (openingNamePtr+1),a
         ld a,0xFF
@@ -1981,6 +1992,29 @@ cbeShift:
         or a
         sbc hl,de                ; CF=1 (borrow) iff elapsed < budget
         ccf                      ; CF=1 iff elapsed >= budget -> exceeded
+        ret
+
+; recordMoveLog — append the move just made (mvFrom,mvTo) to the full game
+; history at moveLog (2 bytes/ply).  Unlike the 48-ply take-back stack this
+; keeps the whole game (cap 255 plies) for export / review.
+recordMoveLog:
+        ld a,(moveLogN)
+        inc a
+        ret z                    ; full (wrapped past 255)
+        dec a
+        ld l,a
+        ld h,0
+        add hl,hl                ; *2
+        ld de,moveLog
+        add hl,de
+        ld a,(mvFrom)
+        ld (hl),a
+        inc hl
+        ld a,(mvTo)
+        ld (hl),a
+        ld a,(moveLogN)
+        inc a
+        ld (moveLogN),a
         ret
 
 ; clkCommit — subtract this turn's elapsed time from the mover's clock,
