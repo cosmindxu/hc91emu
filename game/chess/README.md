@@ -11,6 +11,12 @@ bitboards, no fast multiply. The design and the staged plan to take it
 from "legal and playable" to "club-strength with analysis" are in
 [ROADMAP.md](ROADMAP.md).
 
+![ZX-CHESS gameplay — a full game to checkmate on the HC-91 emulator](gameplay.gif)
+
+*A complete game (Claude vs the engine at Level 2) played out on the HC-91
+emulator, ending in 32.Rg5#. See [CLAUDE_VS_ENGINE.md](CLAUDE_VS_ENGINE.md)
+and [SELFPLAY_EXPERIMENT.md](SELFPLAY_EXPERIMENT.md).*
+
 ![initial board](initial_golden.png)
 
 ## Status
