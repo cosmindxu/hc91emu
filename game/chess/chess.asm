@@ -182,6 +182,8 @@ whiteStyle equ 0xE15A    ; white-piece style: 0 = outline, 1 = white fill
 seeTo    equ 0xE15B      ; SEE capture-ordering: target square scratch
 seeBad   equ 0xE15C      ; SEE capture-ordering: 1 if capture loses material
 moveLogN equ 0xE15D      ; plies recorded in the full move history (cap 255)
+blackDepth equ 0xE15E    ; Black's search depth (odds / handicap play)
+effDepth equ 0xE15F      ; effective depth for the side currently moving
 moveLog  equ 0xE200      ; full game move history: 2 bytes/ply (from,to)
 saveBuf  equ 0xE160      ; game-save buffer: 64 board + side/cas/ep + extras
 SAVELEN  equ 71          ; 64 + side + castle + ep + halfmove + moveCount(2) + depth
@@ -342,6 +344,7 @@ ngFile: ld a,(hl)
         ld (selSq),a
         ld a,2
         ld (aiDepth),a
+        ld (blackDepth),a       ; symmetric by default (Black matches White)
         xor a
         ld (searchPly),a
         ld a,0x14
@@ -1280,9 +1283,10 @@ hmLoop: call clkWaitKey        ; like readKeyDebounced, but ticks the clock
         jp c,hmLoop
         cp '6'
         jp nc,hmLoop
-        ; set difficulty 1..5
+        ; set difficulty 1..5 (both sides; odds play sets blackDepth apart)
         sub '0'
         ld (aiDepth),a
+        ld (blackDepth),a
         ld hl,msgDiff
         call setMsg
         call drawStatus
