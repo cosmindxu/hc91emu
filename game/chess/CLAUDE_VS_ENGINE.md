@@ -9,7 +9,8 @@ Claude; every Black move was chosen by the ZX-CHESS search.
 
 * **Result:** **1-0** — White (Claude) checkmates Black with **32.Rg5#**.
 * **Setup:** Claude = White (the on-board "human"); ZX-CHESS = Black at
-  **Level 2** (2-ply search). Opening: Italian Game.
+  **Level 2 of 5** (2-ply search — the program's default, mid-low on its
+  1–5 difficulty scale; see *Engine strength* below). Opening: Italian Game.
 * **Verified:** the program's own terminal detection printed
   **"Checkmate! White wins"** (game-state byte = "black mated", the engine's
   self-evaluation `Eval -736` = a lost position).
@@ -109,3 +110,75 @@ To reproduce the *interface* exactly, see the addresses, snapshot offset
 formula and emulator commands in **SELFPLAY_EXPERIMENT.md** — the only change
 is that White's move comes from Claude's choice instead of from poking
 `humanSide = 0xFF`.
+
+## Engine strength — the level scale (so the result is in proportion)
+
+The difficulty keys accept only `1`–`5` (`chess.asm`: values below `'1'` or
+at/above `'6'` are ignored), and the digit is stored directly as the engine's
+**nominal search depth in plies**:
+
+| Level | Search depth | Notes |
+|-------|--------------|-------|
+| 1 | 1 ply | weakest; the "loser" side in the self-play sample |
+| **2** | **2 ply** | **default at new-game**; the setting used in *this* game |
+| 3 | 3 ply | |
+| 4 | 4 ply | the strong "White" side in the self-play sample (`SAMPLE_GAME.md`) |
+| **5** | **5 ply** | **maximum / strongest** |
+
+So this win was against the engine at **Level 2 of 5** — its *default*, and the
+lower-middle of the range, **not** its strongest setting. A few points to keep
+the result honest:
+
+* **It was not the top setting.** Level 5 searches ~3 plies deeper, a large
+  strength jump. Claude's verification calculator (below) ran at ~4-ply, so it
+  out-searched a Level-2 opponent but would **not** out-search Level 5.
+* **The nominal depth understates real strength.** On top of the listed ply
+  count the engine adds a **quiescence search** (it resolves captures) and
+  **clock-aware iterative deepening**, so even Level 2 is a sharp short-range
+  tactician — which is exactly why unaided hand-calculation kept losing
+  material to it.
+* **Bottom line:** a sound, decisive game against a modest-but-tactically-sharp
+  *default* setting (2/5) — not a victory over the engine's maximum strength.
+  At higher levels, and at Level 2 with hand-only calculation, the engine
+  repeatedly won material from imperfect human play.
+
+## The alpha-beta calculator (how step 3 verified moves)
+
+The "verify it with calculation" step used a small, purpose-built search
+(~120 lines of Python). It is deliberately a *material/tactics oracle*, not a
+strong engine — its only job was to stop Claude hanging pieces and to confirm
+forcing lines. Key parts:
+
+* **0x88 board, shared encoding.** A flat 128-square array indexed by
+  `rank*16 + file`; off-board squares are caught by a single `sq & 0x88` test.
+  Pieces use **the ZX engine's own byte codes** (type = low 3 bits, colour =
+  bit 3), so a position is read straight from the `.sna` snapshot with no
+  translation.
+* **Move generation + legality.** Pseudo-legal moves (pawn pushes/captures,
+  knight/king jumps via offset tables, sliding rays) are filtered by making
+  each move on a copied board and rejecting any that leave the own king in
+  check (`attacked()` brute-force scan).
+* **Evaluation = material + a tiny centralisation bonus**, from White's point
+  of view. There is **no king-safety or pawn-structure term** — this is why
+  the search reliably finds *material* tactics (e.g. the trapped a5-knight) but
+  cannot judge attacks on its own, so the plans stayed Claude's.
+* **Alpha-beta search** written as explicit *White-maximises / Black-minimises*
+  minimax with α/β pruning and capture-first move ordering. A side with no
+  legal move scores `±99999` (mate) or `0` (stalemate).
+* **Quiescence search — the essential fix.** A plain fixed-depth search gives
+  wild, unstable scores (a capture at the last ply has no recapture "in view").
+  At each leaf the search therefore runs a **capture-only extension** (stand-pat
+  + all captures) until the position is quiet, so exchanges resolve before
+  scoring. Adding this turned a swingy eval (`9, 0, 124, -100` across depths)
+  into a stable one.
+* **Two entry points.** `bestmove()` returns the top candidate moves; the
+  `vet_move()` call — *apply my chosen move, return the eval after Black's best
+  reply* — was the per-move **blunder check** (a real piece loss reads as
+  ~±300, far above the ±3 centralisation noise). The same call returning
+  `99999` is how the forced mate at move 32 was spotted.
+
+Limitations (kept honest): no en passant, promotion is always to a queen,
+castling rights are not tracked, no repetition/50-move draw detection, mate
+scores are not distance-adjusted, and the copy-based search is slow (depth 4
+≈ 1–2 s, depth 5 ≈ 44 s). It is a reliable calculator for shallow tactics
+against a 2-ply opponent — nothing more; the chess decisions were Claude's.
