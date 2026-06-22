@@ -1023,6 +1023,12 @@ negamax:
         call ttProbe
         or a
         jr z,ttpNoCut
+        ; usable bound -> cut.  But never cut at the root (searchPly 0): the
+        ; root must search a move so aiMove has something to play (else it
+        ; returns no move and the game records a phantom / false draw).
+        ld a,(searchPly)
+        or a
+        jr z,ttpNoCut
         ret                      ; usable bound -> HL = score
 ttpNoCut:
         ; stash this node's TT move per-ply (recursion clobbers ttFrom)
@@ -2093,12 +2099,22 @@ ckLp:   ld (hl),0xFF
 aiMove:
         call tryBook             ; CF=1 and move played if a book move applies
         ret c
+        ; per-side depth (odds play): Black uses blackDepth, White aiDepth.
+        ld a,(sideToMove)
+        cp 8
+        jr nz,amWDepth
+        ld a,(blackDepth)
+        jr amSetD
+amWDepth:
+        ld a,(aiDepth)
+amSetD:
+        ld (effDepth),a
         call clearKillers
         ld a,0xFF
         ld (bestFrom),a
         ld (pvFrom),a            ; no PV hint yet
         ld a,1
-        ld (aidIter),a           ; iterative deepening: depth 1..aiDepth
+        ld (aidIter),a           ; iterative deepening: depth 1..effDepth
 aidLoop:
         xor a
         ld (searchPly),a
@@ -2165,9 +2181,9 @@ aspOk:
         ld a,(bestTo)
         ld (pvTo),a
         ld a,(aidIter)
-        ld hl,aiDepth
+        ld hl,effDepth
         cp (hl)
-        jr nc,aidDone            ; aidIter >= aiDepth -> stop (depth cap)
+        jr nc,aidDone            ; aidIter >= effDepth -> stop (depth cap)
         ; clock-aware stop: once we've already spent the move's time budget,
         ; don't start another (deeper, much slower) iteration.  Always allow
         ; at least depth 2 so play stays sensible when very low on time.
