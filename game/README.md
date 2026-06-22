@@ -12,6 +12,12 @@ The rogue AI **NEXUS** has sealed the six nebula zones; you fly the scout
 A mission briefing opens the game, each zone carries a story card and each
 boss a taunt, and clearing the final zone plays a victory ending.
 
+![STELLAR DRIFT gameplay](docs/stellar_drift.gif)
+
+*Title → the Orion Drift zone card → live gameplay → a bonus stage → the
+Sentinel boss → the victory screen — captured from the game running in this
+repo's emulator.*
+
 ![title](docs/title.png)
 ![gameplay](docs/play.png)
 
