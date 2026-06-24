@@ -9,9 +9,13 @@ dist/
 __pycache__/
 
 # ZX-CHESS build artifacts (source + generated pieces.inc are committed)
-game/chess/chess.bin
-game/chess/chess.tap
-game/chess/chess.sym
+chess/chess.bin
+chess/chess.tap
+chess/chess.sym
+
+# Local-only work-in-progress copy of the STELLAR DRIFT game (kept off GitHub
+# while its flicker/tearing bugs are debugged; the source lives in git history)
+game-wip/
 
 # LaTeX build auxiliaries (docs/ARCHITECTURE.pdf is committed)
 docs/ARCHITECTURE.aux

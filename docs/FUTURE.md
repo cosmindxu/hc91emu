@@ -129,7 +129,7 @@ until a Mac / macOS CI is available.
   a flag (e.g. `--serial -` for stdio, `--serial :6553` for a socket).
   *Value:* it lets period RS-232 software run, and — concretely —
   **unblocks a serial UCI bridge for the bundled ZX-CHESS engine** (its
-  lone "Phase B" item in [`game/chess/ROADMAP.md`](../game/chess/ROADMAP.md)):
+  lone "Phase B" item in [`chess/ROADMAP.md`](../chess/ROADMAP.md)):
   with a serial channel the 8-bit engine could be driven by desktop GUIs
   (Arena, Cute Chess) or a lichess-bot adapter and measured against other
   engines. *Effort:* moderate — the serial framing is simple, and a

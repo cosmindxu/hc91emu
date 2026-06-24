@@ -143,7 +143,7 @@ README carries the full index.
 
 ## ZX-CHESS — bundled chess engine + game
 
-[`game/chess/`](game/chess/) is a chess engine and game written from
+[`chess/`](chess/) is a chess engine and game written from
 scratch in Z80 assembly for this machine. Chess programs are as old as
 home computing, so the interesting part is not the genre but the build:
 modern open-source engines (Stockfish/Leela, lichess) are mined for their
@@ -160,10 +160,10 @@ engine answers 1.e4, and runs a **perft** self-test (start position to
 depth 4 plus Kiwipete/en-passant/promotion, 197281 nodes and friends)
 that also checks the Zobrist key against a from-scratch recompute; and it
 ships with two-player mode, take-back, and an on-board analysis readout.
-It assembles with `pasmo` into a bootable tape (`cd game/chess && make`)
+It assembles with `pasmo` into a bootable tape (`cd chess && make`)
 and runs on every supported machine. The phase-by-phase status
 (Foundation → Stabilization → Improvement → Optimization → Excellence)
-is in [`game/chess/ROADMAP.md`](game/chess/ROADMAP.md).
+is in [`chess/ROADMAP.md`](chess/ROADMAP.md).
 
 ## ROMs
 

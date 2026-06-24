@@ -2,7 +2,7 @@
 
 A chess engine and game for the **I.C.E. Felix HC-91 / ZX Spectrum**,
 written in Z80 assembly and assembled into a bootable cassette tape that
-runs on the [hc91emu](../../README.md) emulator (and on real hardware).
+runs on the [hc91emu](../README.md) emulator (and on real hardware).
 
 It is built by analysing how the best open-source engines work
 (Stockfish, Leela/lc0, and the engines lichess runs) and re-deriving the
@@ -60,7 +60,7 @@ emulator and the 48K ROM.
 make                      # builds build/hc91emu
 tools/get_roms.sh         # fetches roms/48.rom (and the HC family)
 
-cd game/chess
+cd chess
 make            # assemble chess.bin and wrap chess.tap
 make test       # headless smoke test (golden board + engine reply)
 make play       # interactive SDL window (needs SDL2)
@@ -69,7 +69,7 @@ make play       # interactive SDL window (needs SDL2)
 To run it by hand on the emulator:
 
 ```sh
-build/hc91emu --machine 48k --rom roms/48.rom game/chess/chess.tap \
+build/hc91emu --machine 48k --rom roms/48.rom chess/chess.tap \
               --autoload --sdl --scale 3
 ```
 
@@ -226,4 +226,4 @@ paging the ROM out.
 | `initial_golden.png` | golden screenshot for the smoke test |
 
 The generic assemble-to-bootable-tape tool is
-[`tools/zxtap.py`](../../tools/zxtap.py).
+[`tools/zxtap.py`](../tools/zxtap.py).

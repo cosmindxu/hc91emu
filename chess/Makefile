@@ -5,13 +5,13 @@
 #   make play       launch in the interactive SDL window (needs SDL2)
 #
 # Requires: pasmo (apt-get install pasmo) and python3.  The smoke test
-# additionally needs a built ../../build/hc91emu and roms/48.rom
+# additionally needs a built ../build/hc91emu and roms/48.rom
 # (tools/get_roms.sh).
 
 PASMO  ?= pasmo
 PY     ?= python3
-EMU    ?= ../../build/hc91emu
-ROM    ?= ../../roms/48.rom
+EMU    ?= ../build/hc91emu
+ROM    ?= ../roms/48.rom
 ORG    ?= 0x8000
 
 SRC = chess.asm movegen.inc engine.inc pieces.inc
@@ -24,8 +24,8 @@ pieces.inc: pieces.py
 chess.bin: $(SRC)
 	$(PASMO) --bin chess.asm chess.bin
 
-chess.tap: chess.bin ../../tools/zxtap.py
-	$(PY) ../../tools/zxtap.py chess.bin chess.tap --org $(ORG) --name CHESS
+chess.tap: chess.bin ../tools/zxtap.py
+	$(PY) ../tools/zxtap.py chess.bin chess.tap --org $(ORG) --name CHESS
 
 test: chess.tap
 	@$(EMU) --machine 48k --rom $(ROM) chess.tap --autoload --turbo \
