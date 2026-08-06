@@ -209,7 +209,19 @@ zobSide   equ 0xDB70     ; 2
 historyTbl equ 0xDC00    ; 6 piece types * 64 squares (quiet-move history)
 TT_BASE   equ 0xC000     ; 512 entries * 8 bytes = 4 KB (0xC000..0xCFFF)
 TT_MASK   equ 0x01FF
-gameKeys  equ 0x5B00     ; game position-key history (2 bytes/ply)
+; gameKeys — game position-key history for repetition detection, 2 bytes/ply,
+; GKMAX plies = GKBYTES bytes.  It lives in the 640-byte hole between the end
+; of historyTbl (0xDC00 + 6*64 = 0xDD80) and board (0xE000): nothing else can
+; reach it — the per-ply arrays at 0xD000-0xD53F are bounded by MAXPLY, zobInit
+; fills only 0xD540..0xDB71, and historyTbl is a fixed 384 bytes.  Constraint:
+; gameKeys+GKBYTES must stay <= 0xE000 (board), and the buffer must NOT go back
+; below 0x5D00 — 500 bytes from the old 0x5B00 ran to 0x5CF3, so from ply 128 on
+; every key landed in the 48K system variables (0x5C00-0x5CB5), and around ply
+; 188 on FRAMES (0x5C78) itself, which this program keeps live (im 1 / ei) and
+; reads for the chess clock.
+GKMAX     equ 250        ; plies recorded at most (recordGameKey stops there)
+GKBYTES   equ GKMAX*2    ; 500 bytes: 0xDD80..0xDF73, 140 bytes clear of board
+gameKeys  equ 0xDD80
 gameUndo  equ 0x5D00     ; take-back stack: 48 plies * 16-byte undo records
 
 PHASE_EG equ 8           ; below this non-pawn phase, use endgame king PST
