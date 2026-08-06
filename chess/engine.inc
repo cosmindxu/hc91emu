@@ -1008,16 +1008,117 @@ hnbR:
         ret
 
 ; =====================================================================
+;  drawCheck -> A = 1 if this node is a draw the search must score as one.
+;  Clobbers A/BC/DE/HL, preserves nothing else the caller needs.
+;
+;  Never fires at the root: aiMove has to come back with a move, so ply 0
+;  is left to the game loop to adjudicate (same reason the TT cut is
+;  suppressed there).
+;
+;  Repetition is looked for along the current search path only, not in the
+;  game history, so it costs a handful of 16-bit compares instead of a scan
+;  of the whole game.  Two bounds keep it that short:
+;    - only positions with the same side to move can repeat, so only even
+;      distances are candidates, and 2 is impossible (both sides have moved
+;      once), leaving 4, 6, 8...
+;    - nothing before the last irreversible move can repeat, so halfmove is
+;      an upper bound on how far back it is worth looking.  That bound also
+;      makes the halfmove arithmetic along a candidate line automatic, so no
+;      per-ply clock has to be stored.
+;
+;  Skipping distances 1 and 2 is load-bearing for another reason: the
+;  null-move block does not update hashKey, so a null child's path entry
+;  aliases its parent's.  Consecutive nulls would alias further, but each
+;  null costs 3 depth, so reaching distance 4 that way needs depth >= 12 --
+;  far past the depth 1..5 the UI offers.
+; =====================================================================
+drawCheck:
+        ld a,(searchPly)
+        or a
+        jr z,dcNo                ; root: the game loop owns adjudication
+        ld c,a                   ; C = ply
+        ld a,(halfmove)
+        cp 100
+        jr nc,dcYes              ; fifty-move rule reached
+        cp c
+        jr c,dcLim               ; look back min(ply, halfmove) plies
+        ld a,c
+dcLim:
+        cp 4
+        jr c,dcNo                ; too few reversible plies to hold a cycle
+        srl a
+        dec a
+        ld b,a                   ; B = number of even distances 4..limit
+        ld a,c
+        add a,a                  ; ply*2
+        ld l,a
+        ld h,0
+        ld de,pathKeys
+        add hl,de
+        ld de,-8
+        add hl,de                ; HL -> pathKeys[ply-4]
+        ld de,(hashKey)
+dcLoop:
+        ld a,(hl)
+        cp e
+        jr nz,dcNext
+        inc hl
+        ld a,(hl)
+        dec hl
+        cp d
+        jr z,dcYes
+dcNext:
+        ld a,l
+        sub 4                    ; two plies further back
+        ld l,a
+        jr nc,dcNoB
+        dec h
+dcNoB:
+        djnz dcLoop
+dcNo:
+        xor a
+        ret
+dcYes:
+        ld a,1
+        ret
+
+; =====================================================================
 ;  negamax(A=depth) -> HL=score.  Alpha-beta over a searchPly-indexed
 ;  frame; the caller presets alphaArr[ply]/betaArr[ply].  Depth 0 falls
 ;  into the quiescence search.
 ; =====================================================================
 negamax:
+        push af
+        call drawCheck           ; before the depth-0 exit: a draw is a draw
+        or a                     ; even with no depth left to search
+        jr z,nmNoDraw
+        pop af
+        ld hl,0                  ; draw score (no contempt)
+        ret
+nmNoDraw:
+        pop af
         or a
         jp z,quiesce
         ld b,a
         call ptrDepth
         ld (hl),b
+        ; remember this node on the search path so deeper nodes can spot a
+        ; repetition (see drawCheck).  Only interior nodes get here, which is
+        ; enough: quiescence searches captures and promotions only, and both
+        ; reset the fifty-move clock, so no line inside it can repeat.
+        ld a,(searchPly)
+        cp MAXPLY+1
+        jr nc,nmNoPath
+        add a,a
+        ld l,a
+        ld h,0
+        ld de,pathKeys
+        add hl,de
+        ld de,(hashKey)
+        ld (hl),e
+        inc hl
+        ld (hl),d
+nmNoPath:
         ; --- transposition table probe ---
         ld a,b
         call ttProbe
@@ -2118,6 +2219,12 @@ amSetD:
 aidLoop:
         xor a
         ld (searchPly),a
+        ; Every iteration has to leave a root move behind.  A windowed root
+        ; search can return through reverse-futility or null-move pruning,
+        ; and neither of those stores one; clearing bestFrom here makes that
+        ; visible so the full-window re-search below repairs it.
+        ld a,0xFF
+        ld (bestFrom),a
         ; aspiration window: full for depth 1, else [prev-W, prev+W]
         ld a,(aidIter)
         cp 2
@@ -2127,11 +2234,13 @@ aidLoop:
         push hl
         or a
         sbc hl,de
+        ld (aspLo),hl
         ex de,hl
         call setAlphaDE          ; alpha = lastScore - W
         pop hl
         ld de,ASPW
         add hl,de
+        ld (aspHi),hl
         ex de,hl
         call setBetaDE           ; beta  = lastScore + W
         jr aspGo
@@ -2144,28 +2253,25 @@ aspGo:
         ld a,(aidIter)
         call negamax
         ld (lastScore),hl
-        ; if the result fell outside the window, re-search with a full one
+        ; Re-search with a full window when this result is unusable: no root
+        ; move stored, or the score landed outside the window.  The bounds
+        ; must be read back from aspLo/aspHi and not from alphaArr[0] --
+        ; negamax raises that to the score it returns, so testing the live
+        ; alpha always reads as a miss and re-searches every iteration.
+        ld a,(bestFrom)
+        cp 0xFF
+        jr z,aspWiden
         ld a,(aidIter)
         cp 2
         jr c,aspOk
-        call ptrAlpha
-        ld c,(hl)
-        inc hl
-        ld b,(hl)
         ld de,(lastScore)
-        call cmpDEgtBC           ; score > alpha ?
+        ld bc,(aspLo)
+        call cmpDEgtBC           ; score > windowLo ?
         jr nc,aspWiden           ; fail low
-        call ptrBeta
-        ld c,(hl)
-        inc hl
-        ld b,(hl)
-        ld de,(lastScore)
-        push bc
-        push de
-        pop bc                   ; BC = score
-        pop de                   ; DE = beta
-        call cmpDEgtBC           ; beta > score ?
-        jr c,aspOk               ; inside window
+        ld de,(aspHi)
+        ld bc,(lastScore)
+        call cmpDEgtBC           ; windowHi > score ?
+        jr c,aspOk               ; inside the window
 aspWiden:
         ld de,-INF
         call setAlphaDE
@@ -2487,3 +2593,17 @@ pstKingEG:
         defb -30,-10, 20, 30, 30, 20,-10,-30
         defb -30,-30,  0,  0,  0,  0,-30,-30
         defb -50,-30,-30,-30,-30,-30,-30,-50
+
+; =====================================================================
+;  search scratch.  These live in the program image (the tape loads to
+;  RAM at 0x8000) rather than in chess.asm's 0xE0xx workspace, which is
+;  full and is shared with the rest of the program.
+; =====================================================================
+; the aspiration window as it was BEFORE negamax ran; the live alphaArr[0]
+; is not usable for the test because the root search raises it.
+aspLo:  defw 0
+aspHi:  defw 0
+; position key at each ply of the current search path, for repetition
+; detection.  MAXPLY+1 entries, matching the other per-ply search arrays.
+pathKeys:
+        defs (MAXPLY+1)*2, 0
