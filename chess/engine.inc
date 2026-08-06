@@ -1092,11 +1092,15 @@ noRevFut:
         jp c,noNull
         ld a,(epSquare)
         ld (nullEp),a
+        call keyXorEp            ; key: drop the old ep file (A = old ep)
         ld a,0xFF
         ld (epSquare),a
         ld a,(sideToMove)
         xor 8
         ld (sideToMove),a
+        call keyXorSide          ; key must follow the side-to-move flip,
+                                 ; else the child's TT probes/stores alias
+                                 ; the other side's positions
         call ptrBeta
         ld c,(hl)
         inc hl
@@ -1137,8 +1141,10 @@ noRevFut:
         ld a,(sideToMove)
         xor 8
         ld (sideToMove),a
+        call keyXorSide          ; undo the null move's key flip
         ld a,(nullEp)
         ld (epSquare),a
+        call keyXorEp            ; restore the ep file (A = restored ep)
         ld de,(nmScore)
         call ptrBeta
         ld c,(hl)
@@ -1432,13 +1438,50 @@ ttfStore:
 ; =====================================================================
 ;  quiesce -> HL=score.  Stand-pat + capture/promotion search to settle
 ;  the position before evaluating (kills the horizon effect).
+;
+;  In check there is nothing to stand pat on: most evasions are quiet
+;  (block / king move), so a capture-only search would evaluate a
+;  position statically while the king is attacked and walk into mate at
+;  the horizon.  So a checked node searches ALL legal evasions instead.
+;
+;  That extension is bounded two ways, because check extensions in
+;  quiescence are a classic search explosion on a 3.5 MHz Z80:
+;    1. it only applies while searchPly < QCHKPLY, so a mutual-checking
+;       (perpetual-check) sequence can nest at most QCHKPLY plies before
+;       quiescence reverts to plain stand-pat;
+;    2. searchPly is still capped by MAXPLY above, which terminates the
+;       recursion unconditionally.
+;  QCHKPLY=6 is the smallest bound that still covers the horizon of every
+;  depth the UI offers (1..5), since a depth-D search first reaches
+;  quiescence at ply<=D.  Measured cost of going further is a cliff: at
+;  depth 5 on kiwipete, 6 costs 1.25x the unextended search but 7 costs
+;  1.96x and 8 costs 2.05x, for tactics progressively less likely to
+;  matter.  Ordinary positions pay far less (start position 1.04x).
+;  legalArr[ply] doubles as the node's mode flag: 0xFF = ordinary
+;  stand-pat node, otherwise = number of legal evasions searched so far
+;  (0 at the end of an evasion node means checkmate at this ply).
 ; =====================================================================
+QCHKPLY equ 6                    ; last searchPly that searches evasions
+
 quiesce:
         ld a,(searchPly)
         cp MAXPLY
         jp nc,eval               ; too deep -> static eval
         call ptrTtMvFrom         ; no TT move in quiescence
         ld (hl),0xFF
+        call ptrLegal
+        ld (hl),0xFF             ; assume an ordinary stand-pat node
+        ld a,(searchPly)
+        cp QCHKPLY
+        jr nc,qPat               ; extension budget spent -> stand pat
+        ld a,(sideToMove)
+        call inCheckSide
+        or a
+        jr z,qPat                ; not in check -> stand pat
+        call ptrLegal
+        ld (hl),0                ; evasion node: no legal move seen yet
+        jp qGen                  ; no stand-pat while in check
+qPat:
         call eval
         ld (qStand),hl
         ; if stand >= beta -> return beta
@@ -1515,7 +1558,11 @@ qLoop:
         ld (hl),e
         inc hl
         ld (hl),d
-        ; only captures / promotions
+        ; only captures / promotions (an evasion node searches everything)
+        call ptrLegal
+        ld a,(hl)
+        inc a
+        jr nz,qIsCap             ; not 0xFF -> evasion node, no filter
         ld a,(mvTo)
         ld l,a
         ld h,0xE0
@@ -1537,6 +1584,12 @@ qIsCap:
         call unmakeMove
         jp qLoop
 qLegal:
+        call ptrLegal
+        ld a,(hl)
+        inc a
+        jr z,qLegalGo            ; ordinary node -> keep the 0xFF marker
+        inc (hl)                 ; evasion node -> count this legal evasion
+qLegalGo:
         call ptrBeta
         ld c,(hl)
         inc hl
@@ -1609,6 +1662,24 @@ qNoCut:
         ld (hl),d
         jp qLoop
 qRetA:
+        call ptrLegal
+        ld a,(hl)
+        inc a
+        jr z,qRetAlpha           ; ordinary node -> alpha
+        dec a
+        jr nz,qRetAlpha          ; evasion node, evasions existed -> alpha
+        ld a,(searchPly)         ; in check with no legal move -> mated here
+        ld e,a
+        ld d,0
+        ld hl,MATE
+        or a
+        sbc hl,de                ; MATE - ply
+        ex de,hl
+        ld hl,0
+        or a
+        sbc hl,de                ; -(MATE - ply)
+        ret
+qRetAlpha:
         call ptrAlpha
         ld e,(hl)
         inc hl
