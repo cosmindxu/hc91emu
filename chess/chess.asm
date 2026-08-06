@@ -1397,6 +1397,8 @@ hmLoad:
         call LD_BYTES
         ei
         jr nc,hmLoadErr
+        call chkSave           ; a tape is untrusted input: vet it before
+        jr nc,hmLoadErr        ; anything is installed over the live game
         ld hl,saveBuf
         call setupBoard        ; board + side/castling/ep, finalize position
         call resetGameState    ; fresh history / TT / clocks
@@ -1461,6 +1463,204 @@ psF:    ld a,(hl)
         ld a,(aiDepth)
         ld (de),a
         ret
+
+; chkSave — vet the 71-byte block just read off tape, before any of it is
+; installed.  A save block is untrusted input (anyone can write a tape), and
+; the engine's routines trust the position they are handed: they assume legal
+; piece codes, one king a side, no pawn on the far rank, castling rights whose
+; king and rook are really standing there, and an ep square with the pawn it
+; claims.  Break any of those and the engine writes outside its arrays.
+;   CF=1  accepted (ancillary scalars clamped in place in saveBuf)
+;   CF=0  illegal -> caller reports a load error; because nothing has been
+;         written yet, the game already in progress survives untouched.
+; Structural fields (board, side, castling, ep) are REJECTED when illegal: no
+; legitimate save can hold them, and quietly "repairing" a position would hand
+; the player back a game that is not the one they saved.  Ancillary scalars
+; (halfmove, difficulty) are CLAMPED instead: they cannot make the position
+; illegal, so discarding the whole game over one bad byte is the worse trade.
+MAXDIFF equ 5                  ; difficulty range the menu itself allows
+
+chkSave:
+        ; --- board: legal piece codes, exactly one king a side ---------
+        ld hl,saveBuf
+        ld b,64
+        ld c,0                 ; white kings seen
+        ld d,0                 ; black kings seen
+csBd:   ld a,(hl)
+        or a
+        jr z,csBdN             ; empty square
+        ld e,a
+        and 0xF7               ; piece type, colour bit stripped off
+        jp z,csNo              ; 0x08: colour bit with no type
+        cp 7
+        jp nc,csNo             ; type 7, or any code >= 0x10
+        cp WK
+        jr nz,csBdN
+        ld a,e
+        and COLBIT
+        jr nz,csBdB
+        inc c
+        jr csBdN
+csBdB:  inc d
+csBdN:  inc hl
+        djnz csBd
+        dec c
+        jp nz,csNo             ; not exactly one white king
+        dec d
+        jp nz,csNo             ; not exactly one black king
+        ; --- no pawn on rank 1 or rank 8.  gmPawn's single push is the
+        ;     one generator with no 0x88 guard: it trusts that pawns are
+        ;     always promoted off the far rank, so a pawn left there
+        ;     generates a move to 0x80.. and makeMove stores it straight
+        ;     into the workspace at 0xE080 (sideToMove, castling, kings).
+        ld hl,saveBuf
+        ld b,8
+        call csNoPawn
+        ld hl,saveBuf+56
+        ld b,8
+        call csNoPawn
+        ; --- side to move: 0 (white) or 8 (black), nothing else --------
+        ld a,(saveBuf+64)
+        and 0xF7
+        jp nz,csNo
+        ; --- castling rights: no spare bits, and every right still
+        ;     backed by its king and its rook on their home squares.
+        ;     makeMove clears a right whenever a move touches e1/a1/h1/
+        ;     e8/a8/h8, so a genuine save can never disagree; a crafted
+        ;     one lets genCastling fire and makeMove conjure a rook onto
+        ;     f1 over whatever was really standing on h1.
+        ld a,(saveBuf+65)
+        and 0xF0
+        jp nz,csNo
+        ld a,(saveBuf+65)
+        ld c,a
+        and 0x03
+        jr z,csCwk
+        ld a,(saveBuf+4)       ; e1
+        cp WK
+        jp nz,csNo
+csCwk:  bit 0,c
+        jr z,csCwq
+        ld a,(saveBuf+7)       ; h1
+        cp WR
+        jp nz,csNo
+csCwq:  bit 1,c
+        jr z,csCb
+        ld a,(saveBuf+0)       ; a1
+        cp WR
+        jp nz,csNo
+csCb:   ld a,c
+        and 0x0C
+        jr z,csCbk
+        ld a,(saveBuf+60)      ; e8
+        cp BK
+        jp nz,csNo
+csCbk:  bit 2,c
+        jr z,csCbq
+        ld a,(saveBuf+63)      ; h8
+        cp BR
+        jp nz,csNo
+csCbq:  bit 3,c
+        jr z,csEp
+        ld a,(saveBuf+56)      ; a8
+        cp BR
+        jp nz,csNo
+        ; --- en passant: 0xFF, or a real ep square for the side to move
+        ;     — right rank, the double-pushed pawn actually present, the
+        ;     target square empty.  makeMove's SP_EP clears board[to-/+16]
+        ;     without looking at what is there, so a bogus ep square is a
+        ;     licence to delete an arbitrary piece (a king included).
+csEp:   ld a,(saveBuf+66)
+        cp 0xFF
+        jr z,csScal            ; none
+        ld c,a
+        and 0x88
+        jp nz,csNo             ; not a board square at all
+        ld a,c
+        and 0x07
+        ld e,a                 ; file 0..7
+        ld a,c
+        and 0x70
+        ld c,a                 ; rank << 4
+        ld a,(saveBuf+64)
+        or a
+        jr nz,csEpB
+        ld a,c                 ; white to move: ep on rank 6, BP below it
+        cp 0x50
+        jp nz,csNo
+        ld a,32
+        ld d,BP
+        jr csEpP
+csEpB:  ld a,c                 ; black to move: ep on rank 3, WP above it
+        cp 0x20
+        jp nz,csNo
+        ld a,24
+        ld d,WP
+csEpP:  add a,e                ; -> the pawn's index in the 64-byte board
+        ld l,a
+        ld h,0
+        ld bc,saveBuf
+        add hl,bc
+        ld a,(hl)
+        cp d
+        jp nz,csNo             ; the double-pushed pawn is not there
+        ld a,(saveBuf+64)
+        or a
+        ld bc,8
+        jr nz,csEpD
+        add hl,bc              ; white to move: ep square is a rank above
+        jr csEpM
+csEpD:  or a
+        sbc hl,bc              ; black to move: a rank below
+csEpM:  ld a,(hl)
+        or a
+        jp nz,csNo             ; the ep square itself must be empty
+        ; --- ancillary scalars: clamp, do not reject -------------------
+csScal:
+        ; Fifty-move clock.  A live position can only stand at 0..99, and
+        ; this field is restored *after* resetGameState has declared the
+        ; game live, so an out-of-range value would carry a game past a
+        ; draw it should already have called.
+        ld a,(saveBuf+67)
+        cp 100
+        jr c,csDep
+        ld a,99
+        ld (saveBuf+67),a
+csDep:
+        ; Search depth.  aiDepth bounds searchPly, which indexes every
+        ; per-ply array; the move buffer is moveBufBase + ply*512 across
+        ; 0x6000..0x7FFF, i.e. plies 0..MAXPLY, so ply 16 would put the
+        ; move list at 0x8000 — on top of the program itself.  The
+        ; difficulty menu's own range is 1..MAXDIFF, well inside that, so
+        ; clamp an untrusted depth to what the menu could have set.
+        ld a,(saveBuf+70)
+        or a
+        jr z,csDep1
+        cp MAXDIFF+1
+        jr c,csOk
+        ld a,MAXDIFF
+        ld (saveBuf+70),a
+        jr csOk
+csDep1: ld a,1
+        ld (saveBuf+70),a
+csOk:   scf
+        ret
+csNo:   or a                   ; CF=0: reject the block
+        ret
+
+; csNoPawn — HL = 8 board bytes, B = 8; drops chkSave's return address and
+; rejects the block if any of them is a pawn of either colour.
+csNoPawn:
+        ld a,(hl)
+        and 0x07
+        cp WP
+        jr z,csNpBad
+        inc hl
+        djnz csNoPawn
+        ret
+csNpBad:
+        pop af                 ; discard the csNoPawn return address
+        jr csNo
 
 hmSetup:
         call setupEditor       ; never returns (jp mainLoop inside)
