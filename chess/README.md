@@ -62,9 +62,24 @@ tools/get_roms.sh         # fetches roms/48.rom (and the HC family)
 
 cd chess
 make            # assemble chess.bin and wrap chess.tap
-make test       # headless smoke test (golden board + engine reply)
+make test       # headless suite: board, perft, search, eval, tape, 128K TT
+make test-oracle  # differential movegen check vs python-chess (needs it)
 make play       # interactive SDL window (needs SDL2)
 ```
+
+`make test` (~25 s) checks, in order: the initial board against a golden
+screenshot; the in-ROM perft self-test, whose printed node counts are then
+compared against externally derived values rather than against the engine's
+own expected table; seven engine-behaviour assertions from
+[`enginetest.py`](enginetest.py) — a unique mate in 1, a forced win of a
+queen by a knight fork, a declined poisoned pawn, material balance in both
+directions, and an out-of-book search, all in positions the opening book does
+not cover, with every played move checked against a python-chess-derived
+legal-move list; the tape save/load round-trip; and the 128K banked
+transposition table. The header of `enginetest.py` explains how a fixture
+position is loaded (through the existing tape save/load path, no engine hook)
+and why the old "grep for `Your move`" check could not detect a broken
+engine.
 
 To run it by hand on the emulator:
 
@@ -222,8 +237,10 @@ paging the ROM out.
 | `pieces.py` → `pieces.inc` | 16×16 piece glyph generator and its output |
 | `bookgen.py` | host-side generator for the position-keyed opening book |
 | `tt_check.py` | snapshot checker for the 128K banked-TT test |
-| `Makefile` | build the tape, run the smoke + perft + save/load + 128K-TT tests, launch interactively |
-| `initial_golden.png` | golden screenshot for the smoke test |
+| `enginetest.py` | search/evaluation behaviour tests: loads fixture positions through the tape-load path and asserts the move actually played |
+| `movegen_diff.py` | differential move generation against python-chess as an external oracle (`make test-oracle`) |
+| `Makefile` | build the tape, run the board + perft + engine + save/load + 128K-TT tests, launch interactively |
+| `initial_golden.png` | golden screenshot for the initial-board check |
 
 The generic assemble-to-bootable-tape tool is
 [`tools/zxtap.py`](../tools/zxtap.py).

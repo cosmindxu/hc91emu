@@ -12,6 +12,7 @@ __pycache__/
 chess/chess.bin
 chess/chess.tap
 chess/chess.sym
+chess/.testtmp/
 
 # Local-only work-in-progress copy of the STELLAR DRIFT game (kept off GitHub
 # while its flicker/tearing bugs are debugged; the source lives in git history)
