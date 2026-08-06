@@ -38,7 +38,9 @@ It is a full, rules-correct game against a genuinely searching engine:
   **KQK/KRK mating drive**, material + piece-square tables
 - **perft self-test** (press `T`) proving the move generator against the
   canonical counts — start position to depth 4 plus Kiwipete, an
-  en-passant and a promotion position — and verifying the Zobrist key
+  en-passant, a promotion and the 218-move position (the most any legal
+  position can have) — and verifying the Zobrist key and that no move
+  list hit its per-ply buffer bound
 - **two-player** mode, **take-back/undo**, a promotion chooser, a
   cursor-driven **set-up board editor**, beeper move sound, an **analysis
   readout** (opening name, the engine's last move, its evaluation and the

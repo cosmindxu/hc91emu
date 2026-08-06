@@ -232,7 +232,20 @@ BISHOP_PAIR equ 30
 ; per-ply move buffers: base + ply*512 (128 moves * 4 bytes).  Placed at
 ; 0x6000 (below the program) so the search never overwrites the program's
 ; glyphs/strings, which now extend past 0xB000.
-moveBufBase equ 0x6000   ; 0x6000..0x7FFF = 16 plies
+moveBufBase equ 0x6000   ; 0x6000..0x7FFF = 16 plies (ply 0 uses rootMoveBuf
+                         ; instead, so its slot here is left unused)
+MAXMOVES    equ 128      ; moves a 512-byte ply window holds; addMove refuses
+                         ; to write past it instead of running into ply+1
+; Ply 0 is the game-visible ply — the human's legal-move list
+; (validateHumanMove), the mate/stalemate verdict (updateTerminal) and the
+; root of the search all generate at ply 0 — so its list must never be
+; truncated for a position a player can reach.  A legal position can have up
+; to 218 moves and the set-up editor makes such positions reachable, which
+; does not fit a 512-byte window; ply 0 therefore gets its own 1020-byte
+; buffer in the free RAM above moveLog (the stack, at 0xFFF0, is the only
+; other user of this area).  255 moves is the most a byte genCount can hold.
+rootMoveBuf equ 0xE400   ; 0xE400..0xE7FB = 255 moves * 4 bytes
+ROOTMOVES   equ 255
 undoBase    equ 0xD000   ; base + ply*16
 
 MV_REC  equ 4
@@ -2422,6 +2435,9 @@ msgKiwi:     defb "kiwipete d3",0
 msgEpT:      defb "enpassant d4",0
 msgPromo:    defb "promotion d3",0
 msgZob:      defb "incr key/phase/pst",0
+msgMax1:     defb "218-move d1",0
+msgMax2:     defb "218-move d2",0
+msgCap:      defb "move-list capacity",0
 msgWmate:    defb "Checkmate! Black wins   SPC=new",0
 msgBmate:    defb "Checkmate! White wins   SPC=new",0
 msgStale:    defb "Stalemate - draw        SPC=new",0

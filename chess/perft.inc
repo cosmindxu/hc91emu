@@ -151,6 +151,7 @@ perftSelfTest:
         xor a
         ld (perftFail),a
         ld (keyMismatch),a
+        ld (genTrunc),a
         ld hl,msgPerftHdr
         ld b,0
         ld c,0
@@ -270,8 +271,37 @@ pstNext:
         ld hl,msgPromo
         call printStr
         call runOnePerft
-        ; --- zobrist key consistency ---
+        ; --- the 218-move position: the most moves a legal position can
+        ;     have.  d1 proves the ply-0 window holds every one of them,
+        ;     d2 that generating at ply 1 leaves the ply-0 list intact.
+        ld hl,max218Board
+        ld (rpBoard),hl
+        ld a,1
+        ld (rpDepth),a
+        ld hl,max218Exp1
+        ld (rpExp),hl
+        ld a,10
+        ld (pstRow),a
         ld b,10
+        ld c,0
+        ld hl,msgMax1
+        call printStr
+        call runOnePerft
+        ld hl,max218Board
+        ld (rpBoard),hl
+        ld a,2
+        ld (rpDepth),a
+        ld hl,max218Exp2
+        ld (rpExp),hl
+        ld a,11
+        ld (pstRow),a
+        ld b,11
+        ld c,0
+        ld hl,msgMax2
+        call printStr
+        call runOnePerft
+        ; --- zobrist key consistency ---
+        ld b,12
         ld c,0
         ld hl,msgZob
         call printStr
@@ -280,13 +310,34 @@ pstNext:
         jr z,pstZobOk
         ld a,0xFF
         ld (perftFail),a
-        ld b,10
+        ld b,12
+        ld c,22
+        ld hl,msgBAD
+        call printStr
+        jr pstCap
+pstZobOk:
+        ld b,12
+        ld c,22
+        ld hl,msgOK
+        call printStr
+        ; --- move-list capacity: no list above was truncated by addMove ---
+pstCap:
+        ld b,13
+        ld c,0
+        ld hl,msgCap
+        call printStr
+        ld a,(genTrunc)
+        or a
+        jr z,pstCapOk
+        ld a,0xFF
+        ld (perftFail),a
+        ld b,13
         ld c,22
         ld hl,msgBAD
         call printStr
         jr pstVerdict
-pstZobOk:
-        ld b,10
+pstCapOk:
+        ld b,13
         ld c,22
         ld hl,msgOK
         call printStr
@@ -298,7 +349,7 @@ pstVerdict:
         jr z,pstShow
         ld hl,msgPerftBad
 pstShow:
-        ld b,11
+        ld b,14
         ld c,0
         call printStr
         call readKeyDebounced
@@ -469,6 +520,21 @@ promoBoard:
         defb BR,BN,BB,BQ,0,BK,0,BR
         defb 0,0x03,0xFF
 promoExp:   defb 0xAB,0xF3,0,0       ; perft(3)=62379
+; Most moves a legal position can have (218): R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/
+; pp1Q4/kBNN1KB1 w - - .  More than a 512-byte ply window holds, so this is
+; the regression test for the per-ply move-buffer bound.
+max218Board:
+        defb BK,WB,WN,WN,0,WK,WB,0
+        defb BP,BP,0,WQ,0,0,0,0
+        defb WQ,0,0,0,0,WQ,0,0
+        defb 0,0,WQ,0,0,0,0,WQ
+        defb 0,0,0,0,WQ,0,0,0
+        defb 0,WQ,0,0,0,0,WQ,0
+        defb 0,0,0,WQ,0,0,0,0
+        defb WR,0,0,0,0,0,0,WR
+        defb 0,0,0xFF
+max218Exp1: defb 0xDA,0,0,0          ; perft(1)=218
+max218Exp2: defb 0x63,0,0,0          ; perft(2)=99
 
 perftFail: defb 0
 pstRow:    defb 0

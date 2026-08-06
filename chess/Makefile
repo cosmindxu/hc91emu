@@ -46,7 +46,7 @@ test: chess.tap
 	fi
 	@# perft self-test: proves move generation / make-unmake correctness
 	@$(EMU) --machine 48k --rom $(ROM) chess.tap --autoload --turbo \
-		--keys "960:T" --frames 95000 --text > /tmp/chess_perft.txt 2>&1
+		--keys "960:T" --frames 110000 --text > /tmp/chess_perft.txt 2>&1
 	@if grep -q "PERFT OK" /tmp/chess_perft.txt; then \
 		echo "chess: perft verified (startpos 1-4, kiwipete, en passant, promotion)"; \
 	else \
