@@ -1285,10 +1285,13 @@ iiNo:
         xor a
         ret
 
-; record the current position key in the game history (for repetition)
+; record the current position key in the game history (for repetition).
+; Bounds guard: the buffer is GKBYTES = GKMAX*2 bytes, so once GKMAX plies are
+; recorded we stop.  Failing safe this way costs only repetition detection for
+; the plies past GKMAX; writing on would run the buffer into board (0xE000).
 recordGameKey:
         ld a,(gameKeyN)
-        cp 250
+        cp GKMAX                 ; buffer full -> record nothing, never overrun
         ret nc
         ld e,a
         ld d,0
