@@ -23,3 +23,7 @@ docs/ARCHITECTURE.aux
 docs/ARCHITECTURE.log
 docs/ARCHITECTURE.out
 docs/ARCHITECTURE.toc
+
+# agent worktrees (Claude Code) — never commit
+.claude/
+game-wip-128k/
