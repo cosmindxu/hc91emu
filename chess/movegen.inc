@@ -119,6 +119,10 @@ genCastling:
         and 1
         jr z,gcWq
         ld h,0xE0
+        ld l,0x07               ; the right can outlive the rook (editor / tape
+        ld a,(hl)               ; load); mkOO/umOO move h1 unconditionally, so
+        cp WR                   ; castling on a stale right conjures a rook
+        jr nz,gcWq
         ld l,0x05
         ld a,(hl)
         or a
@@ -145,6 +149,10 @@ gcWq:
         and 2
         ret z
         ld h,0xE0
+        ld l,0x00               ; a1 rook must be there for real
+        ld a,(hl)
+        cp WR
+        ret nz
         ld l,0x03
         ld a,(hl)
         or a
@@ -185,6 +193,10 @@ gcBlack:
         and 4
         jr z,gcBq
         ld h,0xE0
+        ld l,0x77               ; h8 rook must be there for real
+        ld a,(hl)
+        cp BR
+        jr nz,gcBq
         ld l,0x75
         ld a,(hl)
         or a
@@ -211,6 +223,10 @@ gcBq:
         and 8
         ret z
         ld h,0xE0
+        ld l,0x70               ; a8 rook must be there for real
+        ld a,(hl)
+        cp BR
+        ret nz
         ld l,0x73
         ld a,(hl)
         or a
@@ -337,8 +353,11 @@ gmPawn:
         ld a,(genFrom)
         add a,16
         ld c,a                  ; one-ahead square
+        and 0x88                ; a pawn is never legally on the 8th rank, but
+        jr nz,wpCaps            ; the editor and a tape load can put one there;
+                                ; its push square would index past board[]
         ld h,0xE0
-        ld l,a
+        ld l,c
         ld a,(hl)
         or a
         jr nz,wpCaps            ; blocked
@@ -424,8 +443,10 @@ gmPawnBlack:
         ld a,(genFrom)
         sub 16
         ld c,a
+        and 0x88                ; mirror of the white guard: a black pawn left
+        jr nz,bpCaps            ; on rank 1 would index below board[]
         ld h,0xE0
-        ld l,a
+        ld l,c
         ld a,(hl)
         or a
         jr nz,bpCaps
@@ -912,6 +933,9 @@ mkHalf:
         jr nz,mkHm0
         ld a,(halfmove)
         inc a
+        jr nz,mkHmSat           ; one byte: 255->0 would silently cancel a
+        dec a                   ; fifty-move draw that is already due, so pin
+mkHmSat:                        ; the clock at 255 instead of wrapping
         ld (halfmove),a
         jr mkCount
 mkHm0:
