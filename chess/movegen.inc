@@ -12,17 +12,34 @@ promoFlags: defb 0x50,0x40,0x30,0x20   ; Q,R,B,N promotions
 
 ; --- per-ply move buffer pointer --------------------------------------
 ; HL = moveBufBase + ply*512  (high = 0x60 + ply*2, low = 0)
+; Ply 0 instead uses rootMoveBuf: it is the game-visible ply and a 512-byte
+; window cannot hold the 218 moves a legal position may have (see chess.asm).
 curMoveBuf:
         ld a,(searchPly)
+        or a
+        jr z,cmbRoot
         add a,a
         add a,0x60
         ld h,a
         ld l,0
         ret
+cmbRoot:
+        ld hl,rootMoveBuf
+        ret
 
 ; --- append a move: from=(genFrom), to=(genTo), flag=(genFlag) --------
+; Bounded by (genCap), the capacity of this ply's window: a position with
+; more moves than the window holds is truncated rather than written into the
+; next ply's buffer.  (genTrunc) latches any truncation; the perft self-test
+; asserts it stays clear.
 addMove:
         push hl
+        ld hl,genCap
+        ld a,(genCount)
+        cp (hl)
+        jr nc,amFull            ; window full -> refuse the write
+        inc a
+        ld (genCount),a
         ld hl,(genPtr)
         ld a,(genFrom)
         ld (hl),a
@@ -37,10 +54,18 @@ addMove:
         ld (hl),a
         inc hl
         ld (genPtr),hl
-        ld hl,genCount
-        inc (hl)
         pop hl
         ret
+amFull:
+        ld a,0xFF
+        ld (genTrunc),a
+        pop hl
+        ret
+
+; addMove's per-node bound and its truncation latch.  Held in the program
+; image (which is RAM) so they claim no workspace address.
+genCap:   defb MAXMOVES
+genTrunc: defb 0
 
 ; add the 4 promotions for to=(genTo) already set
 addPromos:
@@ -62,6 +87,12 @@ genMoves:
         ld (genPtr),hl
         xor a
         ld (genCount),a
+        ld a,(searchPly)        ; this window's capacity, for addMove
+        or a
+        ld a,MAXMOVES           ; (ld a,n leaves the Z flag alone)
+        jr nz,gmCap
+        ld a,ROOTMOVES
+gmCap:  ld (genCap),a
         ld a,0
 gmLoop:
         ld (genCurSq),a
