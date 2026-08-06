@@ -150,8 +150,9 @@ modern open-source engines (Stockfish/Leela, lichess) are mined for their
 algorithms, which are then re-derived under 8-bit constraints. It is a
 real, searching engine — **0x88** move generation with full
 castling/en-passant/promotion; **negamax alpha-beta** with iterative
-deepening, **quiescence**, **null-move pruning** and an 8 KB
-**transposition table** keyed by an incremental **Zobrist** hash;
+deepening, **quiescence**, **null-move pruning** and a 4 KB
+**transposition table** (64 KB banked on a 128K machine) keyed by an
+incremental 24-bit **Zobrist** hash;
 ordering by TT/PV/MVV-LVA/killers; a **tapered** evaluation; and full
 draw detection (threefold, fifty-move, insufficient material). Two things
 set it apart from a typical retro port: it is verified **headlessly and

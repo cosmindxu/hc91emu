@@ -777,10 +777,13 @@ mkUndo:
         ld a,(moveCount+1)
         ld (hl),a
         inc hl
-        ld a,(hashKey)           ; save key for unmake (undo +13/+14)
+        ld a,(hashKey)           ; save key for unmake (undo +13/+14/+15,
+        ld (hl),a                ; +15 was the record's one spare byte, so
+        inc hl                   ; the 16-byte stride is unchanged)
+        ld a,(hashKey+1)
         ld (hl),a
         inc hl
-        ld a,(hashKey+1)
+        ld a,(hashKey2)
         ld (hl),a
         ; --- mutate board ---
         ld a,(mvFrom)
@@ -1023,6 +1026,9 @@ unmakeMove:
         inc hl
         ld a,(hl)
         ld (hashKey+1),a
+        inc hl
+        ld a,(hl)
+        ld (hashKey2),a
         ; restore board: from = movedPiece
         ld a,(mvFrom)
         ld l,a
@@ -1285,20 +1291,42 @@ iiNo:
         xor a
         ret
 
-; record the current position key in the game history (for repetition)
+; record the current position key in the game history (for repetition).
+;
+; GKMAX bounds the history to whatever gameKeys is given (256 bytes at
+; 0x5B00, the printer buffer — the old 250-ply cap already ran 500 bytes to
+; 0x5CF3, straight through the ROM system variables that the clock and the
+; tape save/load depend on).
+;
+; The cap costs nothing: an irreversible move (capture or pawn push) makes
+; every earlier position unreachable forever, so the history is cleared
+; whenever halfmove resets, and what remains cannot outlive the 50-move
+; limit.  If gameKeys is ever given 303+ bytes, GKMAX 101 covers that whole
+; window exactly.
+GKMAX   equ 85                   ; 85 * 3 = 255 bytes
 recordGameKey:
+        ld a,(halfmove)
+        or a
+        jr nz,rgkAdd
+        ld (gameKeyN),a          ; irreversible move: drop the old history
+rgkAdd:
         ld a,(gameKeyN)
-        cp 250
+        cp GKMAX
         ret nc
         ld e,a
         ld d,0
         ld hl,gameKeys
         add hl,de
         add hl,de
-        ld de,(hashKey)
-        ld (hl),e
+        add hl,de                ; n*3
+        ld a,(hashKey)
+        ld (hl),a
         inc hl
-        ld (hl),d
+        ld a,(hashKey+1)
+        ld (hl),a
+        inc hl
+        ld a,(hashKey2)
+        ld (hl),a                ; full 24-bit identity, not just 16 bits
         ld a,(gameKeyN)
         inc a
         ld (gameKeyN),a
@@ -1379,7 +1407,9 @@ tbDone:
         ld (selSq),a
         ret
 
-; countReps -> A = how many times hashKey appears in the game history
+; countReps -> A = how many times the current position appears in the game
+; history.  A false match ends the game as a draw, so all 24 key bits are
+; compared, not the 16 the transposition table indexes with.
 countReps:
         ld a,(gameKeyN)
         or a
@@ -1387,17 +1417,23 @@ countReps:
         ld b,a
         ld c,0
         ld hl,gameKeys
-crLp:   ld e,(hl)
-        inc hl
-        ld d,(hl)
-        inc hl
+crLp:   push hl
         ld a,(hashKey)
-        cp e
+        cp (hl)
         jr nz,crNo
+        inc hl
         ld a,(hashKey+1)
-        cp d
+        cp (hl)
+        jr nz,crNo
+        inc hl
+        ld a,(hashKey2)
+        cp (hl)
         jr nz,crNo
         inc c
-crNo:   djnz crLp
+crNo:   pop hl
+        inc hl
+        inc hl
+        inc hl
+        djnz crLp
         ld a,c
         ret

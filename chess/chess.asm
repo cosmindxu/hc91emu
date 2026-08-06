@@ -196,7 +196,7 @@ inChkArr  equ 0xD140     ; 1/ply: side-to-move in check at this node
 ; per-ply search arrays (continued, page 0xD4/0xD5)
 origAlphaArr equ 0xD4F0  ; 16 * 2 = original alpha for TT bound flags
 nbFromArr equ 0xD510     ; 16   node best-move from
-nbToArr   equ 0xD518     ; 16   node best-move to
+nbToArr   equ 0xD150     ; 16   node best-move to (0xD518 aliased nbFrom)
 ttMvFromArr equ 0xD520   ; 16   per-ply TT move (survives recursion)
 ttMvToArr equ 0xD530     ; 16
 
