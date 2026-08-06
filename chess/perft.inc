@@ -87,17 +87,26 @@ prIllegal:
 checkKey:
         ld hl,(hashKey)
         ld (ckSave),hl
-        call computeKey
+        ld a,(hashKey2)          ; the key is 24 bits: verify all of it, or
+        ld (ckSave2),a           ; the self-test stops covering the TT's
+        call computeKey          ; actual verification field
         ld hl,(ckSave)
         ld de,(hashKey)
         or a
         sbc hl,de
+        jr nz,ckBad
+        ld a,(ckSave2)
+        ld hl,hashKey2
+        cp (hl)
         jr z,ckKeep
+ckBad:
         ld a,0xFF
         ld (keyMismatch),a
 ckKeep:
         ld hl,(ckSave)
         ld (hashKey),hl
+        ld a,(ckSave2)
+        ld (hashKey2),a
         ; --- game phase ---
         ld a,(gamePhase)
         ld (ckSavePhase),a
@@ -642,3 +651,6 @@ d32done:
         dec hl
         djnz d32lp
         ret
+
+ckSave2:
+        defb 0                  ; data: checkKey's saved key bits 16..23

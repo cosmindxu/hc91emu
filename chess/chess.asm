@@ -196,7 +196,7 @@ inChkArr  equ 0xD140     ; 1/ply: side-to-move in check at this node
 ; per-ply search arrays (continued, page 0xD4/0xD5)
 origAlphaArr equ 0xD4F0  ; 16 * 2 = original alpha for TT bound flags
 nbFromArr equ 0xD510     ; 16   node best-move from
-nbToArr   equ 0xD518     ; 16   node best-move to
+nbToArr   equ 0xD150     ; 16   node best-move to (0xD518 aliased nbFrom)
 ttMvFromArr equ 0xD520   ; 16   per-ply TT move (survives recursion)
 ttMvToArr equ 0xD530     ; 16
 
@@ -219,8 +219,8 @@ TT_MASK   equ 0x01FF
 ; every key landed in the 48K system variables (0x5C00-0x5CB5), and around ply
 ; 188 on FRAMES (0x5C78) itself, which this program keeps live (im 1 / ei) and
 ; reads for the chess clock.
-GKMAX     equ 250        ; plies recorded at most (recordGameKey stops there)
-GKBYTES   equ GKMAX*2    ; 500 bytes: 0xDD80..0xDF73, 140 bytes clear of board
+GKMAX     equ 101        ; plies recorded (covers the full 50-move window)
+GKBYTES   equ GKMAX*3    ; 303 bytes: 0xDD80..0xDEAE (24-bit key), 337 clear of board
 gameKeys  equ 0xDD80
 gameUndo  equ 0x5D00     ; take-back stack: 48 plies * 16-byte undo records
 

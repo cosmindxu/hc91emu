@@ -30,8 +30,8 @@ It is a full, rules-correct game against a genuinely searching engine:
 - **negamax alpha-beta** with **iterative deepening**, **aspiration
   windows**, **quiescence**, **null-move** and **reverse-futility**
   pruning, and a **transposition table** keyed by an
-  incrementally-maintained **Zobrist** hash — 8 KB on the 48K, growing to
-  64 KB across the spare RAM banks on a 128K machine
+  incrementally-maintained 24-bit **Zobrist** hash — 4 KB on the 48K,
+  growing to 64 KB across the spare RAM banks on a 128K machine
 - move ordering by **TT move + PV + MVV-LVA + killer moves + history**
 - **tapered** evaluation (endgame king centralisation), **bishop pair**,
   **doubled/isolated/passed pawns**, **king-safety pawn shield**, a
@@ -153,9 +153,13 @@ hardware stack). On top of it: **iterative deepening** (carrying the
 previous depth's best move forward as a PV hint), a **quiescence**
 search at the leaves (captures + promotions, stand-pat) to kill the
 horizon effect, **null-move pruning**, and a **transposition table**
-keyed by a 16-bit **Zobrist** hash that is maintained incrementally in
+keyed by a 24-bit **Zobrist** hash that is maintained incrementally in
 make/unmake and verified against a from-scratch recompute in the perft
-self-test. The table is 8 KB (1024 buckets) on the 48K; on a 128K
+self-test. An entry stores key bits 8..23 as its verification field,
+because the slot index already pins the low bits: with the low 16 stored
+instead, a 128K entry was verifying only 3 bits and accepted roughly one
+in eight of the probes that landed on another position's slot. The table
+is 4 KB (512 buckets) on the 48K; on a 128K
 machine it grows to 64 KB (8192 buckets) hosted across the four spare
 RAM banks, paged through `0x7FFD` into the `0xC000` window with a
 register-only access inside a `DI`/`EI` guard so the workspace and stack

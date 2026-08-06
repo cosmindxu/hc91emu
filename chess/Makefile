@@ -14,7 +14,7 @@ EMU    ?= ../build/hc91emu
 ROM    ?= ../roms/48.rom
 ORG    ?= 0x8000
 
-SRC = chess.asm movegen.inc engine.inc pieces.inc
+SRC = chess.asm movegen.inc engine.inc pieces.inc perft.inc zobrist.inc tt.inc
 
 all: chess.tap
 

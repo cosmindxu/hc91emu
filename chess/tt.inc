@@ -1,10 +1,15 @@
 ; =====================================================================
 ;  tt.inc — transposition table.
-;  Entry: key(2) score(2) depth(1) flag(1) from(1) to(1).
+;  Entry: verify(2) score(2) depth(1) flag(1) from(1) to(1).
 ;  flag: 0 exact, 1 lower bound (>=beta), 2 upper bound (<=alpha).
 ;  depth 0 marks an empty slot.
 ;
-;  48K: 8 KB / 1024 buckets at 0x6000, addressed directly.
+;  verify holds key bits 8..23, not the low 16: the slot index already
+;  pins the low 9 (48K) / 13 (128K) key bits, so a stored copy of them
+;  re-checks what the lookup guaranteed.  With bits 8..23 the entry
+;  verifies 15 (48K) / 11 (128K) bits that the index did not.
+;
+;  48K: 4 KB / 512 buckets at TT_BASE (0xC000), addressed directly.
 ;  128K (is128=1): 64 KB / 8192 buckets across the four spare 16K RAM
 ;  banks (1,3,4,6) paged through 0x7FFD into the 0xC000 window.  Each
 ;  access stages the 8-byte entry to/from ttStage (non-pageable RAM) with
@@ -27,10 +32,13 @@ ptrNbFrom:
         ld h,0xD5
         ret
 ptrNbTo:
+        ; 0xD150, not 0xD518: every per-ply array here needs a 16-byte
+        ; stride, and 0xD4F0..0xD53F only has room for five of the six.
+        ; nbTo at 0xD518 overlapped nbFrom[8..15] and ttMvFrom[0..7].
         ld a,(searchPly)
-        add a,0x18
+        add a,0x50
         ld l,a
-        ld h,0xD5
+        ld h,0xD1
         ret
 ptrTtMvFrom:
         ld a,(searchPly)
@@ -213,11 +221,13 @@ ttProbe:
         ld hl,ttStage
         ld e,(hl)
         inc hl
-        ld d,(hl)               ; DE = entry.key
-        ld hl,(hashKey)
-        or a
-        sbc hl,de
-        jr nz,ttMiss            ; key mismatch
+        ld d,(hl)               ; DE = entry verification field
+        ld a,(hashKey+1)        ; key bits 8..23 — NOT bits 0..15: the low
+        cp e                    ; bits are already implied by the slot index,
+        jr nz,ttMiss            ; so storing them verifies nothing
+        ld a,(hashKey2)
+        cp d
+        jr nz,ttMiss
         ld hl,(ttStage+2)
         ld (ttEntScore),hl      ; score
         ld a,(ttStage+4)        ; depth
@@ -279,15 +289,23 @@ ttNoCut:
         ret
 
 ; ttStore(score in (nmScore-ish)) — write the node result.
-; Inputs: (ttCurDepth)=depth, (bestScoreTmp)=score, A=flag,
-;         (nbFromArr[ply])/(nbToArr[ply]) = best move.
+; Inputs: (bestScoreTmp)=score, A=flag, (nbFromArr[ply])/(nbToArr[ply]) =
+;         best move.  The depth stamp is taken from this node's own frame,
+;         NOT from (ttCurDepth): every child probe overwrites ttCurDepth on
+;         its way down, so by the time a node stores, ttCurDepth holds some
+;         descendant's depth.  Reading depthArr[ply] here keeps the fix
+;         inside ttStore — no caller has to know about it.
 ttStore:
-        ld (ttEntFlag),a
+        ld (ttEntFlag),a        ; park the flag in RAM: ptrDepth clobbers A
+        call ptrDepth           ; (clobbers A/HL/F only; depthArr[ply] is
+        ld a,(hl)               ;  written once, at negamax entry)
+        ld (ttCurDepth),a
         ld hl,ttStage
-        ld de,(hashKey)
-        ld (hl),e
+        ld a,(hashKey+1)
+        ld (hl),a
         inc hl
-        ld (hl),d               ; key
+        ld a,(hashKey2)
+        ld (hl),a               ; verification = key bits 8..23
         inc hl
         ld de,(bestScoreTmp)
         ld (hl),e
